@@ -3,7 +3,7 @@
 Kaleidoscope is a Python-based cognitive architecture that tries to understand complex systems from first principles.  
 It does not just answer questions — it builds its own theories.  
 
-I am not a coder. I built this in 4 weeks.  
+
 
 ---
 
