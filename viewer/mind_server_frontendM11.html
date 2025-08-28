@@ -1,0 +1,1143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>E8 Mind-Crystal (Live HUD)</title>
+<style>
+  :root{
+    --bg:#0b0f17; --fg:#d9e1ff; --muted:#a7b0d6; --glow:#7aa2ff;
+    --glass: rgba(16,22,33,0.65); --glass-2: rgba(16,22,33,0.35);
+    --accent:#8ef1ff; --accent-2:#c792ea; --ok:#6ee7b7; --warn:#fde047; --bad:#fb7185;
+    --border-color: rgba(255,255,255,0.06);
+    --rotor-label-bg: rgba(16, 22, 33, 0.8);
+  }
+  html[data-theme="light"] {
+    --bg:#f0f2f7; --fg:#1c1e26; --muted:#5a647e; --glow:#0052d6;
+    --glass: rgba(255,255,255,0.6); --glass-2: rgba(255,255,255,0.3);
+    --accent:#0097b3; --accent-2:#9e28d4; --ok:#069668; --warn:#d97706; --bad:#e11d48;
+    --border-color: rgba(0,0,0,0.1);
+    --rotor-label-bg: rgba(240, 242, 247, 0.8);
+  }
+  html,body{height:100%; margin:0; background: var(--bg); color:var(--fg); font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; overflow:hidden; transition: background-color 0.3s ease, color 0.3s ease; }
+  .main-view{ position: fixed; inset: 0; }
+  .webgl{ display:block; width:100%; height:100%; }
+
+  .ui-overlay{
+    position: fixed; inset: 0; pointer-events: none;
+    display: grid;
+    grid-template-columns: 380px 1fr 400px;
+    grid-template-rows: 60px 1fr 40px;
+    grid-template-areas: "header header header" "left main right" "footer footer footer";
+    gap: 16px; padding: 16px;
+  }
+  .panel{
+    backdrop-filter: blur(12px); background:var(--glass);
+    border:1px solid var(--border-color); border-radius:16px;
+    box-shadow:0 10px 40px rgba(0,0,0,0.4);
+    pointer-events: auto; display:flex; flex-direction:column; overflow:hidden;
+    transition: background-color 0.3s ease, border-color 0.3s ease;
+  }
+  .left-panel{ grid-area:left; }
+  .right-panel{ grid-area:right; }
+
+  @media (max-width: 1300px) {
+    .ui-overlay {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      display: grid;
+      grid-template-columns: 1fr;
+      grid-template-rows: auto 1fr auto auto;
+      grid-template-areas: "header" "main" "right" "left" "footer";
+      gap: 12px; padding: 12px;
+    }
+    .right-panel, .left-panel { width: 100%; min-height: 400px; }
+  }
+
+  header{
+    grid-area:header; display:flex; align-items:center; justify-content:space-between;
+    padding:0 24px; pointer-events:auto;
+    background:linear-gradient(to right, rgba(20,26,40,0.7), rgba(20,26,40,0.3));
+    border-bottom:1px solid var(--border-color); border-radius:12px;
+    transition: background-color 0.3s ease, border-color 0.3s ease;
+  }
+  .brand{font-size:18px; font-weight:700; letter-spacing:.5px; color:var(--accent);} .brand span{opacity:.7; font-weight:400; font-size:14px;}
+  .status-tag{padding:4px 10px; border-radius:999px; background:rgba(125,145,255,0.15); color:#9ab0ff; border:1px solid rgba(125,145,255,0.25);}
+
+  .footer{ grid-area:footer; display:flex; align-items:center; justify-content:space-between; padding:0 24px; color:var(--muted); font-size:12px; }
+  .hint{opacity:.7;}
+
+  .panel-header{ padding:12px 16px; border-bottom:1px solid var(--border-color); flex-shrink:0; }
+  .panel-title{ text-transform:uppercase; font-size:12px; letter-spacing:.5px; opacity:.8; }
+  .panel-content{ padding:16px; overflow:auto; flex-grow:1; }
+  .panel-content.no-padding{ padding:0; }
+
+  .weather-box{ margin-top:12px; padding:8px 12px; background:var(--glass-2); border:1px solid var(--border-color); border-radius:10px; font-size:12px; }
+  .weather-box .row{ display:flex; justify-content:space-between; align-items:center; gap:8px; margin:4px 0; }
+  .weather-box .label{ color:var(--muted); }
+  .weather-box .value{ color:var(--fg); font-weight: 600; text-align: right; }
+
+  .ring { position: relative; width: 92px; height: 92px; }
+  .ring canvas { position:absolute; inset:0; }
+  .ring .ring-label { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:11px; color:var(--muted); }
+
+  .ticker { position:absolute; left:16px; right:16px; bottom:64px; pointer-events:none; }
+  .ticker .tape { white-space:nowrap; overflow:hidden; border:1px solid var(--border-color); background:var(--glass); border-radius:12px; padding:10px 14px; }
+  .ticker .scroll { display:inline-block; animation: scroll 30s linear infinite; }
+  @keyframes scroll { from { transform: translateX(0);} to { transform: translateX(-50%);} }
+
+  .goals-overlay { pointer-events:none; position:absolute; top:80px; left:0; right:0; height:220px; }
+  .goals-overlay canvas { width:100%; height:100%; display:block; }
+
+  #flash-overlay{ position:fixed; inset:0; background:white; z-index:9999; pointer-events:none; opacity:0; transition:opacity .5s ease-out; }
+  .canvas-container{
+      flex-grow:1; position:relative;
+      flex-basis: 250px;
+      flex-shrink: 0;
+      min-height: 200px;
+  }
+  #rotorCanvas, #etchingCanvas { display:block; width:100%; height:100%; }
+
+  .tooltip {
+    position: absolute; background: rgba(0, 0, 0, 0.85); color: white;
+    padding: 8px 12px; border-radius: 8px; pointer-events: none;
+    transition: opacity 0.2s ease-in-out; opacity: 0; z-index: 1000;
+    transform: translate(-50%, -110%); font-size: 12px; text-align: left;
+    max-width: 300px; border: 1px solid rgba(255,255,255,0.2);
+  }
+  .theme-toggle-btn {
+      background: none; border: 1px solid var(--border-color); color: var(--fg);
+      width: 36px; height: 36px; border-radius: 50%;
+      cursor: pointer; font-size: 18px; display: flex;
+      align-items: center; justify-content: center;
+      transition: background-color 0.2s ease, color 0.2s ease;
+  }
+  .theme-toggle-btn:hover { background-color: var(--glass-2); }
+</style>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script>
+    // Theme initialization script
+    (function() {
+      const storedTheme = localStorage.getItem('theme');
+      const prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
+      if (storedTheme) {
+        document.documentElement.setAttribute('data-theme', storedTheme);
+      } else if (prefersLight) {
+        document.documentElement.setAttribute('data-theme', 'light');
+      }
+    })();
+</script>
+</head>
+<body>
+<div id="flash-overlay"></div>
+<div id="tooltip" class="tooltip"></div>
+
+<div class="main-view">
+  <canvas class="webgl" id="scene"></canvas>
+  <div class="goals-overlay"><canvas id="goalsCanvas"></canvas></div>
+  <div class="ticker"><div class="tape"><span class="scroll" id="tickerText"></span></div></div>
+</div>
+
+<div class="ui-overlay">
+  <header>
+    <div class="brand">E8 Mind-Crystal <span>// Live HUD</span></div>
+    <div style="display:flex; align-items:center; gap:16px;">
+      <div class="status-tag" id="runTag">OFFLINE</div>
+      <button id="themeToggle" class="theme-toggle-btn" title="Toggle Theme">☀️</button>
+    </div>
+  </header>
+
+  <aside class="left-panel panel">
+    <div class="panel-header"><div class="panel-title">System Vitals</div></div>
+    <div class="panel-content">
+      <div class="weather-box">
+        <div class="row"><span class="label">Weather</span><span class="value" id="wx-mood">—</span></div>
+        <div class="row"><span class="label">Region</span><span class="value" id="wx-region">—</span></div>
+        <div class="row"><span class="label">BH Pressure</span><span class="value" id="wx-pressure">0.00</span></div>
+      </div>
+
+      <div style="margin-top: 16px; display:flex; gap:14px; flex-wrap:wrap;">
+        <div class="ring"><canvas width="92" height="92" id="ringDream"></canvas><div class="ring-label">Dream</div></div>
+        <div class="ring"><canvas width="92" height="92" id="ringTeacher"></canvas><div class="ring-label">Teacher</div></div>
+        <div class="ring"><canvas width="92" height="92" id="ringExplorer"></canvas><div class="ring-label">Explorer</div></div>
+        <div class="ring"><canvas width="92" height="92" id="ringReward"></canvas><div class="ring-label">Reward</div></div>
+      </div>
+
+      <div style="margin-top: 16px">
+        <div class="panel-title" style="font-size: 11px; margin-bottom: 4px;">Mood Vectors</div>
+        <div class="weather-box">
+          <div class="row"><span class="label">Intensity</span><progress id="mood-intensity" max="1" value="0.5" style="width:160px"></progress></div>
+          <div class="row"><span class="label">Entropy</span><progress id="mood-entropy" max="1" value="0.5" style="width:160px"></progress></div>
+          <div class="row"><span class="label">Coherence</span><progress id="mood-coherence" max="1" value="0.5" style="width:160px"></progress></div>
+        </div>
+      </div>
+
+      <div style="margin-top: 16px;">
+        <div class="panel-title" style="font-size: 11px; margin-bottom: 4px;">Dialogue</div>
+        <div class="weather-box">
+            <div class="row" style="align-items: flex-start;">
+                <span class="label" style="padding-top:2px; flex-shrink: 0;">Teacher</span>
+                <span class="value" id="teacher-question" style="white-space: normal; text-align: right;">—</span>
+            </div>
+            <div class="row" style="align-items: flex-start; margin-top: 8px;">
+                <span class="label" style="padding-top:2px; flex-shrink: 0;">Explorer</span>
+                <span class="value" id="explorer-answer" style="white-space: normal; text-align: right;">—</span>
+            </div>
+        </div>
+      </div>
+
+      <div id="vitals" style="margin-top: 16px"></div>
+    </div>
+
+    <div class="panel-header" style="border-top:1px solid var(--border-color);"><div class="panel-title">Goals Field</div></div>
+    <div class="panel-content">
+      <div id="goalsList"></div>
+    </div>
+
+    <div class="panel-header" style="border-top:1px solid var(--border-color);"><div class="panel-title">Selection Wavefunction</div></div>
+    <div class="panel-content no-padding">
+        <canvas id="wavefunctionCanvas" style="width:100%; height:120px;"></canvas>
+    </div>
+  </aside>
+
+  <aside class="right-panel panel">
+    <div class="panel-header"><div class="panel-title">Memory Etching</div></div>
+    <div class="panel-content no-padding">
+        <canvas id="etchingCanvas" style="width:100%; height:220px;"></canvas>
+    </div>
+
+    <div class="panel-header" style="border-top:1px solid var(--border-color);"><div class="panel-title">Dimensional Rotors</div></div>
+    <div class="panel-content no-padding">
+        <canvas id="rotorCanvas" style="width:100%; height:220px;"></canvas>
+    </div>
+
+    <div class="panel-header" style="border-top:1px solid var(--border-color);"><div class="panel-title">Shell Tensions</div></div>
+    <div class="panel-content">
+      <div id="shellTensionSparklines" style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;"></div>
+    </div>
+
+    <div class="panel-header" style="border-top:1px solid var(--border-color);"><div class="panel-title">Encoder</div></div>
+    <div class="panel-content" style="font-size:12px">
+      <div class="weather-box">
+        <div class="row"><span class="label">Autoencoder</span><span class="value" id="encoder-status">Untrained</span></div>
+        <div class="row"><span class="label">Global Tension</span><span class="value" id="global-tension">0.000</span></div>
+      </div>
+      <div style="margin-top:12px"> <small style="opacity:0.7">Geometric tension between shells. High tension can trigger dreams or insights.</small> </div>
+    </div>
+  </aside>
+
+  <footer class="footer">
+    <div class="hint">Click & drag to orbit, scroll to zoom. Hover nodes for info.</div>
+    <div id="status">Initializing...</div>
+  </footer>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+/* ---------- Config & API ---------- */
+const API_BASE = new URLSearchParams(location.search).get('api') || (location.origin.startsWith('http') ? location.origin : 'http://localhost:7870');
+const API = { telemetry: `${API_BASE}/api/telemetry`, graph: `${API_BASE}/api/graph`, blueprint: `${API_BASE}/api/blueprint` };
+
+/* ---------- State & Parameters ---------- */
+const NEBULA_RADIUS = 40;
+const state = {
+  running: false,
+  ltmGraph: { nodes: [], links: [] },
+  nodePositions: [], nodeDisplayPositions: [], nodeBasePositions: [], nodeObjects: null, edgeObjects: null, edgeGlowObjects: null,
+  nodeData: new Map(), nodeIds: [], indexById: new Map(),
+  blueprintIdToLTMNode: new Map(),
+  memoryBlueprint: [],
+  raycaster: new THREE.Raycaster(), mouse: new THREE.Vector2(), activeNode: null,
+  selection: { active: false, dreamId: null, sourceIds: new Set() },
+  rotors: {},
+  etchings: [],
+  lastMemoryCount: 0,
+  currentTelemetry: {},
+  shellSparklines: new Map(), // dim -> values[]
+};
+let clock = new THREE.Clock();
+let crystalGroup;
+
+/* --- New Camera Variables --- */
+let cameraTargetPosition = new THREE.Vector3();
+let cameraIsFocused = false;
+let cameraFocusNode = null;
+const cameraFocusOffset = new THREE.Vector3(0, 0, 10); // Adjust this value to change the distance from the node
+
+/* ---------- DOM Elements (Cached) ---------- */
+const DOM = {
+    runTag: document.getElementById('runTag'),
+    flashOverlay: document.getElementById('flash-overlay'),
+    tooltip: document.getElementById('tooltip'),
+    rotorCanvas: document.getElementById('rotorCanvas'),
+    etchingCanvas: document.getElementById('etchingCanvas'),
+    status: document.getElementById('status'),
+    themeToggle: document.getElementById('themeToggle'),
+    sceneCanvas: document.getElementById('scene'),
+    wavefunctionCanvas: document.getElementById('wavefunctionCanvas'),
+    // UI Panels
+    wxMood: document.getElementById('wx-mood'),
+    wxRegion: document.getElementById('wx-region'),
+    wxPressure: document.getElementById('wx-pressure'),
+    moodIntensity: document.getElementById('mood-intensity'),
+    moodEntropy: document.getElementById('mood-entropy'),
+    moodCoherence: document.getElementById('mood-coherence'),
+    vitals: document.getElementById('vitals'),
+    encoderStatus: document.getElementById('encoder-status'),
+    globalTension: document.getElementById('global-tension'),
+    ringDream: document.getElementById('ringDream'),
+    ringTeacher: document.getElementById('ringTeacher'),
+    ringExplorer: document.getElementById('ringExplorer'),
+    ringReward: document.getElementById('ringReward'),
+    goalsList: document.getElementById('goalsList'),
+    tickerText: document.getElementById('tickerText'),
+    shellTensionSparklines: document.getElementById('shellTensionSparklines'),
+    goalsCanvas: document.getElementById('goalsCanvas'),
+    // New Dialogue Elements
+    teacherQuestion: document.getElementById('teacher-question'),
+    explorerAnswer: document.getElementById('explorer-answer'),
+};
+
+const rctx = DOM.rotorCanvas.getContext('2d');
+const ectx = DOM.etchingCanvas.getContext('2d');
+const wctx = DOM.wavefunctionCanvas.getContext('2d');
+let burnInCanvas, bctx; // For persistent memory etching marks
+
+/* ---------- Utility Functions ---------- */
+async function getJSON(url) { try { const r = await fetch(url, { cache: 'no-store' }); return r.ok ? await r.json() : null; } catch { return null; } }
+function setStatus(msg) { if (DOM.status) DOM.status.textContent = msg; }
+function showTip(x, y, html) { DOM.tooltip.innerHTML = html; DOM.tooltip.style.left = x + 'px'; DOM.tooltip.style.top = y + 'px'; DOM.tooltip.style.opacity = 1; }
+function hideTip() { DOM.tooltip.style.opacity = 0; }
+function simpleHash(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash |= 0;
+  }
+  return hash;
+}
+function hexToRgba(hex, alpha) {
+    let r = 0, g = 0, b = 0;
+    if (hex.match(/^#([A-Fa-f0-9]{3}){1,2}$/)) {
+        let c = hex.substring(1).split('');
+        if (c.length === 3) { c = [c[0], c[0], c[1], c[1], c[2], c[2]]; }
+        c = '0x' + c.join('');
+        r = (c >> 16) & 255; g = (c >> 8) & 255; b = c & 255;
+    }
+    return `rgba(${r},${g},${b},${alpha})`;
+}
+function hslToHsla(hsl, alpha) {
+    if (!hsl || !hsl.startsWith('hsl(')) return 'rgba(110, 231, 183, 0.65)';
+    return hsl.replace('hsl(', 'hsla(').replace(')', `, ${alpha})`);
+}
+
+/**
+ * NEW: Generates a multicolor etch color based on the full mood telemetry.
+ * @param {object} mood - The mood vector from telemetry.
+ * @returns {string} An HSL color string.
+ */
+function getEtchColorFromTelemetry(mood) {
+    if (!mood || typeof mood.intensity === 'undefined') {
+        return 'hsl(150, 80%, 70%)'; // Default color
+    }
+    // Map entropy (0-1) to the hue wheel (0-360 degrees)
+    const hue = (mood.entropy || 0.5) * 360;
+    // Map intensity (0-1) to saturation (50%-100%)
+    const saturation = 50 + ((mood.intensity || 0.5) * 50);
+    // Map coherence (0-1) to lightness (40%-80%)
+    const lightness = 40 + ((mood.coherence || 0.5) * 40);
+
+    return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+}
+
+function drawRing(canvas, frac, colorVar='--accent') {
+  const ctx = canvas.getContext('2d'); const w = canvas.width, h = canvas.height; const r = Math.min(w,h)/2 - 6;
+  ctx.clearRect(0,0,w,h);
+  ctx.save(); ctx.translate(w/2, h/2);
+  ctx.lineWidth = 8;
+  // background track
+  ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--glass-2'); ctx.beginPath();
+  ctx.arc(0,0,r,0,Math.PI*2); ctx.stroke();
+  // value arc
+  const color = getComputedStyle(document.documentElement).getPropertyValue(colorVar) || '#8ef1ff';
+  ctx.strokeStyle = color.trim(); ctx.beginPath();
+  ctx.arc(0,0,r,-Math.PI/2,-Math.PI/2 + (Math.PI*2* Math.max(0, Math.min(1, frac)))); ctx.stroke();
+  ctx.restore();
+}
+function sparkline(elem, values, maxPoints=64) {
+  const canvas = elem.querySelector('canvas') || (()=>{
+    const c = document.createElement('canvas'); c.width=300; c.height=40; elem.appendChild(c); return c;
+  })();
+  const ctx = canvas.getContext('2d'); const w = canvas.width, h = canvas.height;
+  while(values.length > maxPoints) values.shift();
+  ctx.clearRect(0,0,w,h);
+  const min = Math.min(...values, 0), max = Math.max(...values, 1e-6);
+  ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+  ctx.beginPath();
+  values.forEach((v,i)=>{
+    const x = (i/(maxPoints-1))*w;
+    const y = h - ((v - min) / (max - min + 1e-6)) * (h-6) - 3;
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  });
+  ctx.stroke();
+}
+function pct(x){ return Math.max(0, Math.min(1, x)); }
+
+
+/* ---------------- Theme Toggle Logic ---------------- */
+function applyTheme(scene, bloomPass) {
+    const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+    const isLight = currentTheme === 'light';
+    scene.background = isLight ? new THREE.Color(0xffffff) : new THREE.Color(0x0b0f17);
+    DOM.themeToggle.textContent = isLight ? '🌙' : '☀️';
+    bloomPass.strength = isLight ? 0.12 : 0.15;
+    bloomPass.threshold = isLight ? 0.9 : 0.8;
+    bloomPass.radius = isLight ? 0.4 : 0.5;
+}
+
+DOM.themeToggle.addEventListener('click', () => {
+  const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+  const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', newTheme);
+  localStorage.setItem('theme', newTheme);
+  applyTheme(scene, bloomPass);
+});
+
+
+/* ---------------- Three.js Core Setup ---------------- */
+const renderer = new THREE.WebGLRenderer({ canvas: DOM.sceneCanvas, antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.autoClear = false;
+
+const initialWidth = DOM.sceneCanvas.clientWidth || window.innerWidth;
+const initialHeight = DOM.sceneCanvas.clientHeight || window.innerHeight;
+renderer.setSize(initialWidth, initialHeight, false);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(55, initialWidth / initialHeight, 0.1, 2000);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+camera.position.set(0, 0.9, 3.2);
+
+crystalGroup = new THREE.Group();
+scene.add(crystalGroup);
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.15, 0.5, 0.8);
+composer.addPass(bloomPass);
+
+applyTheme(scene, bloomPass);
+
+function resize(){
+    const w = DOM.sceneCanvas.clientWidth || window.innerWidth;
+    const h = DOM.sceneCanvas.clientHeight || window.innerHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    composer.setSize(w,h);
+}
+new ResizeObserver(resize).observe(renderer.domElement);
+
+/* ---------------- 3D Scene Building & Updating ---------------- */
+function buildLatticeFromBlueprint(blueprintData) {
+  state.memoryBlueprint = blueprintData; const nodes = blueprintData;
+  const rawPos = nodes.map(n => new THREE.Vector3(n.render_x, n.render_y, n.render_z));
+  let center = new THREE.Vector3(); rawPos.forEach(p => center.add(p)); center.divideScalar(nodes.length || 1);
+  rawPos.forEach(p => p.sub(center)); let maxDist = 1e-9; rawPos.forEach(p => { maxDist = Math.max(maxDist, p.length()); });
+  const scale = (NEBULA_RADIUS * 0.45) / maxDist;
+  state.nodePositions = rawPos.map(p => p.multiplyScalar(scale));
+  state.nodeDisplayPositions = state.nodePositions.map(p => p.clone());
+  state.nodeBasePositions = state.nodePositions.map(p => p.clone());
+  state.nodeIds = nodes.map(n => n.id); state.indexById = new Map(state.nodeIds.map((id, i) => [id, i]));
+  const N = nodes.length; const sph = new THREE.IcosahedronGeometry(0.04, 1);
+  const mat = new THREE.MeshBasicMaterial({ color: '#ffffff', vertexColors: true });
+  state.nodeObjects = new THREE.InstancedMesh(sph, mat, N);
+  state.nodeObjects.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(N * 3), 3);
+  crystalGroup.add(state.nodeObjects);
+
+  const maxEdges = 2000;
+  const edgeGeo = new THREE.CylinderGeometry(0.002, 0.002, 1, 5, 1);
+  const edgeGlowGeo = new THREE.CylinderGeometry(0.008, 0.008, 1, 5, 1);
+
+  const edgeIds = new Float32Array(maxEdges);
+  for (let i = 0; i < maxEdges; i++) { edgeIds[i] = i; }
+  edgeGeo.setAttribute('edgeId', new THREE.InstancedBufferAttribute(edgeIds, 1));
+  edgeGlowGeo.setAttribute('edgeId', new THREE.InstancedBufferAttribute(edgeIds, 1));
+
+  const edgeMat = new THREE.ShaderMaterial({
+    uniforms: { time: { value: 0.0 } },
+    vertexShader: `
+      attribute float edgeId;
+      varying float vEdgeId;
+      varying vec3 vColor;
+      varying float vPos_y;
+      void main() {
+        vEdgeId = edgeId;
+        vColor = instanceColor;
+        vPos_y = position.y;
+        gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float time;
+      varying float vEdgeId;
+      varying vec3 vColor;
+      varying float vPos_y;
+
+      void main() {
+        float progress = vPos_y + 0.5;
+        float moving_point = fract(time * 0.4 + vEdgeId * 0.1337);
+        float dist = abs(progress - moving_point);
+        float pulse = smoothstep(0.1, 0.0, dist);
+        float moving_point_2 = fract(1.0 - (time * 0.3 + vEdgeId * 0.21));
+        float dist_2 = abs(progress - moving_point_2);
+        float pulse_2 = smoothstep(0.2, 0.0, dist_2) * 0.3;
+        float final_opacity = 0.35 + pulse + pulse_2;
+        if (vColor.r + vColor.g + vColor.b > 2.5) {
+             final_opacity = 0.7 + pulse * 1.5;
+        }
+        gl_FragColor = vec4(vColor, final_opacity);
+      }
+    `,
+    transparent: true,
+  });
+
+  const edgeGlowMat = new THREE.ShaderMaterial({
+    vertexShader: `
+        varying vec3 vColor;
+        void main() {
+            vColor = instanceColor;
+            gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+        }
+    `,
+    fragmentShader: `
+        varying vec3 vColor;
+        void main() {
+            gl_FragColor = vec4(vColor, 0.25); // Soft, constant glow
+        }
+    `,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+
+  state.edgeObjects = new THREE.InstancedMesh(edgeGeo, edgeMat, maxEdges);
+  state.edgeObjects.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(maxEdges * 3), 3);
+  crystalGroup.add(state.edgeObjects);
+
+  state.edgeGlowObjects = new THREE.InstancedMesh(edgeGlowGeo, edgeGlowMat, maxEdges);
+  state.edgeGlowObjects.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(maxEdges * 3), 3);
+  crystalGroup.add(state.edgeGlowObjects);
+}
+const edgeDummy = new THREE.Object3D();
+
+function updateEdges(graphData) {
+    if (!state.edgeObjects || !graphData.links) return;
+    const ltmIdToBlueprintIndex = new Map();
+    for(const node of graphData.nodes) { if(node.blueprint_location_id !== undefined) { const i = state.indexById.get(node.blueprint_location_id); if(i !== undefined) ltmIdToBlueprintIndex.set(node.id, i); } }
+    let edgeCount = 0;
+
+    const isLightTheme = document.documentElement.getAttribute('data-theme') === 'light';
+    const glowColor = new THREE.Color(getComputedStyle(document.documentElement).getPropertyValue('--glow').trim());
+
+    for (const link of graphData.links) { if (edgeCount >= state.edgeObjects.count) break; const s_idx = ltmIdToBlueprintIndex.get(link.s), t_idx = ltmIdToBlueprintIndex.get(link.t);
+        if (s_idx !== undefined && t_idx !== undefined) {
+            const startPos = state.nodeDisplayPositions[s_idx], endPos = state.nodeDisplayPositions[t_idx];
+            const dist = startPos.distanceTo(endPos); if (dist < 1e-6) continue;
+            edgeDummy.position.copy(startPos).lerp(endPos, 0.5); edgeDummy.scale.set(1, dist, 1);
+            edgeDummy.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), endPos.clone().sub(startPos).normalize());
+            edgeDummy.updateMatrix(); 
+            
+            state.edgeObjects.setMatrixAt(edgeCount, edgeDummy.matrix);
+            state.edgeGlowObjects.setMatrixAt(edgeCount, edgeDummy.matrix);
+
+            const isDreamSource = state.selection.active && (state.selection.sourceIds.has(link.s) || state.selection.sourceIds.has(link.t));
+            const isConnectedToDream = state.selection.active && (link.s === state.selection.dreamId || link.t === state.selection.dreamId);
+
+            let c = isLightTheme ? new THREE.Color(0x333333) : new THREE.Color(0x8ef1ff);
+            let cGlow = glowColor;
+
+            if (state.selection.active) {
+                c = (isDreamSource && isConnectedToDream) ? new THREE.Color(0xffffff) : (isLightTheme ? new THREE.Color(0xAAAAAA) : new THREE.Color(0x303848));
+                cGlow = (isDreamSource && isConnectedToDream) ? new THREE.Color(0xffffff) : new THREE.Color(0x7aa2ff);
+            }
+            state.edgeObjects.setColorAt(edgeCount, c);
+            state.edgeGlowObjects.setColorAt(edgeCount, cGlow);
+            edgeCount++;
+        }
+    }
+    state.edgeObjects.instanceMatrix.needsUpdate = true; state.edgeObjects.instanceColor.needsUpdate = true;
+    state.edgeObjects.count = edgeCount;
+    state.edgeGlowObjects.instanceMatrix.needsUpdate = true; state.edgeGlowObjects.instanceColor.needsUpdate = true;
+    state.edgeGlowObjects.count = edgeCount;
+}
+
+
+/* ---------------- Interaction & Tooltips ---------------- */
+function handlePointerMove(ev) {
+  if (!state.nodeObjects) return; const r = renderer.domElement.getBoundingClientRect();
+  state.mouse.x = ((ev.clientX - r.left) / r.width) * 2 - 1; state.mouse.y = -((ev.clientY - r.top) / r.height) * 2 + 1;
+  state.raycaster.setFromCamera(state.mouse, camera); const hits = state.raycaster.intersectObject(state.nodeObjects, false);
+  if (hits?.length) { const idx = hits[0].instanceId ?? -1; if (idx === state.activeNode) return; state.activeNode = idx;
+    const blueprintId = state.nodeIds[idx], nodeInfo = state.blueprintIdToLTMNode.get(blueprintId);
+    let tip = `<b>Blueprint ID: ${blueprintId}</b>`;
+    if(nodeInfo) tip += `<br>${nodeInfo.label?`<i>"${nodeInfo.label}"</i><br>`:''}${nodeInfo.metaphor||''}<br><small>Type: ${nodeInfo.type||'N/A'} | Temp: ${(nodeInfo.temperature||0).toFixed(2)}</small>`;
+    else tip += `<br><small>Quasicrystal lattice point.</small>`;
+    showTip(ev.clientX, ev.clientY, tip);
+  } else if (state.activeNode !== null) { state.activeNode = null; hideTip(); }
+}
+
+function updateSelection(currentState) {
+    if (!currentState || !currentState.nodeObjects) return;
+    
+    // Reset all nodes to their default color first
+    const defaultColor = new THREE.Color(document.documentElement.getAttribute('data-theme') === 'light' ? 0x444444 : 0x8ef1ff);
+    for (let i=0; i < currentState.nodeObjects.count; i++) {
+        currentState.nodeObjects.setColorAt(i, defaultColor);
+    }
+    
+    if (currentState.selection.active) {
+        // Highlight the dream node itself
+        const dreamNode = [...currentState.blueprintIdToLTMNode.values()].find(n => n.id === currentState.selection.dreamId);
+        if(dreamNode && dreamNode.blueprint_location_id !== undefined){
+            const dreamIndex = currentState.indexById.get(dreamNode.blueprint_location_id);
+            if(dreamIndex !== undefined) currentState.nodeObjects.setColorAt(dreamIndex, new THREE.Color(0xffffff));
+        }
+
+        // Highlight the source nodes
+        for (const sourceId of currentState.selection.sourceIds) {
+            const sourceNode = [...currentState.blueprintIdToLTMNode.values()].find(n => n.id === sourceId);
+            if (sourceNode && sourceNode.blueprint_location_id !== undefined) {
+                const sourceIndex = currentState.indexById.get(sourceNode.blueprint_location_id);
+                if (sourceIndex !== undefined) currentState.nodeObjects.setColorAt(sourceIndex, new THREE.Color(0xc792ea));
+            }
+        }
+    }
+
+    if (currentState.nodeObjects.instanceColor) {
+        currentState.nodeObjects.instanceColor.needsUpdate = true;
+    }
+}
+
+
+function handlePointerClick(ev) {
+    if (state.activeNode === null) {
+        state.selection.active = false;
+        // --- FIX: Reset camera focus when clicking away ---
+        cameraIsFocused = false;
+        controls.target.set(0,0,0); // Reset orbit controls target
+        return;
+    }
+
+    const blueprintId = state.nodeIds[state.activeNode];
+    const nodeInfo = state.blueprintIdToLTMNode.get(blueprintId);
+
+    // --- FIX: Call the focus function and set the target node ---
+    const nodePosition = state.nodeDisplayPositions[state.activeNode];
+    cameraFocusNode = nodePosition; // Set the global target for the animation loop
+    focusCameraOnNode(nodePosition); // Trigger the focus logic
+
+    if (nodeInfo?.type === 'dream') {
+        state.selection.active = true;
+        state.selection.dreamId = nodeInfo.id;
+        state.selection.sourceIds.clear();
+        for (const link of (state.ltmGraph.links || [])) {
+            if (link.type === 'dream_source') {
+                if (link.s === nodeInfo.id) state.selection.sourceIds.add(link.t);
+                if (link.t === nodeInfo.id) state.selection.sourceIds.add(link.s);
+            }
+        }
+    } else {
+        state.selection.active = false;
+    }
+    // --- FIX: Call updateSelection() here, only when a click changes the state ---
+    updateSelection(state);
+}
+
+/* ---------- New Function to Focus Camera ---------- */
+function focusCameraOnNode(nodePosition) {
+    if (!cameraIsFocused) {
+        cameraIsFocused = true;
+    }
+    cameraTargetPosition.copy(nodePosition).add(cameraFocusOffset);
+    controls.target.copy(nodePosition);
+}
+
+renderer.domElement.addEventListener('mousemove', handlePointerMove);
+renderer.domElement.addEventListener('click', handlePointerClick);
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape') state.selection.active = false; });
+
+/* ---------------- 2D Rotor Visualization ---------------- */
+function updateRotorState(rotorsData) {
+    if (!rotorsData) return;
+    for (const dim in rotorsData) {
+        if (!state.rotors[dim]) {
+            state.rotors[dim] = { angle: Math.random() * Math.PI * 2, speed: 0, targetSpeed: 0 };
+        }
+        const rotorStr = JSON.stringify(rotorsData[dim].rotor || '');
+        const hash = simpleHash(rotorStr);
+        state.rotors[dim].targetSpeed = ((hash % 1000) / 1000 - 0.5) * 2.0;
+    }
+}
+
+function drawRotors(dt) {
+    const dpr = devicePixelRatio || 1;
+    const p = DOM.rotorCanvas.parentElement.getBoundingClientRect();
+    if (!p || p.width === 0 || p.height === 0) return;
+    const w = Math.floor(p.width * dpr);
+    const h = Math.floor(p.height * dpr);
+    if (DOM.rotorCanvas.width !== w || DOM.rotorCanvas.height !== h) { DOM.rotorCanvas.width = w; DOM.rotorCanvas.height = h; }
+
+    const styles = getComputedStyle(document.documentElement);
+    const accentColor = styles.getPropertyValue('--accent').trim();
+    const fgColor = styles.getPropertyValue('--fg').trim();
+    const labelBgColor = styles.getPropertyValue('--rotor-label-bg').trim();
+    const glowColor = styles.getPropertyValue('--glow').trim();
+
+    rctx.clearRect(0, 0, w, h); const cx = w / 2; const cy = h / 2;
+    const dims = Object.keys(state.rotors).map(Number).sort((a, b) => b - a);
+    if (dims.length === 0) return;
+    const maxRadius = Math.min(w, h) * 0.40;
+    const minRadius = maxRadius * 0.2;
+    dims.forEach((dim, i) => {
+        const rotor = state.rotors[dim];
+        rotor.speed += (rotor.targetSpeed - rotor.speed) * 0.1; rotor.angle += rotor.speed * dt * 1.5;
+
+        const zFactor = 0.95 + Math.abs(rotor.speed) * 0.15;
+        const baseRadius = dims.length > 1 ? maxRadius - (i / (dims.length -1)) * (maxRadius - minRadius) : maxRadius;
+        const radius = baseRadius * zFactor;
+
+        rctx.shadowColor = hexToRgba(glowColor, 0.4);
+        rctx.shadowBlur = 12 * dpr * zFactor;
+        rctx.shadowOffsetX = 0;
+        rctx.shadowOffsetY = 0;
+
+        rctx.strokeStyle = hexToRgba(accentColor, 0.25);
+        rctx.lineWidth = 1 * dpr * zFactor;
+        rctx.beginPath();
+        rctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        rctx.stroke();
+
+        const numSpokes = 3 + Math.floor(Math.log2(dim));
+        rctx.strokeStyle = hexToRgba(accentColor, 0.4 + (i / dims.length) * 0.5);
+        rctx.lineWidth = 1.5 * dpr * zFactor;
+        for (let j = 0; j < numSpokes; j++) {
+            const angle = rotor.angle + (j / numSpokes) * Math.PI * 2;
+            const innerRad = radius * 0.85;
+            const startX = cx + Math.cos(angle) * innerRad, startY = cy + Math.sin(angle) * innerRad;
+            const endX = cx + Math.cos(angle) * radius, endY = cy + Math.sin(angle) * radius;
+            rctx.beginPath();
+            rctx.moveTo(startX, startY);
+            rctx.lineTo(endX, endY);
+            rctx.stroke();
+        }
+
+        rctx.shadowColor = 'transparent';
+        rctx.shadowBlur = 0;
+
+        const labelAngle = rotor.angle * 0.5 + (i * 1.1);
+        const labelX = cx + Math.cos(labelAngle) * radius, labelY = cy + Math.sin(labelAngle) * radius;
+        rctx.fillStyle = labelBgColor;
+        rctx.beginPath();
+        rctx.arc(labelX, labelY, 10 * dpr * zFactor, 0, Math.PI * 2);
+        rctx.fill();
+        rctx.fillStyle = fgColor;
+        rctx.font = `${9 * dpr * zFactor}px system-ui, sans-serif`;
+        rctx.textAlign = 'center';
+        rctx.textBaseline = 'middle';
+        rctx.fillText(`${dim}D`, labelX, labelY);
+    });
+}
+
+/* ---------------- Quantum Wavefunction Visualization ---------------- */
+function drawWavefunction(time) {
+    const dpr = devicePixelRatio || 1;
+    const p = DOM.wavefunctionCanvas.parentElement.getBoundingClientRect();
+    if (!p || p.width === 0 || p.height === 0) return;
+    const w = Math.floor(p.width * dpr);
+    const h = Math.floor(p.height * dpr);
+    if (DOM.wavefunctionCanvas.width !== w || DOM.wavefunctionCanvas.height !== h) {
+        DOM.wavefunctionCanvas.width = w;
+        DOM.wavefunctionCanvas.height = h;
+    }
+
+    wctx.clearRect(0, 0, w, h);
+    const styles = getComputedStyle(document.documentElement);
+    const accentColor = styles.getPropertyValue('--accent').trim();
+    const glowColor = styles.getPropertyValue('--glow').trim();
+
+    let nodeInfo = null;
+    let blueprintId = null;
+    if (state.selection?.active && state.selection.dreamId) {
+        for (const [bpId, n] of state.blueprintIdToLTMNode.entries()) {
+            if (n?.id === state.selection.dreamId) { blueprintId = bpId; break; }
+        }
+    } else if (state.activeNode !== null && state.activeNode !== undefined) {
+        blueprintId = state.nodeIds[state.activeNode];
+    }
+    if (blueprintId !== null && blueprintId !== undefined) {
+        nodeInfo = state.blueprintIdToLTMNode.get(blueprintId) || null;
+    }
+
+    if (!nodeInfo) {
+        wctx.lineWidth = 1.5 * dpr;
+        wctx.strokeStyle = styles.getPropertyValue('--muted').trim();
+        wctx.beginPath();
+        wctx.moveTo(0, h / 2);
+        wctx.lineTo(w, h / 2);
+        wctx.stroke();
+        return;
+    }
+
+    const nodeId = nodeInfo.id;
+    const links = state.ltmGraph?.links || [];
+    const neighbors = links.reduce((acc, L) => {
+        const s = L.s ?? L.source; const t = L.t ?? L.target;
+        if (s === nodeId) acc.push(t); else if (t === nodeId) acc.push(s);
+        return acc;
+    }, []);
+    const ltmNodeById = new Map((state.ltmGraph?.nodes || []).map(n => [n.id, n]));
+    const neighborTemps = neighbors.map(id => (ltmNodeById.get(id)?.temperature) || 0.0);
+    const avgNeighborTemp = neighborTemps.length ? neighborTemps.reduce((a,b)=>a+b,0)/neighborTemps.length : 0.0;
+    const deg = neighbors.length;
+
+    const temp = Number(nodeInfo.temperature ?? 0.1);
+    const tensionLocal = Number(nodeInfo.shell_tension ?? 0.0);
+    const globalTension = Number(state.currentTelemetry?.global_tension ?? 0.0);
+    const tension = isFinite(tensionLocal) && tensionLocal > 0 ? tensionLocal : globalTension;
+
+    const amp = (h * 0.25) * Math.min(1.0, 0.3 + temp * 0.35 + avgNeighborTemp * 0.15);
+    const baseFreq = 1.0 + 0.25 * deg + 6.0 * Math.max(0, Math.min(1, tension));
+    const harmonics = Math.max(1, Math.min(6, neighborTemps.length || 3));
+    const phases = [];
+    for (let i = 0; i < harmonics; i++) {
+        const nt = neighborTemps[i % neighborTemps.length] || avgNeighborTemp || 0.0;
+        const omega = baseFreq * (1 + i * 0.35);
+        const phase = (time * 0.001) * omega + i * 0.8;
+        phases.push({ omega, weight: 0.6 / (i + 1) + nt * 0.2, phase });
+    }
+
+    wctx.lineWidth = 1.8 * dpr;
+    wctx.strokeStyle = accentColor;
+    wctx.shadowColor = glowColor;
+    wctx.shadowBlur = 8 * dpr;
+    wctx.beginPath();
+    for (let x = 0; x < w; x++) {
+        const t = x / w;
+        let ySum = phases.reduce((sum, hrm) => sum + hrm.weight * Math.sin(2 * Math.PI * hrm.omega * t + hrm.phase), 0.0);
+        const y = h / 2 + ySum * amp;
+        if (x === 0) wctx.moveTo(x, y); else wctx.lineTo(x, y);
+    }
+    wctx.stroke();
+    wctx.shadowBlur = 0;
+}
+
+
+/* ---------------- Memory Etching Animation ---------------- */
+function triggerEtchingAnimation(count, telemetry) {
+    const dpr = devicePixelRatio || 1;
+    const p = DOM.etchingCanvas.parentElement.getBoundingClientRect();
+    if (!p || p.width === 0 || p.height === 0) return;
+    const w = p.width * dpr, h = p.height * dpr;
+    const etchColor = getEtchColorFromTelemetry(telemetry.mood);
+
+    for (let i = 0; i < count; i++) {
+        const startX = Math.random() * w; const startY = Math.random() * h;
+        const path = []; const numSegments = 3 + Math.floor(Math.random() * 4);
+        let currentX = startX, currentY = startY;
+        for (let j = 0; j < numSegments; j++) {
+            const angle = Math.random() * Math.PI * 2; const length = (20 + Math.random() * 40) * dpr;
+            const endX = currentX + Math.cos(angle) * length; const endY = currentY + Math.sin(angle) * length;
+            path.push({ x1: currentX, y1: currentY, x2: endX, y2: endY, totalLength: length });
+            currentX = endX; currentY = endY;
+        }
+        state.etchings.push({
+            path,
+            progress: 0,
+            totalLength: path.reduce((sum, seg) => sum + seg.totalLength, 0),
+            speed: 0.5 + Math.random() * 0.5,
+            color: etchColor,
+        });
+    }
+}
+
+function drawMemoryEtching(dt) {
+    const dpr = devicePixelRatio || 1;
+    const p = DOM.etchingCanvas.parentElement.getBoundingClientRect();
+    if (!p || p.width === 0 || p.height === 0) return;
+    const w = Math.floor(p.width * dpr);
+    const h = Math.floor(p.height * dpr);
+
+    const styles = getComputedStyle(document.documentElement);
+    const accentColor = styles.getPropertyValue('--accent').trim();
+
+    if (DOM.etchingCanvas.width !== w || DOM.etchingCanvas.height !== h) {
+        DOM.etchingCanvas.width = w; DOM.etchingCanvas.height = h;
+        burnInCanvas = document.createElement('canvas');
+        burnInCanvas.width = w; burnInCanvas.height = h;
+        bctx = burnInCanvas.getContext('2d');
+    }
+
+    ectx.clearRect(0, 0, w, h);
+    ectx.strokeStyle = hexToRgba(accentColor, 0.05);
+    ectx.lineWidth = 1;
+    for (let i = 0; i < w; i += 15 * dpr) { ectx.beginPath(); ectx.moveTo(i, 0); ectx.lineTo(i, h); ectx.stroke(); }
+    for (let i = 0; i < h; i += 15 * dpr) { ectx.beginPath(); ectx.moveTo(0, i); ectx.lineTo(w, i); ectx.stroke(); }
+    if (burnInCanvas) { ectx.drawImage(burnInCanvas, 0, 0); }
+
+    const remainingEtchings = [];
+    for (const etch of state.etchings) {
+        etch.progress += etch.speed * dt * 100 * dpr;
+
+        if (etch.progress >= etch.totalLength) {
+            bctx.strokeStyle = hslToHsla(etch.color, 0.65);
+            bctx.lineWidth = 1.5 * dpr;
+            bctx.beginPath();
+            if (etch.path.length > 0) {
+                bctx.moveTo(etch.path[0].x1, etch.path[0].y1);
+                for (const seg of etch.path) { bctx.lineTo(seg.x2, seg.y2); }
+            }
+            bctx.stroke();
+        } else {
+            ectx.strokeStyle = etch.color;
+            ectx.lineWidth = 2.0 * dpr;
+            ectx.beginPath();
+            if (etch.path.length > 0) {
+                ectx.moveTo(etch.path[0].x1, etch.path[0].y1);
+                let drawnLength = 0;
+                for (const seg of etch.path) {
+                    const remainingProgress = etch.progress - drawnLength;
+                    if (remainingProgress <= 0) break;
+                    const drawRatio = Math.min(1, remainingProgress / seg.totalLength);
+                    const drawX = seg.x1 + (seg.x2 - seg.x1) * drawRatio;
+                    const drawY = seg.y1 + (seg.y2 - seg.y1) * drawRatio;
+                    ectx.lineTo(drawX, drawY);
+                    drawnLength += seg.totalLength;
+                    if (drawRatio < 1) break;
+                }
+            }
+            ectx.stroke();
+            remainingEtchings.push(etch);
+        }
+    }
+    state.etchings = remainingEtchings;
+}
+
+/* ---------- Goals overlay renderer ---------- */
+function drawGoalsOverlay(entries) {
+  const c = DOM.goalsCanvas; const ctx = c.getContext('2d');
+  const w = c.width = c.clientWidth; const h = c.height = c.clientHeight;
+  ctx.clearRect(0,0,w,h);
+  const cx = w/2, cy = h/2, R = Math.min(w,h)*0.42;
+  const n = Math.max(1, entries.length);
+  entries.forEach(([name,val], i)=>{
+    const t = i / n; const ang = t * Math.PI * 2;
+    const r = R * (0.5 + 0.5 * (val));
+    const x = cx + r * Math.cos(ang), y = cy + r * Math.sin(ang);
+    ctx.globalAlpha = 0.35; ctx.lineWidth = 1.2;
+    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(x,y); ctx.stroke();
+    ctx.globalAlpha = 0.9; ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent-2').trim();
+    ctx.beginPath(); ctx.arc(x,y, 3 + 4*val, 0, Math.PI*2); ctx.fill();
+    ctx.globalAlpha = 0.9; ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--fg').trim();
+    ctx.font = '11px system-ui';
+    ctx.fillText(name, x+6, y-6);
+  });
+  ctx.globalAlpha = 0.25;
+  ctx.beginPath(); ctx.arc(cx, cy, 10, 0, Math.PI*2); ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--muted').trim(); ctx.stroke();
+}
+
+/* ---------- UI Update Functions (centralized) ---------- */
+function updateUI(telemetry) {
+    DOM.wxMood.textContent = telemetry.symbolic_weather || '—';
+    DOM.wxRegion.textContent = telemetry.environment_theme || '—';
+    if (DOM.wxPressure) {
+        const pVal = Number(telemetry.black_hole_pressure ?? 0);
+        DOM.wxPressure.textContent = pVal.toFixed(2);
+        DOM.wxPressure.style.color = pVal > 0.85 ? 'var(--bad)' : pVal > 0.6  ? 'var(--warn)' : 'var(--ok)';
+    }
+
+    const m = telemetry.mood || {};
+    const clamp = (v) => Math.max(0, Math.min(1, v));
+    DOM.moodIntensity.value = clamp(m.intensity ?? 0.5);
+    DOM.moodEntropy.value  = clamp(m.entropy ?? 0.5);
+    DOM.moodCoherence.value = clamp(m.coherence ?? 0.5);
+
+    if (DOM.vitals) {
+        const step = telemetry.step ?? 'N/A';
+        const memoryCount = state.ltmGraph.nodes?.length ?? 'N/A';
+        DOM.vitals.innerHTML = `
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);padding:4px;"><label>Cycle Step</label><span>${step}</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);padding:4px;"><label>Active Memories</label><span>${memoryCount}</span></div>
+        `;
+    }
+
+    // --- FIX: Correctly handle the ephemeral nature of dialogue ---
+    // The backend only sends a question when it's active. An answer isn't a persistent state.
+    // The UI now shows the question, and if the question disappears from telemetry, it implies it was answered.
+    const currentQuestion = telemetry.teacher_question || '—';
+    const previousQuestion = state.currentTelemetry?.teacher_question || '—';
+
+    // If a new question has appeared, clear the old answer field.
+    if (currentQuestion !== '—' && previousQuestion === '—') {
+        DOM.explorerAnswer.textContent = '...'; // Indicate waiting for an answer
+    }
+    // If the question has disappeared, it means it has been answered.
+    else if (currentQuestion === '—' && previousQuestion !== '—') {
+        DOM.explorerAnswer.textContent = '(Responded)'; // Show a confirmation
+    }
+    DOM.teacherQuestion.textContent = currentQuestion;
+
+    drawRing(DOM.ringDream, pct(telemetry.dream_load || 0));
+    const tSteps = telemetry.teacher_in || 0;
+    const eSteps = telemetry.explorer_in || 0;
+    const cycle = 10;
+    drawRing(DOM.ringTeacher, 1 - Math.min(1, tSteps / Math.max(1, cycle)));
+    drawRing(DOM.ringExplorer, 1 - Math.min(1, eSteps / Math.max(1, cycle)));
+    const reward = Math.max(0, Math.min(1, (telemetry.insight_agent_avg_reward || 0)));
+    drawRing(DOM.ringReward, reward, '--ok');
+
+    const goals = telemetry.goals || {};
+    const entries = Object.entries(goals).sort((a,b)=>b[1]-a[1]).slice(0, 16);
+    DOM.goalsList.innerHTML = entries.map(([k,v])=>`<div class="row"><span class="label">${k}</span><span class="value">${v.toFixed(3)}</span></div>`).join('');
+    drawGoalsOverlay(entries);
+
+    const sn = (telemetry.subconscious_narrative || '').replace(/\s+/g,' ').trim();
+    DOM.tickerText.textContent = sn ? (sn + ' • ' + sn + ' • ') : '';
+
+    DOM.encoderStatus.textContent = telemetry.autoencoder_trained ? 'Trained' : 'Untrained';
+    DOM.globalTension.textContent = (telemetry.global_tension ?? 0).toFixed(3);
+
+    const st = telemetry.shell_tensions || {};
+    DOM.shellTensionSparklines.innerHTML = '';
+    Object.keys(st).sort((a,b)=>Number(a)-Number(b)).forEach(dim=>{
+      const wrap = document.createElement('div');
+      wrap.className = 'weather-box';
+      wrap.innerHTML = `<div class="row"><span class="label">Shell ${dim}D</span><span class="value">${(st[dim]||0).toFixed(3)}</span></div>`;
+      DOM.shellTensionSparklines.appendChild(wrap);
+      const series = state.shellSparklines.get(dim) || [];
+      series.push(st[dim] || 0);
+      state.shellSparklines.set(dim, series);
+      sparkline(wrap, series);
+    });
+
+    DOM.status.textContent = `Step ${telemetry.step ?? 'N/A'} • ${entries.length} goals • ${Object.keys(st).length} shells`;
+}
+
+
+/* ---------------- Polling & Main Loop ---------------- */
+let pollInterval;
+async function startPolling() {
+  state.running = true; DOM.runTag.textContent = `ONLINE`;
+  if (pollInterval) clearInterval(pollInterval);
+  pollInterval = setInterval(async () => {
+    if (!state.running) return;
+    const [telemetry, graphData] = await Promise.all([ getJSON(API.telemetry), getJSON(API.graph) ]);
+    if (telemetry) {
+        state.currentTelemetry = telemetry; // Cache the latest telemetry
+        updateUI(telemetry);
+        if (telemetry.shells) {
+            updateRotorState(telemetry.shells);
+        }
+    }
+    if (graphData) {
+        const currentMemoryCount = graphData.nodes?.length ?? 0;
+        if (currentMemoryCount > state.lastMemoryCount) {
+            triggerEtchingAnimation(currentMemoryCount - state.lastMemoryCount, state.currentTelemetry);
+        }
+        state.lastMemoryCount = currentMemoryCount;
+
+        state.ltmGraph = graphData;
+        const newMap = new Map();
+        for (const node of graphData.nodes) {
+            if (node.blueprint_location_id !== undefined) {
+                newMap.set(node.blueprint_location_id, node);
+            }
+        }
+       state.blueprintIdToLTMNode = newMap;
+        // --- FIX: Call updateSelection() here, when graph data is refreshed ---
+        updateSelection(state);
+    }
+  }, 1200);
+}
+
+function animate() {
+    requestAnimationFrame(animate);
+    const dt = clock.getDelta();
+    const now = clock.getElapsedTime();
+
+    if (cameraIsFocused && cameraFocusNode) {
+        camera.position.lerp(cameraTargetPosition, 0.05);
+        controls.target.lerp(new THREE.Vector3(cameraFocusNode.x, cameraFocusNode.y, cameraFocusNode.z), 0.05);
+    }
+
+    controls.update();
+
+    // --- FIX: This line is removed from here to prevent re-running on every frame ---
+    // updateSelection(state); 
+    
+    updateEdges(state.ltmGraph);
+    if (state.edgeObjects?.material.uniforms.time) {
+        state.edgeObjects.material.uniforms.time.value = now;
+    }
+    
+    drawRotors(dt);
+    drawMemoryEtching(dt);
+    drawWavefunction(now);
+    
+    renderer.clear(); 
+    composer.render();
+}
+
+/* ---------- Initialization ---------- */
+async function checkActiveRun() {
+  const t = await getJSON(API.telemetry);
+  if (t?.step !== undefined){
+    setStatus(`Connected to active cognitive cycle.`);
+    DOM.runTag.textContent = `ONLINE`;
+    startPolling();
+  } else {
+    setStatus("Waiting for cognitive cycle...");
+    setTimeout(checkActiveRun, 2000);
+  }
+}
+
+async function init() {
+  setStatus('Loading blueprint...');
+  const blueprintData = await getJSON(API.blueprint);
+  if (blueprintData?.length) {
+    buildLatticeFromBlueprint(blueprintData);
+    setStatus('Blueprint loaded.');
+  } else {
+    setStatus('Waiting for backend blueprint...');
+    setTimeout(init, 2000);
+    return;
+  }
+  resize();
+  checkActiveRun();
+  
+  // Start the main animation loop
+  animate();
+}
+
+init();
+</script>
+</body>
+</html>
