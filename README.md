@@ -106,7 +106,13 @@ pip install -r requirements.txt
 
 ````
 
-## ▶️ Quick Start
+## ▶️ Quick Start Without Profile
+
+```bash
+ren profiles profiles_disabled
+python e8_mind_server_M16.py
+```
+## ▶️ Quick Start With Profile
 
 ```bash
 python e8_mind_server_M16.py --profile profiles\"PROFILENAME".json
