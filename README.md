@@ -1,5 +1,6 @@
 # 🌌 Kaleidoscope: An E8 Lattice Cognitive Memory System  
 <img width="300" height="293" alt="QSN-Vertex-Types-Samples-3-e1467927748157-300x293" src="https://github.com/user-attachments/assets/cf60c5fb-aab8-4e70-912e-b84f296ca3d4" />
+
 Kaleidoscope is a **content-addressable cognitive architecture.**  
 Instead of storing embeddings in flat Euclidean space, it projects them into an **E8 lattice**: a highly symmetric 8-dimensional structure supporting **dense packing, symmetry, and stable orientation.**  
 
