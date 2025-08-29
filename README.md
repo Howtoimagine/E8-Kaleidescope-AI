@@ -28,5 +28,6 @@ It does not just answer questions — it builds its own theories.
 Clone the repo:
 
 ```bash
-git clone https://github.com/<your-username>/<repo-name>.git
-cd <repo-name>
+git clone https://github.com/Howtoimagine/E8-Kaleidescope-AI.git
+cd E8-Kaleidescope-AI
+
