@@ -1,168 +1,530 @@
-# Copyright (C) 2025 Skye Malone
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, version 3.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from __future__ import annotations
-# --- Windows asyncio policy fix (avoids Proactor self-pipe close error) ---
-import sys as _sys, asyncio
-if _sys.platform.startswith("win"):
-    # The alias _asyncio should be replaced with asyncio here as well
+def seed_all(seed: int):
+    import random as _random
+    import numpy as _np
+    _random.seed(seed)
     try:
-        if not isinstance(asyncio.get_event_loop_policy(), asyncio.WindowsSelectorEventLoopPolicy):
-             asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        _np.random.seed(seed)
     except Exception:
         pass
-# -------------------------------------------------------------------------
-import os, sys, math, json, time, random, re, logging, tempfile, io, glob, hashlib, contextlib, traceback, threading, faulthandler, zlib
-from typing import Any, Dict, List, Optional, Tuple, Union, Iterable
+    try:
+        import torch as _torch
+        _torch.manual_seed(seed)
+        if _torch.cuda.is_available():
+            _torch.cuda.manual_seed_all(seed)
+    except Exception:
+        pass
+
+import traceback
+
+
+def run_hypothesis_validation(insight: dict) -> dict:
+    """
+    Validates a generated insight and returns a dict with:
+      - type: classification of the insight
+      - test_plan: {method, confidence, next_step}
+    """
+    text = (insight.get("text") or insight.get("label") or str(insight))[:400]
+    # naive classification
+    if any(k in text.lower() for k in ["simulate", "model", "predict"]):
+        method = "simulate"
+        confidence = 0.65
+        next_step = "Run internal simulation and compare deltas."
+    elif any(k in text.lower() for k in ["pattern", "cluster", "trend"]):
+        method = "observe pattern"
+        confidence = 0.6
+        next_step = "Observe graph neighborhoods and telemetry trends."
+    elif any(k in text.lower() for k in ["compare", "versus", "vs "]):
+        method = "compare"
+        confidence = 0.55
+        next_step = "Compare to nearest neighbors and past analogs."
+    else:
+        method = "interview"
+        confidence = 0.5
+        next_step = "Ask one clarifying question via Teacher."
+    return {
+        "type": "hypothesis",
+        "test_plan": {"method": method, "confidence": confidence, "next_step": next_step}
+    }
+
+
+import os, sys, math, json, time, random, re, logging, tempfile, io, glob, hashlib, contextlib, traceback, threading, faulthandler, zlib, heapq
+from typing import Any, Dict, List, Optional, Tuple, Union, Iterable, TYPE_CHECKING, cast
 from collections import deque, defaultdict
+import inspect
 from dataclasses import dataclass
 
 import numpy as np
-
-# --- Configuration Constants ---
-# Directories
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-RUNTIME_DIR = os.path.join(BASE_DIR, "runtime")
-# Timeouts and Intervals
-POOL_WORKER_TIMEOUT = int(os.getenv("POOL_WORKER_TIMEOUT", "20"))
-POOL_RESULT_TIMEOUT = int(os.getenv("POOL_RESULT_TIMEOUT", "60"))
-LLM_CALL_TIMEOUT_SEC = int(os.getenv("LLM_CALL_TIMEOUT_SEC", "30"))
-EMBEDDING_TIMEOUT_SEC = int(os.getenv("EMBEDDING_TIMEOUT_SEC", "15"))
-DREAM_MIN_INTERVAL_SEC = 30
-CONSOLE_EXPORT_EVERY_STEPS = 100
-CONSOLE_EXPORT_FORMAT = "both" # "text", "json", or "both"
-# Model Dimensions
-EMBED_DIM = int(os.getenv("E8_EMBED_DIM", "1536"))
-DIMENSIONAL_SHELL_SIZES = [1, 2, 3, 4, 5, 6, 7, 8]
-AUTOENCODER_LAYER_SIZES = [EMBED_DIM] + DIMENSIONAL_SHELL_SIZES
-# Action Layout for RL Agent
-ACTION_LAYOUT = [
-    {"dim": 3, "biv_start": 0, "biv_len": 3, "angle_idx": 3},
-    {"dim": 5, "biv_start": 4, "biv_len": 10, "angle_idx": 14},
-    {"dim": 8, "biv_start": 15, "biv_len": 28, "angle_idx": 43},
-]
-ACTION_SIZE_NO_LOCK = sum(d["biv_len"] + 1 for d in ACTION_LAYOUT)
-# Cognitive Cycle Timing
-TEACHER_ASK_EVERY = 25
-TEACHER_OFFSET = 5
-EXPLORER_OFFSET = 15
-TEACHER_STEP_TIMEOUT = 15.0
-EXPLORER_STEP_TIMEOUT = 20.0
-# Black Hole Event Parameters
-BLACK_HOLE_COOLDOWN_STEPS = 50
-BH_PRESSURE_THRESHOLD = 0.4
-BH_SPREAD_FRAC = 0.5
-BH_BG_FRAC = 0.2
-BH_DIFFUSION_ETA = 0.15
-BH_FIELD_LEAK = 0.02
-BLACK_HOLE_K = 16 # Number of KNN links for remnant
-# Memory and Temperature
-CONSOLIDATE_MIN = 20
-TEMP_HALF_LIFE_VIVID = 8
-TEMP_HALF_LIFE_HOT = 24
-TEMP_HALF_LIFE_WARM = 72
-TEMP_HALF_LIFE_COLD = 240
-# Misc
-SEMANTIC_DOMAIN = "E8_holographic_Conscioussness"
-DREAM_MODE_ENABLED = True
-LOCAL_GEN_WORKERS = int(os.getenv("LOCAL_GEN_WORKERS", "1"))
-GLOBAL_SEED = int(os.getenv("GLOBAL_SEED", "1337"))
-# Data sources for ingestion pipeline (example)
-DATA_SOURCES: Dict[str, Any] = {} # e.g. {"arxiv_cs_cl": {"type": "arxiv_api", "url": "http://export.arxiv.org/api/query?search_query=cat:cs.CL&sortBy=submittedDate&sortOrder=descending&max_results=10", "schedule_minutes": 120}}
-
-# --- Optional Dependencies ---
 try:
-    import itertools as _itertools
-    from itertools import combinations
+    import websockets  # type: ignore[import-not-found]
 except Exception:
-    combinations = None
+    websockets = None  # type: ignore
+
+# Rich library imports with fallbacks
+try:
+    from rich.console import Console as RichConsole
+    from rich.panel import Panel as RichPanel  
+    from rich.progress import Progress as RichProgress, SpinnerColumn as RichSpinnerColumn, BarColumn as RichBarColumn, TextColumn as RichTextColumn, TimeElapsedColumn as RichTimeElapsedColumn
+    from rich.markup import escape as _rich_escape
+    RICH_AVAILABLE = True
+    SpinnerColumn = RichSpinnerColumn
+    BarColumn = RichBarColumn
+    TextColumn = RichTextColumn
+    TimeElapsedColumn = RichTimeElapsedColumn
+except ImportError:
+    RichConsole = None  # type: ignore[assignment]
+    RichPanel = None   # type: ignore[assignment]
+    RichProgress = None  # type: ignore[assignment]
+    SpinnerColumn = None  # type: ignore[assignment]
+    BarColumn = None  # type: ignore[assignment]
+    TextColumn = None  # type: ignore[assignment]
+    TimeElapsedColumn = None  # type: ignore[assignment]
+    _rich_escape = None  # type: ignore[assignment]
+    RICH_AVAILABLE = False
+
+# Time utilities (safe imports; used across telemetry and run IDs)
 try:
     from datetime import datetime, timezone
 except Exception:
-    datetime = None
-    timezone = None
+    datetime = None  # type: ignore
+    timezone = None  # type: ignore
+
+# Combinatorics helper for E8 root generation
 try:
-    import ollama
+    from itertools import combinations
 except Exception:
-    ollama = None
+    combinations = None  # type: ignore
+
+# Optional GA backend (Clifford)
 try:
-    import google.generativeai as genai
-except Exception:
-    genai = None
-try:
-    import clifford
-    from clifford.g3 import layout as g3_layout, blades as g3_blades
+    import clifford  # type: ignore
     CLIFFORD_AVAILABLE = True
 except Exception:
-    clifford = None
-    g3_layout, g3_blades = None, None
+    clifford = None  # type: ignore
     CLIFFORD_AVAILABLE = False
+
+# Optional LLM backends that may not be installed
 try:
-    from rich.console import Console
-    from rich.panel import Panel
-    from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn
-    from rich.markup import escape
+    import ollama  # type: ignore
 except Exception:
-    class Progress:
+    ollama = None  # type: ignore
+try:
+    import google.generativeai as genai  # type: ignore
+except Exception:
+    genai = None  # type: ignore
+
+if TYPE_CHECKING:
+    # Lightweight stubs to satisfy type checkers for forward refs
+    class _E8Mind:  # pragma: no cover - stub only
+        def __getattr__(self, name: str) -> Any: ...
+
+
+def load_profile(name):
+    # Ensure fallback classes exist, even if original fallback block wasn't imported yet
+    try:
+        _FallbackSem  # type: ignore[name-defined]
+        _FallbackPrompts  # type: ignore[name-defined]
+    except Exception:
+        class _FallbackPrompts:  # minimal prompt pack
+            def render(self, key, **vars):
+                q = vars.get("question") or vars.get("topic") or vars.get("text") or ""
+                persona = vars.get("persona", "")
+                domain_hint = vars.get("domain_hint", "")
+                return f"{persona}\n\n{domain_hint}\n\n{q}"
+        class _FallbackSem:
+            name = "default"
+            base_domain = SEMANTIC_DOMAIN
+            def persona_prefix(self, mood):
+                intensity = (mood or {}).get('intensity', 0.5)
+                entropy = (mood or {}).get('entropy', 0.5)
+                coherence = (mood or {}).get('coherence', 0.5)
+                if entropy > 0.7 and intensity > 0.6:
+                    return "You are feeling chaotic, fragmented, and electric."
+                elif coherence > 0.75:
+                    return "You are feeling exceptionally clear, logical, and focused."
+                elif intensity < 0.3:
+                    return "You are feeling calm, quiet, and introspective."
+                else:
+                    return "You are in a balanced and considered state of mind."
+            def pre_embed(self, t):  # light domain tag + identity
+                base = getattr(self, "base_domain", None)
+                if base and isinstance(t, str): return f"{base}: {t}"
+                return t
+            def post_embed(self, v):  # unit-norm
+                try:
+                    import numpy as _np
+                    n = float(_np.linalg.norm(v))
+                    return v / n if n > 1e-9 else v
+                except Exception:
+                    return v
+            def rerank(self, c):  # stability-friendly no-op
+                return c
+
+    # Flag handling
+    if (not E8_PROFILE_ENABLED) or (E8_PROFILE_MODE in ("none","off","disable","disabled")):
+        try:
+            console.log("[profiles] Profiles disabled by flags; using fallback semantics.")
+        except Exception:
+            pass
+        return _FallbackSem(), _FallbackPrompts()
+
+    if _real_load_profile is None:
+        try:
+            console.log("[profiles] profiles.loader not available; using fallback semantics.")
+        except Exception:
+            pass
+        return _FallbackSem(), _FallbackPrompts()
+
+    # Try real loader; fallback on any error
+    try:
+        return _real_load_profile(name)
+    except Exception as _e:
+        try:
+            console.log(f"[profiles] load_profile failed ({type(_e).__name__}): {_e}; using fallback semantics.")
+        except Exception:
+            pass
+        return _FallbackSem(), _FallbackPrompts()
+# --- end wrapper ---
+
+
+
+import sys as _sys, asyncio
+
+# Base directory (used by other constants)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Runtime and tuning defaults
+RUNTIME_DIR = os.path.join(BASE_DIR, "runtime")
+POOL_WORKER_TIMEOUT = float(os.getenv("E8_POOL_WORKER_TIMEOUT", "30"))
+POOL_RESULT_TIMEOUT = float(os.getenv("E8_POOL_RESULT_TIMEOUT", "60"))
+TEMP_HALF_LIFE_VIVID = float(os.getenv("E8_TEMP_HALF_LIFE_VIVID", "1200"))
+TEMP_HALF_LIFE_HOT = float(os.getenv("E8_TEMP_HALF_LIFE_HOT", "2400"))
+TEMP_HALF_LIFE_WARM = float(os.getenv("E8_TEMP_HALF_LIFE_WARM", "3600"))
+TEMP_HALF_LIFE_COLD = float(os.getenv("E8_TEMP_HALF_LIFE_COLD", "5400"))
+BH_DIFFUSION_ETA = float(os.getenv("E8_BH_DIFFUSION_ETA", "0.1"))
+BH_SPREAD_FRAC = float(os.getenv("E8_BH_SPREAD_FRAC", "0.05"))
+DREAM_MODE_ENABLED = os.getenv("E8_DREAM_ENABLED", "1") == "1"
+DREAM_MIN_INTERVAL_SEC = float(os.getenv("E8_DREAM_MIN_INTERVAL", "15"))
+LOCAL_GEN_WORKERS = int(os.getenv("E8_LOCAL_GEN_WORKERS", "2"))
+TEACHER_ASK_EVERY = int(os.getenv("E8_TEACHER_EVERY", "50"))
+TEACHER_OFFSET = int(os.getenv("E8_TEACHER_OFFSET", "10"))
+ACTION_SIZE_NO_LOCK = int(os.getenv("E8_ACTION_DIM", "6"))
+CONSOLE_EXPORT_EVERY_STEPS = int(os.getenv("E8_CONSOLE_EXPORT_EVERY", "500"))
+DIMENSIONAL_SHELL_SIZES = [4, 6, 8]
+# Use env default directly here to avoid early reference before EMBED_DIM is defined later
+AUTOENCODER_LAYER_SIZES = [int(os.getenv("E8_EMBED_DIM", "1536")), 512, 128, 32]
+
+# Dialogue cadence and timeouts
+EXPLORER_OFFSET = int(os.getenv("E8_EXPLORER_OFFSET", str(TEACHER_OFFSET + 5)))
+TEACHER_STEP_TIMEOUT = float(os.getenv("E8_TEACHER_STEP_TIMEOUT", "25"))
+EXPLORER_STEP_TIMEOUT = float(os.getenv("E8_EXPLORER_STEP_TIMEOUT", "25"))
+
+# LLM timeouts
+LLM_CALL_TIMEOUT_SEC = float(os.getenv("E8_LLM_CALL_TIMEOUT", "30"))
+EMBEDDING_TIMEOUT_SEC = float(os.getenv("E8_EMBEDDING_TIMEOUT", "15"))
+
+# Black hole/collapse parameters
+BLACK_HOLE_COOLDOWN_STEPS = int(os.getenv("E8_BH_COOLDOWN_STEPS", "200"))
+BH_PRESSURE_THRESHOLD = float(os.getenv("E8_BH_PRESSURE_THRESHOLD", "0.85"))
+BLACK_HOLE_K = int(os.getenv("E8_BH_LINKS_K", "10"))
+CONSOLIDATE_MIN = int(os.getenv("E8_BH_CONSOLIDATE_MIN", "3"))
+
+# Console export format
+CONSOLE_EXPORT_FORMAT = os.getenv("E8_CONSOLE_EXPORT_FORMAT", "both").lower()  # text|json|both
+
+# External data sources configuration (name -> config)
+DATA_SOURCES = {}
+
+# Action layout helper and default
+# Ensure commonly used names are exported (guard if Rich* names missing)
+if not RICH_AVAILABLE:
+    class _FallbackProgress:
         def __init__(self, *args, **kwargs): pass
         def __enter__(self): return self
         def __exit__(self, exc_type, exc_val, exc_tb): pass
         def add_task(self, *args, **kwargs): return 0
         def update(self, *args, **kwargs): pass
-    class Console:
+    class _FallbackConsole:
         def __init__(self, record=False): pass
         def log(self, *a, **k): print(*a)
         def print(self, *a, **k): print(*a)
         def rule(self, *a, **k): print("-" * 20)
         def export_text(self): return ""
-    class Panel(str):
+        def print_exception(self, *a, **k):
+            import traceback as _tb
+            _tb.print_exc()
+    class _FallbackPanel(str):
         def __new__(cls, content, **kwargs): return str(content)
-    def escape(s): return s
+        @classmethod
+        def fit(cls, content, **kwargs):
+            return str(content)
+    class _FallbackSpinnerColumn:
+        def __init__(self, *args, **kwargs): pass
+    class _FallbackBarColumn:
+        def __init__(self, *args, **kwargs): pass
+    class _FallbackTextColumn:
+        def __init__(self, *args, **kwargs): pass
+    class _FallbackTimeElapsedColumn:
+        def __init__(self, *args, **kwargs): pass
+    def _fallback_rich_escape(s): return s
+
+    # Map fallbacks to primary names
+    RichConsole = _FallbackConsole  # type: ignore[assignment]
+    RichPanel = _FallbackPanel  # type: ignore[assignment]
+    RichProgress = _FallbackProgress  # type: ignore[assignment]
+    SpinnerColumn = _FallbackSpinnerColumn  # type: ignore[assignment]
+    BarColumn = _FallbackBarColumn  # type: ignore[assignment]
+    TextColumn = _FallbackTextColumn  # type: ignore[assignment]
+    TimeElapsedColumn = _FallbackTimeElapsedColumn  # type: ignore[assignment]
+    _rich_escape = _fallback_rich_escape  # type: ignore[assignment]
+
+from typing import cast as _cast_any
+# Universal shims so callers can always use Panel/Progress/Columns safely
+_rich_escape_impl = _rich_escape
+
+def rich_escape(s):
+    try:
+        if callable(_rich_escape_impl):
+            return _rich_escape_impl(s)
+    except Exception:
+        pass
+    return str(s)
+
+class _PanelShim:
+    def __call__(self, content, **kwargs):
+        try:
+            if RICH_AVAILABLE and RichPanel is not None:
+                return RichPanel(content, **kwargs)  # type: ignore[misc]
+        except Exception:
+            pass
+        return str(content)
+    def fit(self, content, **kwargs):
+        try:
+            if RICH_AVAILABLE and RichPanel is not None and hasattr(RichPanel, 'fit'):
+                return RichPanel.fit(content, **kwargs)  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        return str(content)
+
+class _NoProgress:
+    def __init__(self, *args, **kwargs):
+        self._task_id = 0
+    def __enter__(self):
+        return self
+    def __exit__(self, exc_type, exc, tb):
+        return False
+    def add_task(self, *args, **kwargs):
+        return 0
+    def update(self, *args, **kwargs):
+        return None
+
+def Progress(*args, **kwargs):
+    try:
+        if RICH_AVAILABLE and RichProgress is not None:
+            return RichProgress(*args, **kwargs)  # type: ignore[misc]
+    except Exception:
+        pass
+    return _NoProgress()
+
+def SpinnerColumn(*args, **kwargs):
+    try:
+        if RICH_AVAILABLE and 'RichSpinnerColumn' in globals() and RichSpinnerColumn is not None:
+            return RichSpinnerColumn(*args, **kwargs)  # type: ignore[misc]
+    except Exception:
+        pass
+    return object()
+
+def BarColumn(*args, **kwargs):
+    try:
+        if RICH_AVAILABLE and 'RichBarColumn' in globals() and RichBarColumn is not None:
+            return RichBarColumn(*args, **kwargs)  # type: ignore[misc]
+    except Exception:
+        pass
+    return object()
+
+def TextColumn(*args, **kwargs):
+    try:
+        if RICH_AVAILABLE and 'RichTextColumn' in globals() and RichTextColumn is not None:
+            return RichTextColumn(*args, **kwargs)  # type: ignore[misc]
+    except Exception:
+        pass
+    return object()
+
+def TimeElapsedColumn(*args, **kwargs):
+    try:
+        if RICH_AVAILABLE and 'RichTimeElapsedColumn' in globals() and RichTimeElapsedColumn is not None:
+            return RichTimeElapsedColumn(*args, **kwargs)  # type: ignore[misc]
+    except Exception:
+        pass
+    return object()
+
+Panel = _PanelShim()
+
+# Initialize console early (used throughout the codebase)
+console = RichConsole(record=True)  # type: ignore[call-arg]
+
+# --- Global defaults and constants (env-tunable) ---
+GLOBAL_SEED = int(os.getenv("E8_SEED", "42"))
+EMBED_DIM = int(os.getenv("E8_EMBED_DIM", "1536"))
+SEMANTIC_DOMAIN = os.getenv("E8_SEMANTIC_DOMAIN", "general")
+# Default OpenAI chat model (can be overridden via OPENAI_MODEL). Using GPT-5 mini (Preview) by default.
+DEFAULT_OPENAI_CHAT_MODEL = os.getenv("OPENAI_MODEL", os.getenv("E8_OPENAI_MODEL", "gpt-5-mini-preview"))
+
+# Profiles flags
+E8_PROFILE_ENABLED = os.getenv("E8_PROFILE_ENABLED", "1") == "1"
+E8_PROFILE_MODE = os.getenv("E8_PROFILE_MODE", "auto").lower()
+
+# Seed domain bootstrapping flags
+E8_SEED_DOMAIN = os.getenv("E8_SEED_DOMAIN", "1") == "1"
+E8_SEED_LABEL = os.getenv("E8_SEED_LABEL", "")
+
+# === inserted flags ===
+E8_SELF_PROJECT = os.getenv("E8_SELF_PROJECT", "1") == "1"   # 1=enabled, 0=disabled
+E8_INGEST = os.getenv("E8_INGEST", "1") == "1"               # 1=enabled, 0=disabled
+# ======================
+
+# Action system constants
+ACTION_SIZE_NO_LOCK = int(os.getenv("E8_ACTION_DIM", "6"))
+
+def _default_action_layout(total_dim: int):
+    try:
+        td = int(total_dim)
+    except Exception:
+        td = 6
+    if td >= 6:
+        # Two layers, non-overlapping slices + two angle indices
+        return [
+            {"dim": 4, "biv_start": 0, "biv_len": 2, "angle_idx": 4},
+            {"dim": 6, "biv_start": 2, "biv_len": 2, "angle_idx": 5},
+        ]
+    elif td >= 3:
+        # Single layer: use all but last for bivector, last as angle
+        return [
+            {"dim": 4, "biv_start": 0, "biv_len": max(td - 1, 1), "angle_idx": td - 1},
+        ]
+    else:
+        # Minimal fallback
+        return [
+            {"dim": 4, "biv_start": 0, "biv_len": 1, "angle_idx": 0},
+        ]
+
+# Global ACTION_LAYOUT derived from configured action size
+ACTION_LAYOUT = _default_action_layout(ACTION_SIZE_NO_LOCK)
 try:
     import networkx as nx
+    from networkx.algorithms import community as nx_comm
     from networkx.readwrite import json_graph
 except Exception:
-    nx = None
+    nx = None; nx_comm = None
     class _JG:
         def node_link_data(self, g): return {"nodes": [], "links": []}
         def node_link_graph(self, d): return None
     json_graph = _JG()
 try:
-    from aiohttp import web
-    import aiohttp_cors
-    import aiohttp
-    import xml.etree.ElementTree as ET
+    from aiohttp import web as _web_mod
+    import aiohttp_cors as _aiohttp_cors_mod
+    import aiohttp as _aiohttp_mod
+    import xml.etree.ElementTree as _ET_mod
+    web = cast(Any, _web_mod)
+    aiohttp_cors = cast(Any, _aiohttp_cors_mod)
+    aiohttp = cast(Any, _aiohttp_mod)
+    ET = cast(Any, _ET_mod)
 except Exception:
-    web = None; aiohttp_cors = None; aiohttp = None; ET = None
+    web = cast(Any, None); aiohttp_cors = cast(Any, None); aiohttp = cast(Any, None); ET = cast(Any, None)
 try:
     import torch
     import torch.nn as nn
     import torch.nn.functional as F
+    from torch.distributions import Normal
     TORCH_AVAILABLE = True
 except Exception:
     TORCH_AVAILABLE = False
     class _NN:
         Module = object
         ModuleList = list
+        class Linear:
+            def __init__(self, *args, **kwargs): pass
+            def __call__(self, x): return x
+            def to(self, device): return self
+        class ReLU:
+            def __call__(self, x): return x
+        class Sequential:
+            def __init__(self, *layers): self.layers = layers
+            def __call__(self, x): return x
+            def to(self, device): return self
+        class GRU:
+            def __init__(self, *args, **kwargs): pass
+            def __call__(self, x, h=None): return x, h
+            def to(self, device): return self
+        class utils:
+            @staticmethod
+            def clip_grad_norm_(*args, **kwargs): return None
+    class _Normal:
+        def __init__(self, *args): pass
+        def sample(self): return None
+    class _F:
+        @staticmethod
+        def relu(x): return x
+        @staticmethod
+        def mse_loss(a, b):
+            a_np, b_np = np.asarray(a), np.asarray(b)
+            diff = a_np - b_np
+            return float(np.mean(diff * diff))
+    class _Torch:
+        class _Cuda:
+            @staticmethod
+            def is_available(): return False
+        cuda = _Cuda()
+        class _Optim:
+            class Adam:
+                def __init__(self, *args, **kwargs): pass
+                def zero_grad(self): pass
+                def step(self): pass
+        optim = _Optim()
+        float32 = float
+        @staticmethod
+        def device(x): return "cpu"
+        @staticmethod
+        def exp(x): return x
+        @staticmethod
+        def randn_like(x): return 0
+        @staticmethod
+        def tensor(x, dtype=None): return np.asarray(x)
+        @staticmethod
+        def cat(tensors, dim=0): return np.concatenate([np.asarray(t) for t in tensors], axis=dim)
+        @staticmethod
+        def mean(x): return float(np.mean(np.asarray(x)))
+        class _NoGrad:
+            def __enter__(self): return None
+            def __exit__(self, exc_type, exc, tb): return False
+        @staticmethod
+        def no_grad(): return _Torch._NoGrad()
+        class nn:
+            utils = _NN.utils
+    # assign placeholders
     nn = _NN()
-    F = None
-    torch = None
+    F = _F()
+    torch = _Torch()
+    Normal = _Normal
+    
+# Relax typing for torch/nn/F so attribute access doesn't raise static errors when unavailable
+from typing import cast
+torch = cast(Any, torch)
+nn = cast(Any, nn)
+F = cast(Any, F)
+nn = cast(Any, nn)
+F = cast(Any, F)
 try:
     from sklearn.decomposition import PCA
     from sklearn.cluster import DBSCAN
 except Exception:
     PCA, DBSCAN = None, None
+try:
+    import faiss  # optional ANN backend
+    _FAISS = True
+except Exception:
+    _FAISS = False
+
 try:
     from sklearn.neighbors import KDTree as _SKKDTree
 except Exception:
@@ -172,19 +534,128 @@ try:
 except Exception:
     _sk_cosine_distances, _sk_cosine_similarity = None, None
 try:
-    from scipy.spatial import cKDTree as _SPKDTree
+    from scipy.spatial import KDTree as _SPKDTree
     from scipy.sparse import csr_matrix, diags
     from scipy.sparse.linalg import eigsh, expm_multiply
     import scipy as sp
 except Exception:
     _SPKDTree, csr_matrix, diags, eigsh, expm_multiply, sp = None, None, None, None, None, None
 
+# Ensure VariationalAutoencoder exists even when torch is available
+try:
+    VariationalAutoencoder  # type: ignore[name-defined]
+except Exception:
+    class VariationalAutoencoder:
+        """Lightweight fallback VAE with shape-only projections.
+
+        Methods are no-ops suitable for environments without the full VAE impl.
+        """
+        def __init__(self, layer_sizes=None, console=None):
+            self._trained = False
+            self.layer_sizes = layer_sizes or []
+            self.console = console
+
+        @property
+        def is_trained(self) -> bool:
+            return bool(self._trained)
+
+        def train_on_batch(self, x):
+            # Pretend to train; return empty loss dict to keep callers happy
+            return {"total_loss": 0.0, "recon_loss": 0.0, "kld_loss": 0.0}
+
+        def _to_np(self, x):
+            try:
+                import numpy as _np
+                if x is None:
+                    return None
+                if hasattr(x, "detach"):
+                    x = x.detach().cpu().numpy()
+                return _np.asarray(x, dtype=_np.float32)
+            except Exception:
+                return x
+
+        def project_to_dim(self, x, target_dim: int):
+            """Pad/truncate to target_dim; keeps interface stable.
+            Accepts 1D or 2D arrays and returns matching batch if 2D.
+            """
+            x_np = self._to_np(x)
+            import numpy as _np
+            if x_np is None:
+                return None
+            x2 = _np.atleast_2d(x_np).astype(_np.float32)
+            out = _np.zeros((x2.shape[0], int(target_dim)), dtype=_np.float32)
+            n = min(x2.shape[1], int(target_dim))
+            out[:, :n] = x2[:, :n]
+            return out if x2.ndim == 2 else out[0]
+
+        def project_between_dim(self, x, source_dim: int, target_dim: int):
+            # Ignore source_dim; just reshape as needed
+            return self.project_to_dim(x, target_dim)
+
+
+
+# --- inserted: lightweight stubs for optional planners/managers (satisfy Pylance/runtime when missing) ---
+try:
+    LatentDiffusionProposer  # type: ignore[name-defined]
+except NameError:
+    class LatentDiffusionProposer:
+        def __init__(self, action_dim:int, horizon:int=8, samples:int=16, **kwargs): pass
+        def propose(self, *args, **kwargs): return None
+
+try:
+    _ = MacroManager  # type: ignore[name-defined]
+except NameError:
+    class MacroManager:
+        def __init__(self, layout, action_dim:int, pick_every:int=20, **kwargs):
+            self.layout = layout
+            self.action_dim = int(action_dim)
+            self.pick_every = int(pick_every)
+            self._t = 0
+        def on_action_executed(self, action_vec):
+            # no-op hook in stub
+            return None
+
+        async def select_action(self, state, mind):
+            """Greedy one-step lookahead using the world model, falling back to a small impulse set."""
+            import numpy as _np
+            K = min(8, self.action_dim)
+            cands = [_np.zeros(self.action_dim, dtype=_np.float32)]
+            for i in range(K):
+                v = _np.zeros(self.action_dim, dtype=_np.float32); v[i] = 0.04
+                cands.append(v); cands.append(-v)
+            best, best_s = None, -1e9
+            wm = getattr(mind, "world_model", None)
+            for a in cands:
+                s = 0.0
+                try:
+                    if wm and getattr(wm, "available", False) and getattr(wm, "ready", False):
+                        s = float(wm.score_transition(state, a))
+                except Exception:
+                    s = 0.0
+                if s > best_s:
+                    best, best_s = a, s
+            return best if best is not None else cands[0]
+
+    try:
+        LatentCEMPlanner  # type: ignore[name-defined]
+    except NameError:
+        class LatentCEMPlanner:
+            def __init__(self, *args, **kwargs): pass
+            def plan(self, *args, **kwargs): return None
+# --- end inserted ---
+
 
 # --- Helper Functions and Classes ---
 
 def get_run_id() -> str:
     """Generates a unique run ID based on the current timestamp."""
-    return datetime.now(timezone.utc).strftime("run_%Y%m%d_%H%M%S")
+    try:
+        if datetime is not None and timezone is not None:  # type: ignore[truthy-bool]
+            return datetime.now(timezone.utc).strftime("run_%Y%m%d_%H%M%S")
+    except Exception:
+        pass
+    from datetime import datetime as _dt
+    return _dt.utcnow().strftime("run_%Y%m%d_%H%M%S")
 
 def get_path(rel: str, run_id: str) -> str:
     """Constructs an absolute path within the current run's directory."""
@@ -243,16 +714,54 @@ def _parse_json_object(text: str) -> Dict:
             pass
     return {}
 
-def export_graph(graph: nx.Graph) -> Dict:
+def export_graph(graph: Any) -> Dict[str, Any]:
     """Exports a NetworkX graph to a serializable dictionary."""
     if nx is None: return {"nodes": [], "links": []}
-    return json_graph.node_link_data(graph)
+    data = json_graph.node_link_data(graph)
+    return dict(data)
 
 def classify_geometry_theme(delta_vector: np.ndarray) -> list[str]:
-    """Placeholder for classifying movement vectors into themes."""
-    if np.linalg.norm(delta_vector) < 0.1:
-        return ["stasis"]
-    return ["integration", "growth"]
+    """
+    Classifies an 8D movement vector into descriptive themes based on its
+    geometric and statistical properties.
+    """
+    themes = set()
+    magnitude = np.linalg.norm(delta_vector)
+
+    # Rule 1: Stasis (very little movement)
+    if magnitude < 0.05:
+        themes.add("stasis")
+        return list(themes)
+
+    # Rule 2: Magnitude-based themes
+    if magnitude > 1.5:
+        themes.add("burst")
+    elif magnitude > 0.8:
+        themes.add("growth")
+    else:
+        themes.add("drift")
+
+    # Rule 3: Sparsity (how many dimensions are involved)
+    non_zero_elements = np.count_nonzero(np.abs(delta_vector) > 1e-4)
+    if non_zero_elements <= 2:
+        themes.add("focus")
+    elif non_zero_elements >= 7:
+        themes.add("integration")
+    else:
+        themes.add("shift")
+
+    # Rule 4: Coherence vs Disorder (variance of components)
+    component_variance = np.var(delta_vector)
+    if component_variance > 0.2:
+        themes.add("disorder")
+    else:
+        themes.add("coherence")
+
+    return list(themes)
+
+def teacher_prompt_ok(prompt: str, graph_terms: set[str]) -> bool:
+    tokens = {t.lower() for t in re.findall(r"[A-Za-z0-9]+", prompt or "")}
+    return len(tokens & graph_terms) >= 2
 
 class NumpyEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -281,6 +790,8 @@ class UniversalEmbeddingAdapter:
             self.W /= np.linalg.norm(self.W, axis=0, keepdims=True)
 
     def __call__(self, vector: np.ndarray) -> np.ndarray:
+        if not isinstance(vector, np.ndarray):
+            vector = np.array(vector, dtype=np.float32)
         if vector.shape[0] != self.in_dim:
             # Pad or truncate if there's a mismatch
             padded_vec = np.zeros(self.in_dim, dtype=np.float32)
@@ -290,7 +801,6 @@ class UniversalEmbeddingAdapter:
         return vector @ self.W
 # --- Main Code ---
 
-console = Console(record=True)
 LAST_INTRINSIC = {}
 
 import sys as _sys, asyncio as _asyncio
@@ -302,59 +812,106 @@ if _sys.platform.startswith("win"):
         pass
 
 try:
-    from profiles.loader import load_profile
+    from profiles.loader import load_profile as _real_load_profile
 except ImportError:
+    _real_load_profile = None
     class _FallbackPrompts:
         def render(self, key, **vars):
             q = vars.get("question") or vars.get("topic") or vars.get("text") or ""
             persona, domain_hint = vars.get("persona", ""), vars.get("domain_hint", "")
             return f"{persona}\n\n{domain_hint}\n\n{q}"
+
     class _FallbackSem:
-        name = "default"; base_domain = "general"
-        def persona_prefix(self, mood): return "You are in a balanced state."
-        def pre_embed(self, t): return t
-        def post_embed(self, v): return v
-        def rerank(self, c): return c
-    def load_profile(name):
-        return _FallbackSem(), _FallbackPrompts()
+        name = "default"
+        base_domain = SEMANTIC_DOMAIN
+
+        def persona_prefix(self, mood):
+            intensity = (mood or {}).get('intensity', 0.5)
+            entropy = (mood or {}).get('entropy', 0.5)
+            coherence = (mood or {}).get('coherence', 0.5)
+            if entropy > 0.7 and intensity > 0.6:
+                return "You are feeling chaotic, fragmented, and electric."
+            elif coherence > 0.75:
+                return "You are feeling exceptionally clear, logical, and focused."
+            elif intensity < 0.3:
+                return "You are feeling calm, quiet, and introspective."
+            else:
+                return "You are in a balanced and considered state of mind."
+
+        def pre_embed(self, t):
+            if self.base_domain and isinstance(t, str):
+                return f"{self.base_domain}: {t}"
+            return t
+
+        def post_embed(self, v):
+            try:
+                n = float(np.linalg.norm(v))
+                return v / n if n > 1e-9 else v
+            except Exception:
+                return v
+
+        def rerank(self, c):
+            return c
 
 class KDTree:
-    """A wrapper for scikit-learn/scipy KDTree with a pure NumPy fallback."""
+    """A wrapper for scikit-learn/scipy KDTree with optional FAISS and a NumPy fallback."""
     def __init__(self, data):
-        if _SKKDTree is not None:
-            self._impl = _SKKDTree(np.asarray(data, dtype=np.float32))
+        X = np.asarray(data, dtype=np.float32)
+        if '_FAISS' in globals() and _FAISS and X.ndim == 2 and X.size:
+            self._is_faiss = True
+            self._dim = X.shape[1]
+            self._faiss_index = faiss.IndexFlatIP(self._dim)
+            # normalize for cosine similarity via dot
+            norms = np.linalg.norm(X, axis=1, keepdims=True) + 1e-12
+            Xn = X / norms
+            self._faiss_index.add(Xn)  # type: ignore[attr-defined]
+            self.n = X.shape[0]
+            self._is_fallback = False
+            self._impl = None
+        elif _SKKDTree is not None:
+            self._impl = _SKKDTree(X)
             self.n = self._impl.data.shape[0]
             self._is_fallback = False
+            self._is_faiss = False
         elif _SPKDTree is not None:
-            self._impl = _SPKDTree(np.asarray(data, dtype=np.float32))
+            self._impl = _SPKDTree(X)
             self.n = self._impl.n
             self._is_fallback = False
+            self._is_faiss = False
         else:
-            # Fallback initialization
-            self._impl = np.asarray(data, dtype=np.float32)
+            self._impl = X
             self.n = self._impl.shape[0]
             self._is_fallback = True
+            self._is_faiss = False
+    # End of backend selection
 
     def query(self, q, k: int = 1) -> tuple[np.ndarray, np.ndarray]:
-        """
-        Finds the k-nearest neighbors for a single vector or a batch of vectors.
-        
-        Args:
-            q: A single vector (1D array) or a batch of vectors (2D array).
-            k: The number of neighbors to find.
-            
-        Returns:
-            A tuple of (distances, indices). For a single query, these are 1D arrays
-            of shape (k,). For a batch query of N vectors, these are 2D arrays of
-            shape (N, k).
-        """
+        t0 = time.perf_counter()
         q_arr = np.asarray(q, dtype=np.float32)
         is_single_query = q_arr.ndim == 1
         q_2d = np.atleast_2d(q_arr)
 
-        if not self._is_fallback:
-            # Use the efficient scikit-learn or scipy implementation
-            d, i = self._impl.query(q_2d, k=k)
+        if getattr(self, '_is_faiss', False):
+            q2 = q_2d
+            norms = np.linalg.norm(q2, axis=1, keepdims=True) + 1e-12
+            qn = q2 / norms
+            try:
+                qfaiss = qn.astype(np.float32)
+                if qfaiss.ndim == 1:
+                    qfaiss = qfaiss.reshape(1, -1)
+                D, I = self._faiss_index.search(qfaiss, int(k))  # type: ignore[attr-defined]
+            except Exception:
+                # Fallback: no results
+                D = np.ones((q_2d.shape[0], int(k)), dtype=np.float32)
+                I = -np.ones((q_2d.shape[0], int(k)), dtype=np.int64)
+            # Convert cosine sim to distance
+            d = 1.0 - D
+            i = I
+        elif not self._is_fallback and hasattr(self._impl, 'query'):
+            d, i = self._impl.query(q_2d, k=k)  # type: ignore[union-attr, attr-defined]
+            d = np.asarray(d, dtype=np.float32)
+            i = np.asarray(i, dtype=np.int64)
+        # In KDTree.query
         else:
             # --- CORRECTED LOGIC ---
             # Corrected NumPy fallback for both single and batch queries
@@ -370,7 +927,7 @@ class KDTree:
                 # Use argpartition for efficiency, as it's faster than a full sort.
                 if k < self.n:
                     # Find the k nearest indices (unsorted)
-                    nearest_idx = np.argpartition(distances, k)[:k]
+                    nearest_idx = np.argpartition(distances, k-1)[:k]
                     # Now, sort only that small partition by distance to get the correct order.
                     sorted_partition_indices = np.argsort(distances[nearest_idx])
                     idx = nearest_idx[sorted_partition_indices]
@@ -384,11 +941,18 @@ class KDTree:
             i = np.array(all_indices, dtype=np.int64)
 
         # Return results in the expected shape
-        if is_single_query:
-            return d.ravel(), i.ravel()
-        else:
-            return d, i
-        
+        d_out = d.ravel() if is_single_query else d
+        i_out = i.ravel() if is_single_query else i
+        # Track latency rolling average
+        try:
+            dt_ms = (time.perf_counter() - t0) * 1000.0
+            if not hasattr(self, '_latency_ms'): self._latency_ms = []
+            self._latency_ms.append(dt_ms)
+            if len(self._latency_ms) > 128: self._latency_ms.pop(0)
+        except Exception:
+            pass
+        return d_out, i_out
+
 def cosine_distances(A, B):
     if _sk_cosine_distances is not None:
         return _sk_cosine_distances(A, B)
@@ -405,7 +969,99 @@ def cosine_similarity(A, B):
     A2, B2 = A / _norm(A), B / _norm(B)
     return A2 @ B2.T
 
-MarketFeed = None # Placeholder
+# Prefer modular KDTree/cosine if available
+try:
+    from memory.index import KDTree as _ModKDTree, cosine_distances as _mod_cosine_distances, cosine_similarity as _mod_cosine_similarity
+    KDTree = _ModKDTree
+    Connects to a real-time financial data websocket (Finnhub) to stream
+    tick data into the mind, triggering cognitive events on market activity.
+    """
+    def __init__(self, symbols: List[str], api_key: str, on_tick, on_bar):
+        # If websockets is unavailable, disable feed gracefully
+        if getattr(websockets, 'connect', None) is None:
+            raise ImportError("The 'websockets' library is required for MarketFeed.")
+        self.ws_url = f"wss://ws.finnhub.io?token={api_key}"
+        self.symbols = symbols
+        self.on_tick = on_tick  # Callback for individual trades
+        self.on_bar = on_bar    # Callback for aggregated 1-minute bars
+        self.running = False
+        self._task = None
+        self._bar_aggregator = {} # {symbol: [trades]}
+
+    async def start(self):
+        """Starts the websocket connection and data processing task."""
+        if self.running: return
+        console.log(f"📈 [MarketFeed] Starting connection for symbols: {self.symbols}")
+        self.running = True
+        self._task = asyncio.create_task(self._run())
+
+    async def stop(self):
+        """Stops the websocket connection."""
+        self.running = False
+        if self._task:
+            self._task.cancel()
+        console.log("📉 [MarketFeed] Connection stopped.")
+
+    async def _run(self):
+        """The main loop for connecting, subscribing, and processing messages."""
+        while self.running:
+            try:
+                ws_connect = getattr(websockets, 'connect', None)
+                if ws_connect is None:
+                    await asyncio.sleep(5)
+                    continue
+                async with ws_connect(self.ws_url) as websocket:
+                    for symbol in self.symbols:
+                        await websocket.send(json.dumps({"type": "subscribe", "symbol": symbol}))
+                        console.log(f"[MarketFeed] Subscribed to {symbol}")
+
+                    async for message in websocket:
+                        data = json.loads(message)
+                        if data.get("type") == "trade":
+                            for trade in data.get("data", []):
+                                self.on_tick(trade["s"], trade)
+                                self._aggregate_bar(trade)
+                        elif data.get("type") == "ping":
+                            await websocket.send(json.dumps({"type": "pong"}))
+            except Exception as e:
+                # If websockets is available and exception is a connection close, note and loop
+                try:
+                    if websockets is not None and hasattr(websockets, 'exceptions') and isinstance(e, getattr(websockets.exceptions, 'ConnectionClosed', ())):
+                        console.log("[MarketFeed] Connection closed.")
+                    elif isinstance(e, asyncio.CancelledError):
+                        console.log("[MarketFeed] Connection cancelled.")
+                        break
+                    else:
+                        console.log(f"[bold red][MarketFeed] Error: {e}. Reconnecting in 15 seconds.[/bold red]")
+                        await asyncio.sleep(15)
+                except Exception:
+                    console.log(f"[bold red][MarketFeed] Error: {e}. Reconnecting in 15 seconds.[/bold red]")
+                    await asyncio.sleep(15)
+
+    def _aggregate_bar(self, trade: Dict):
+        """Aggregates trades into 1-minute bars (OHLC)."""
+        symbol = trade["s"]
+        price = trade["p"]
+        volume = trade["v"]
+        timestamp_ms = trade["t"]
+        current_minute = int(timestamp_ms / 60000)
+
+        if symbol not in self._bar_aggregator:
+            self._bar_aggregator[symbol] = {"minute": current_minute, "o": price, "h": price, "l": price, "c": price, "v": 0}
+
+        bar = self._bar_aggregator[symbol]
+        if current_minute > bar["minute"]:
+            # Finalize and send the previous bar
+            final_bar = Bar(o=bar["o"], h=bar["h"], l=bar["l"], c=bar["c"], v=bar["v"], ts=bar["minute"]*60)
+            self.on_bar(symbol, "1m", final_bar)
+            # Start a new bar
+            bar.update({"minute": current_minute, "o": price, "h": price, "l": price, "c": price, "v": volume})
+        else:
+            # Update the current bar
+            bar["h"] = max(bar["h"], price)
+            bar["l"] = min(bar["l"], price)
+            bar["c"] = price
+            bar["v"] += volume
 class Bar:
     def __init__(self, **kwargs):
         for k,v in kwargs.items(): setattr(self, k, v)
@@ -522,31 +1178,38 @@ class CliffordRotorGenerator:
 
         return anchor_a['vec'], best_partner['vec']
 
-    def generate_rotor(self, shell: 'DimensionalShell', angle: float) -> clifford.MultiVector:
+    def generate_rotor(self, shell: 'DimensionalShell', angle: float) -> Any:
         """Generates a rotor that rotates by 'angle' in the plane defined by two vectors."""
         pair = self._select_dynamic_pair(shell)
 
         if pair is None:
-
             random_bivector = self._random_unit_bivector()
             return (-(random_bivector) * (angle / 2.0)).exp()
 
         a_vec, b_vec = pair
         a = sum(val * bv for val, bv in zip(a_vec, self.basis_vectors))
         b = sum(val * bv for val, bv in zip(b_vec, self.basis_vectors))
-
-        a = a.normal()
-        b = b.normal()
+        a = a.normal() if hasattr(a, 'normal') else a  # type: ignore[attr-defined]
+        b = b.normal() if hasattr(b, 'normal') else b  # type: ignore[attr-defined]
 
         B = (a ^ b)
 
-        if abs(B) < 1e-9:
+        try:
+            magB = float(abs(B))
+        except Exception:
+            magB = 0.0
+        if magB < 1e-9:
+            try:
+                return (-(self._random_unit_bivector()) * (angle / 2.0)).exp()
+            except Exception:
+                return self.layout.scalar if hasattr(self.layout, 'scalar') else 1.0
 
-            return (-(self._random_unit_bivector()) * (angle / 2.0)).exp()
+        B_normalized = B.normal() if hasattr(B, 'normal') else B  # type: ignore[attr-defined]
 
-        B_normalized = B.normal()
-
-        rotor = (-B_normalized * angle / 2.0).exp()
+        try:
+            rotor = (-B_normalized * angle / 2.0).exp()  # type: ignore[attr-defined]
+        except Exception:
+            rotor = self.layout.scalar if hasattr(self.layout, 'scalar') else 1.0
         return rotor
 
 class DimensionalShell:
@@ -558,16 +1221,17 @@ class DimensionalShell:
             raise ImportError("The 'clifford' library is required for DimensionalShell.")
         self.dim = dim
         self.mind = mind_instance
-        self.layout, self.blades = clifford.Cl(dim)
-        self.vectors: Dict[str, clifford.MultiVector] = {}
+        self.layout, self.blades = clifford.Cl(dim)  # type: ignore[union-attr]
+        self.vectors = {}
         self.basis_vectors = [self.blades[f'e{i+1}'] for i in range(dim)]
         self.rotor_generator = CliffordRotorGenerator(mind_instance, self.layout, self.blades)
-        self.orientation = self.layout.scalar
+        self.orientation = self.layout.scalar if hasattr(self.layout, 'scalar') else 1.0
 
         try:
             self._build_bivector_basis()
         except Exception:
-            pass
+            # If GA basis build fails, keep an empty list so other methods can guard on it
+            self.bivector_basis = []
     def add_vector(self, node_id: str, vector: np.ndarray):
         """Converts a numpy vector to a multivector and adds it to the shell."""
         if vector.shape[0] != self.dim:
@@ -594,17 +1258,15 @@ class DimensionalShell:
             return
 
         incremental_rotor = self.rotor_generator.generate_rotor(self, action_angle)
-        self.orientation = (incremental_rotor * self.orientation).normal()
+        new_orientation = (incremental_rotor * self.orientation)
+        self.orientation = new_orientation.normal() if hasattr(new_orientation, 'normal') else new_orientation
 
         orientation_reverse = ~self.orientation
 
         for node_id, mv in self.vectors.items():
-
             rotated_mv = self.orientation * mv * orientation_reverse
-
             rotated_vec_np = np.array([float(rotated_mv[bv]) for bv in self.basis_vectors])
             snapped_vec_np = self.mind._snap_to_lattice(rotated_vec_np, self.dim)
-
             self.vectors[node_id] = sum(val * bv for val, bv in zip(snapped_vec_np, self.basis_vectors))
 
     def get_all_vectors_as_matrix(self) -> tuple[Optional[np.ndarray], Optional[list[str]]]:
@@ -619,77 +1281,70 @@ class DimensionalShell:
 
         return np.array(matrix_list, dtype=np.float32), node_ids
 
-def _build_bivector_basis(self):
-    try:
-        self.bivector_basis = []
-        for i in range(self.dim):
-            for j in range(i+1, self.dim):
-                self.bivector_basis.append(self.basis_vectors[i] ^ self.basis_vectors[j])
-    except Exception:
-        self.bivector_basis = []
-
-def spin_with_bivector(self, bivector_coeffs, angle):
-    try:
-        if not hasattr(self, "bivector_basis") or not self.bivector_basis:
-            self._build_bivector_basis()
-        if len(self.vectors) < 1:
-            return
-        B = 0
-        k = min(len(self.bivector_basis), len(bivector_coeffs))
-        for idx in range(k):
-            try:
-                B = B + float(bivector_coeffs[idx]) * self.bivector_basis[idx]
-            except Exception:
-                pass
+    def _build_bivector_basis(self):
         try:
-            Bn = B.normal()
+            self.bivector_basis = []
+            for i in range(self.dim):
+                for j in range(i+1, self.dim):
+                    self.bivector_basis.append(self.basis_vectors[i] ^ self.basis_vectors[j])
         except Exception:
-            Bn = None
-        if Bn is None:
-            try:
-                self.spin(float(angle))
-            except Exception:
-                pass
-            return
+            self.bivector_basis = []
+
+    def spin_with_bivector(self, bivector_coeffs, angle):
         try:
-            R = (-Bn * (float(angle) / 2.0)).exp()
-            self.orientation = (R * self.orientation).normal()
-            Rrev = ~self.orientation
-            new_vecs = {}
-            for node_id, mv in self.vectors.items():
-                mv2 = self.orientation * mv * Rrev
-                vec_np = []
-                for bv in self.basis_vectors:
-                    try:
-                        vec_np.append(float(mv2[bv]))
-                    except Exception:
-                        vec_np.append(0.0)
-                snapped = self.mind._snap_to_lattice(vec_np, self.dim) if hasattr(self.mind, "_snap_to_lattice") else vec_np
+            if not hasattr(self, "bivector_basis") or not self.bivector_basis:
+                self._build_bivector_basis()
+            if len(self.vectors) < 1:
+                return
+            B = 0
+            k = min(len(self.bivector_basis), len(bivector_coeffs))
+            for idx in range(k):
                 try:
-                    new_vecs[node_id] = sum(val * bv for val, bv in zip(snapped, self.basis_vectors))
+                    B = B + float(bivector_coeffs[idx]) * self.bivector_basis[idx]
                 except Exception:
-                    new_vecs[node_id] = mv
-            self.vectors = new_vecs
-        except Exception:
+                    pass
             try:
-                self.spin(float(angle))
+                Bn = B.normal() if hasattr(B, 'normal') else B  # type: ignore[attr-defined]
             except Exception:
-                pass
-    except Exception:
-        pass
-
-# Bind helper functions as methods on DimensionalShell
-try:
-    DimensionalShell._build_bivector_basis = _build_bivector_basis
-    DimensionalShell.spin_with_bivector = spin_with_bivector
-except Exception:
-    pass
+                Bn = None
+            if Bn is None:
+                try:
+                    self.spin(float(angle))
+                except Exception:
+                    pass
+                return
+            try:
+                R = (-Bn * (float(angle) / 2.0)).exp()  # type: ignore[attr-defined]
+                self.orientation = (R * self.orientation).normal() if hasattr(self.orientation, 'normal') else (R * self.orientation)
+                Rrev = ~self.orientation
+                new_vecs = {}
+                for node_id, mv in self.vectors.items():
+                    mv2 = self.orientation * mv * Rrev
+                    vec_np = []
+                    for bv in self.basis_vectors:
+                        try:
+                            vec_np.append(float(mv2[bv]))
+                        except Exception:
+                            vec_np.append(0.0)
+                    snapped = self.mind._snap_to_lattice(np.array(vec_np), self.dim) if hasattr(self.mind, "_snap_to_lattice") else np.array(vec_np)
+                    try:
+                        new_vecs[node_id] = sum(val * bv for val, bv in zip(snapped, self.basis_vectors))
+                    except Exception:
+                        new_vecs[node_id] = mv
+                self.vectors = new_vecs
+            except Exception:
+                try:
+                    self.spin(float(angle))
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
 class ProximityEngine:
     """
     An engine for finding approximate nearest neighbors within and across dimensional shells.
     """
-    def __init__(self, shell_dims: List[int], mind_instance: 'E8Mind', console: Console):
+    def __init__(self, shell_dims: List[int], mind_instance: 'E8Mind', console: Any):
         self.console = console
         self.shell_dims = shell_dims
         self.mind = mind_instance
@@ -731,19 +1386,23 @@ class ProximityEngine:
 
     def cross_dimensional_query(self, query_vector: np.ndarray, source_dim: int, target_dim: int, k: int = 1) -> List[tuple[str, float]]:
         """Finds nearest neighbors for a vector from a source shell in a target shell."""
-        if not TORCH_AVAILABLE or self.mind.autoencoder is None: return []
+        if not TORCH_AVAILABLE or self.mind.autoencoder is None or not self.mind.autoencoder.is_trained: return []
         if source_dim == target_dim:
             return self.find_similar_in_shell(query_vector, target_dim, k)
 
-        with torch.no_grad():
-            source_tensor = torch.from_numpy(query_vector).float().unsqueeze(0)
+        # Local import to satisfy type-checkers only when torch is available
+        import torch as _torch
+        with _torch.no_grad():
+            source_tensor = _torch.from_numpy(query_vector).float().unsqueeze(0)
 
             projected_tensor = self.mind.autoencoder.project_between_dim(source_tensor, source_dim=source_dim, target_dim=target_dim)
 
             if projected_tensor is None:
                 return []
-
-            projected_vector = projected_tensor.squeeze(0).numpy()
+            if hasattr(projected_tensor, 'cpu'):
+                projected_vector = projected_tensor.squeeze(0).cpu().numpy()  # type: ignore[attr-defined]
+            else:
+                projected_vector = np.asarray(projected_tensor).squeeze(0)
 
         return self.find_similar_in_shell(projected_vector, target_dim, k)
 
@@ -754,7 +1413,7 @@ class ProximityEngine:
         2. Projects candidates and query into a lower-dimensional shell.
         3. Re-ranks candidates based on distance in the abstract shell space.
         """
-        if rerank_shell_dim not in self.shell_dims or not TORCH_AVAILABLE or self.mind.autoencoder is None:
+        if not TORCH_AVAILABLE or self.mind.autoencoder is None or not self.mind.autoencoder.is_trained:
             return self.mind.memory.find_similar_in_main_storage(query_vector, k=final_k)
 
         initial_candidates = self.mind.memory.find_similar_in_main_storage(query_vector, k=initial_k)
@@ -775,14 +1434,18 @@ class ProximityEngine:
         if not valid_candidate_ids:
             return initial_candidates[:final_k]
 
-        with torch.no_grad():
-            query_tensor_high_dim = torch.from_numpy(query_vector).float().unsqueeze(0)
+        import torch as _torch
+        with _torch.no_grad():
+            query_tensor_high_dim = _torch.from_numpy(query_vector).float().unsqueeze(0)
             query_tensor_low_dim = self.mind.autoencoder.project_to_dim(query_tensor_high_dim, rerank_shell_dim)
 
         if query_tensor_low_dim is None:
             return initial_candidates[:final_k]
 
-        query_vector_low_dim = query_tensor_low_dim.squeeze(0).numpy()
+        if hasattr(query_tensor_low_dim, 'cpu'):
+            query_vector_low_dim = query_tensor_low_dim.squeeze(0).cpu().numpy()  # type: ignore[attr-defined]
+        else:
+            query_vector_low_dim = np.asarray(query_tensor_low_dim).squeeze(0)
 
         candidate_matrix = np.array(candidate_vectors_low_dim)
         distances = cosine_distances(query_vector_low_dim.reshape(1, -1), candidate_matrix).flatten()
@@ -809,7 +1472,7 @@ class ShellAttention:
         xs = np.array(list(raw.values()), dtype=np.float32); xs = np.exp(xs - xs.max()); xs /= (xs.sum() + 1e-12)
         return {d: float(w) for d,w in zip(raw.keys(), xs.tolist())}
 
-    def build(self, mind: "E8Mind", out_dim: int = None, keep_k: int = None) -> np.ndarray:
+    def build(self, mind: "E8Mind", out_dim: int = 32, keep_k: int = 3) -> np.ndarray:
         out_dim = int(out_dim or self.out_dim); keep_k = int(keep_k or self.keep_k)
         tensions = {}
         for dim, shell in mind.dimensional_shells.items():
@@ -857,7 +1520,7 @@ class AutoTask:
     id: str; label: str; reason: str; novelty: float; coherence: float; status: str = "pending"; created_step: int = 0
 
 class AutoTaskManager:
-    def __init__(self, console: Console):
+    def __init__(self, console: Any):
         self.console = console; self.queue: list[AutoTask] = []
     def maybe_spawn(self, step: int, novelty: float, coherence: float, top_labels: list[str]):
         if novelty >= 1.10 and coherence <= 0.50:
@@ -883,7 +1546,7 @@ class NoveltyScorer:
     This version queries the correct high-dimensional memory space and uses
     adaptive normalization to evaluate novelty relative to the memory's current density.
     """
-    def __init__(self, memory_manager: 'MemoryManager', llm_pool: 'AsyncLLMPool', console: Console):
+    def __init__(self, memory_manager: 'MemoryManager', llm_pool: 'AsyncLLMPool', console: Any):
         self.console = console
         self.memory_manager = memory_manager
         self.llm_pool = llm_pool
@@ -925,19 +1588,117 @@ class NoveltyScorer:
             self.console.log(f"[NoveltyScorer] Coherence check failed: {e}")
             return 0.5
 
+# [UPGRADE 5] Neural Episodic Memory (DND) for prioritized replay
+class EpisodicMemory:
+    """Stores high-reward episodes in a max-heap for prioritized replay."""
+    def __init__(self, max_size=500):
+        self.max_size = max_size
+        # Max-heap is simulated with a min-heap of (-priority, data)
+        self.heap = []
+
+    def add_episode(self, episode_data, reward):
+        """Adds an episode to the memory, prioritized by reward."""
+        priority = -reward  # Use negative reward for max-heap behavior
+        heapq.heappush(self.heap, (priority, episode_data))
+        if len(self.heap) > self.max_size:
+            # Remove the episode with the lowest reward (highest priority value)
+            heapq.heappop(self.heap)
+
+    def get_top_episodes(self, k=1):
+        """Retrieves the top k episodes without removing them."""
+        if not self.heap:
+            return []
+        top_k = heapq.nsmallest(k, self.heap)
+        # Return just the episode data, not the priority
+        return [data for priority, data in top_k]
+
+
+    def sample_prioritized(self, k=32, mind=None, alpha=1.0, beta=1.0, gamma=1.0, eta=0.6):
+        """Return up to k episodes sampled with priority p_i^eta, where
+        p_i = alpha*reward + beta*surprise + gamma*novelty.
+        If fields are missing, compute simple heuristics from memory.
+        """
+        if not self.heap:
+            return []
+        # Gather
+        episodes = [ep for (_prio, ep) in self.heap]
+        # Compute components
+        rewards, surprises, novelties = [], [], []
+        for ep in episodes:
+            r = float(ep.get('reward', ep.get('rating', 0.0)))
+            rewards.append(r)
+            # Surprise: distance between child embedding and mean(parent embeddings)
+            try:
+                if mind is not None and 'node_id' in ep and 'parent_ids' in ep:
+                    child_vec = mind.memory.main_vectors.get(ep['node_id']) or ep.get('embedding')
+                    parents = [mind.memory.main_vectors.get(pid) for pid in ep['parent_ids'] if pid in mind.memory.main_vectors]
+                    if child_vec is not None and parents:
+                        import numpy as _np
+                        pmean = _np.mean(_np.stack(parents), axis=0)
+                        surprises.append(float(_np.linalg.norm(_np.array(child_vec) - pmean)))
+                    else:
+                        surprises.append(0.0)
+                else:
+                    surprises.append(float(ep.get('surprise', 0.0)))
+            except Exception:
+                surprises.append(0.0)
+            # Novelty: prefer logged novelty else compute NN distance proxy
+            try:
+                nov = float(ep.get('novelty', 0.0))
+                if nov == 0.0 and mind is not None and 'node_id' in ep:
+                    # fallback: distance to nearest neighbor in memory index if available
+                    try:
+                        sim = mind.memory.find_similar_in_main_storage(mind.memory.main_vectors.get(ep['node_id']), k=2)
+                        d = 1.0 - (sim[0][1] if sim else 0.0)
+                        nov = float(d)
+                    except Exception:
+                        pass
+                novelties.append(nov)
+            except Exception:
+                novelties.append(0.0)
+        rewards = np.asarray(rewards, dtype=np.float64)
+        surprises = np.asarray(surprises, dtype=np.float64)
+        novelties = np.asarray(novelties, dtype=np.float64)
+        pri = alpha*rewards + beta*surprises + gamma*novelties
+        pri = np.maximum(pri, 1e-8)
+        w = np.power(pri, eta)
+        w = w / (w.sum() + 1e-12)
+        # Sample without replacement
+        idxs = np.random.choice(np.arange(len(episodes)), size=min(k, len(episodes)), replace=False, p=w)
+        return [episodes[i] for i in idxs]
 class InsightAgent:
     """An agent that generates new concepts and learns from an insight-driven reward signal."""
-    def __init__(self, llm_pool: 'AsyncLLMPool', novelty_scorer: NoveltyScorer, console: Console):
+    def __init__(self, llm_pool: 'AsyncLLMPool', novelty_scorer: NoveltyScorer, console: Any):
         self.console = console
         self.llm_pool = llm_pool
         self.novelty_scorer = novelty_scorer
         self.reward_history = deque(maxlen=100)
+        # [UPGRADE 5] Instantiate EpisodicMemory
+        self.episodic_memory = EpisodicMemory()
+
+    # In the InsightAgent class
 
     async def create_hybrid_concept(self, concept_a: Dict, concept_b: Dict) -> str:
         """Uses an LLM to synthesize a new, hybrid concept from two source concepts."""
+        
+        # --- START: New logic to get mind context ---
+        mind_instance = self.novelty_scorer.memory_manager.mind
+        try:
+            # Get the mind's current top-level goal for direction.
+            _, top_goal_desc = mind_instance.goal_field.get_top_goals(k=1)[0]
+        except (IndexError, TypeError):
+            top_goal_desc = "achieve greater understanding"
+
+        # Get the subconscious narrative for thematic context.
+        subconscious_narrative = mind_instance.subconscious.narrative
+        # --- END: New logic ---
+
+        # --- The new, more powerful prompt ---
         prompt = (
-            f"You are a creative synthesizer of ideas. Combine the core essence of the following two concepts "
-            f"into a single, novel, and coherent hybrid concept. Describe the new idea in one or two sentences.\n\n"
+            f"You are a creative synthesizer of ideas. Your current high-level objective is to '{top_goal_desc}'.\n"
+            f"The mind's current internal narrative is: \"{subconscious_narrative}\"\n\n"
+            f"Synthesize the following two concepts into a single, novel idea that ADVANCES THE OBJECTIVE. "
+            f"Describe the new idea in one or two clear sentences.\n\n"
             f"Concept A: '{concept_a.get('metaphor', concept_a.get('label', ''))}'\n"
             f"Concept B: '{concept_b.get('metaphor', concept_b.get('label', ''))}'\n\n"
             f"Hybrid Concept:"
@@ -945,14 +1706,18 @@ class InsightAgent:
         new_concept_text = await self.llm_pool.enqueue_and_wait(prompt, max_tokens=100, temperature=0.85)
         return new_concept_text.strip()
 
-    def learn_from_reward(self, reward: float):
+    def learn_from_reward(self, reward: float, episode_data: Optional[Dict] = None):
         """
-        Stores the reward and, in a full RL implementation, would update the agent's policy.
+        Stores the reward and logs the full episode to the EpisodicMemory.
         """
         self.reward_history.append(reward)
         if len(self.reward_history) > 10:
             avg_reward = np.mean(self.reward_history)
             self.console.log(f"[InsightAgent] Average Insight Reward: {avg_reward:.3f}")
+
+        # [UPGRADE 5] Log the complete episode if data is provided
+        if episode_data:
+            self.episodic_memory.add_episode(episode_data, reward)
 
 class GraphDB:
     """A graph database wrapper around NetworkX for managing conceptual relationships."""
@@ -976,44 +1741,84 @@ class GraphDB:
             return list(self.graph.neighbors(node_id))
         return []
 
+    # [UPGRADE 4] GraphRAG: Community Detection
+    def compute_and_store_communities(self, partition_key: str = "community_id"):
+        """Computes Louvain communities and stores the partition ID on each node."""
+        if nx_comm is None or self.graph.number_of_nodes() < 10:
+            return
+        try:
+            communities_iter = nx_comm.louvain_communities(self.graph, seed=GLOBAL_SEED)
+            communities = list(cast(Iterable, communities_iter))  # type: ignore[arg-type]
+            for i, community_nodes in enumerate(communities):
+                for node_id in community_nodes:
+                    if self.graph.has_node(node_id):
+                        self.graph.nodes[node_id][partition_key] = i
+            console.log(f"[GraphDB] Computed {len(communities)} communities.")
+        except Exception as e:
+            console.log(f"[GraphDB] Community detection failed: {e}")
+
+    def increment_edge_weight(self, u, v, delta=0.1, min_w=0.0, max_w=10.0, **attrs):
+        """Create edge if absent; add delta to 'weight' clamped to [min_w, max_w]."""
+        try:
+            if not self.graph.has_edge(u, v):
+                self.graph.add_edge(u, v, weight=max(min_w, delta), **attrs)
+            else:
+                w = float(self.graph.get_edge_data(u, v, default={'weight': 0.0}).get('weight', 0.0)) + float(delta)
+                w = min(max_w, max(min_w, w))
+                self.graph[u][v]['weight'] = w
+                for k,val in attrs.items():
+                    self.graph[u][v][k] = val
+        except Exception as e:
+            try: console.log(f"[GraphDB] increment_edge_weight failed: {e}")
+            except Exception: pass
+    
+
 if TORCH_AVAILABLE:
-    class GaussianActor(nn.Module):
+    import torch as _torch
+    import torch.nn as _nn
+
+    class GaussianActor(_nn.Module):
         def __init__(self, state_dim, action_dim, max_action):
             super().__init__()
-            self.l1 = nn.Linear(state_dim, 256)
-            self.l2 = nn.Linear(256, 256)
-            self.mu = nn.Linear(256, action_dim)
-            self.log_std = nn.Linear(256, action_dim)
+            self.l1 = _nn.Linear(state_dim, 256)
+            self.l2 = _nn.Linear(256, 256)
+            self.mu = _nn.Linear(256, action_dim)
+            self.log_std = _nn.Linear(256, action_dim)
             self.max_action = float(max_action)
         def forward(self, state):
-            h = torch.relu(self.l1(state))
-            h = torch.relu(self.l2(h))
+            h = _nn.functional.relu(self.l1(state))
+            h = _nn.functional.relu(self.l2(h))
             mu = self.mu(h)
-            log_std = torch.clamp(self.log_std(h), -5.0, 2.0)
+            log_std = _torch.clamp(self.log_std(h), -5.0, 2.0)
             return mu, log_std
         def sample(self, state):
             mu, log_std = self.forward(state)
-            std = torch.exp(log_std)
-            normal = torch.distributions.Normal(mu, std)
+            std = _torch.exp(log_std)
+            normal = _torch.distributions.Normal(mu, std)
             x_t = normal.rsample()
-            y_t = torch.tanh(x_t)
+            y_t = _torch.tanh(x_t)
             action = y_t * self.max_action
-            log_prob = normal.log_prob(x_t) - torch.log(1 - y_t.pow(2) + 1e-6)
+            log_prob = normal.log_prob(x_t) - _torch.log(1 - y_t.pow(2) + 1e-6)
             log_prob = log_prob.sum(dim=1, keepdim=True)
-            mu_action = torch.tanh(mu) * self.max_action
+            mu_action = _torch.tanh(mu) * self.max_action
             return action, log_prob, mu_action
 
-    class QCritic(nn.Module):
+    class QCritic(_nn.Module):
         def __init__(self, state_dim, action_dim):
             super().__init__()
-            self.l1 = nn.Linear(state_dim + action_dim, 256)
-            self.l2 = nn.Linear(256, 256)
-            self.l3 = nn.Linear(256, 1)
+            self.l1 = _nn.Linear(state_dim + action_dim, 256)
+            self.l2 = _nn.Linear(256, 256)
+            self.l3 = _nn.Linear(256, 1)
         def forward(self, state, action):
-            x = torch.cat([state, action], dim=-1)
-            x = torch.relu(self.l1(x))
-            x = torch.relu(self.l2(x))
+            x = _torch.cat([state, action], dim=-1)
+            x = _nn.functional.relu(self.l1(x))
+            x = _nn.functional.relu(self.l2(x))
             return self.l3(x)
+
+else:
+    # Minimal placeholders when torch is missing. Avoid redefining class names to prevent obscuring.
+    GaussianActor = object  # type: ignore[assignment]
+    QCritic = object  # type: ignore[assignment]
 
 class ReplayBuffer:
     """Simple FIFO replay buffer."""
@@ -1107,19 +1912,22 @@ class SACMPOAgent:
             self.max_action = float(max_action)
             self.console = console
             self.tau = float(tau)
-            self.device = device or (torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"))
-            self.actor = GaussianActor(state_dim, action_dim, max_action).to(self.device)
-            self.actor_old = GaussianActor(state_dim, action_dim, max_action).to(self.device)
+            if TORCH_AVAILABLE:
+                self.device = device or (_torch.device("cuda") if _torch.cuda.is_available() else _torch.device("cpu"))
+            else:
+                raise ImportError("Torch is required for SACMPOAgent but is not available.")
+            self.actor = GaussianActor(state_dim, action_dim, max_action).to(self.device)  # type: ignore[attr-defined]
+            self.actor_old = GaussianActor(state_dim, action_dim, max_action).to(self.device)  # type: ignore[attr-defined]
             self.actor_old.load_state_dict(self.actor.state_dict())
-            self.critics = nn.ModuleList([QCritic(state_dim, action_dim).to(self.device) for _ in range(4)])
-            self.critics_target = nn.ModuleList([QCritic(state_dim, action_dim).to(self.device) for _ in range(4)])
+            self.critics = _nn.ModuleList([QCritic(state_dim, action_dim).to(self.device) for _ in range(4)])  # type: ignore[attr-defined]
+            self.critics_target = _nn.ModuleList([QCritic(state_dim, action_dim).to(self.device) for _ in range(4)])  # type: ignore[attr-defined]
             for i in range(4):
                 self.critics_target[i].load_state_dict(self.critics[i].state_dict())
             self.active_critics = 2
-            self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=3e-4)
-            self.critic_opts = [torch.optim.Adam(self.critics[i].parameters(), lr=3e-4) for i in range(4)]
-            self.log_alpha = torch.nn.Parameter(torch.tensor(0.0, device=self.device))
-            self.alpha_opt = torch.optim.Adam([self.log_alpha], lr=3e-4)
+            self.actor_opt = _torch.optim.Adam(self.actor.parameters(), lr=3e-4)
+            self.critic_opts = [_torch.optim.Adam(self.critics[i].parameters(), lr=3e-4) for i in range(4)]
+            self.log_alpha = _nn.Parameter(_torch.tensor(0.0, device=self.device))
+            self.alpha_opt = _torch.optim.Adam([self.log_alpha], lr=3e-4)
             self.alpha_min, self.alpha_max = 1e-4, 1.0
             self.replay = PrioritizedReplayBuffer(state_dim, action_dim, max_size=int(2e5)) if use_per else ReplayBuffer(state_dim, action_dim, max_size=int(2e5))
             self._train_steps = 0
@@ -1143,11 +1951,11 @@ class SACMPOAgent:
             return float(base * scale)
 
         def select_action(self, state, deterministic=False):
-            s = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
-            with torch.no_grad():
+            s = _torch.tensor(state, dtype=_torch.float32, device=self.device).unsqueeze(0)
+            with _torch.no_grad():
                 if deterministic:
                     mu, _ = self.actor.forward(s)
-                    a = torch.tanh(mu) * self.max_action
+                    a = _torch.tanh(mu) * self.max_action
                 else:
                     a, _, _ = self.actor.sample(s)
             return a.squeeze(0).cpu().numpy().astype("float32")
@@ -1157,10 +1965,10 @@ class SACMPOAgent:
 
         def epistemic_std(self, state, action):
             try:
-                s = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
-                a = torch.tensor(action, dtype=torch.float32, device=self.device).unsqueeze(0)
+                s = _torch.tensor(state, dtype=_torch.float32, device=self.device).unsqueeze(0)
+                a = _torch.tensor(action, dtype=_torch.float32, device=self.device).unsqueeze(0)
                 qs = []
-                with torch.no_grad():
+                with _torch.no_grad():
                     for i in range(self.active_critics):
                         qs.append(self.critics[i](s, a).cpu().item())
                 if len(qs) <= 1:
@@ -1181,24 +1989,24 @@ class SACMPOAgent:
             batch = self.replay.sample(self.batch_size)
             
             if use_per:
-                state_np, action_np, next_state_np, reward_np, done_np, weights_np, indices = batch
-                weights = torch.tensor(weights_np, dtype=torch.float32, device=self.device)
+                state_np, action_np, next_state_np, reward_np, done_np, weights_np, indices = batch  # type: ignore[misc]
+                weights = _torch.tensor(weights_np, dtype=_torch.float32, device=self.device)
             else:
-                state_np, action_np, next_state_np, reward_np, done_np = batch
+                state_np, action_np, next_state_np, reward_np, done_np = batch  # type: ignore[misc]
                 weights, indices = None, None
 
-            state = torch.tensor(state_np, dtype=torch.float32, device=self.device)
-            action = torch.tensor(action_np, dtype=torch.float32, device=self.device)
-            next_state = torch.tensor(next_state_np, dtype=torch.float32, device=self.device)
-            reward = torch.tensor(reward_np, dtype=torch.float32, device=self.device)
-            done = torch.tensor(done_np, dtype=torch.float32, device=self.device)
+            state = _torch.tensor(state_np, dtype=_torch.float32, device=self.device)
+            action = _torch.tensor(action_np, dtype=_torch.float32, device=self.device)
+            next_state = _torch.tensor(next_state_np, dtype=_torch.float32, device=self.device)
+            reward = _torch.tensor(reward_np, dtype=_torch.float32, device=self.device)
+            done = _torch.tensor(done_np, dtype=_torch.float32, device=self.device)
 
-            with torch.no_grad():
+            with _torch.no_grad():
                 next_a, next_logp, _ = self.actor.sample(next_state)
                 q_next = []
                 for i in range(self.active_critics):
                     q_next.append(self.critics_target[i](next_state, next_a))
-                q_next = torch.min(torch.stack(q_next, dim=0), dim=0).values
+                q_next = _torch.min(_torch.stack(q_next, dim=0), dim=0).values
                 target_v = q_next - self.log_alpha.exp() * next_logp
                 target_q = reward + (1.0 - done) * self.gamma * target_v
 
@@ -1206,27 +2014,27 @@ class SACMPOAgent:
             for i in range(self.active_critics):
                 qi = self.critics[i](state, action)
                 if i == 0 and use_per: # Calculate TD errors once for buffer update
-                    td_errors = torch.abs(qi - target_q).detach().cpu().numpy().flatten()
+                    td_errors = _torch.abs(qi - target_q).detach().cpu().numpy().flatten()
                     td_errors_for_buffer = td_errors
                 
-                if use_per and weights is not None:
-                    li = (torch.nn.functional.mse_loss(qi, target_q, reduction='none') * weights).mean()
-                else:
-                    li = torch.nn.functional.mse_loss(qi, target_q)
-                
-                self.critic_opts[i].zero_grad()
-                li.backward()
-                self.critic_opts[i].step()
+            if use_per and weights is not None:
+                li = (_nn.functional.mse_loss(qi, target_q, reduction='none') * weights).mean()
+            else:
+                li = _nn.functional.mse_loss(qi, target_q)
+            
+            self.critic_opts[i].zero_grad()
+            li.backward()
+            _nn.utils.clip_grad_norm_(self.critics[i].parameters(), 1.0)
+            self.critic_opts[i].step()
 
-            if use_per and len(td_errors_for_buffer) > 0:
-                self.replay.update_priorities(indices, td_errors_for_buffer)
-
+            if use_per and len(td_errors_for_buffer) > 0 and hasattr(self.replay, 'update_priorities'):
+                self.replay.update_priorities(indices, td_errors_for_buffer)  # type: ignore[attr-defined]
             a, logp, _ = self.actor.sample(state)
             q_pi = []
             for i in range(self.active_critics):
                 q_pi.append(self.critics[i](state, a))
-            q_pi = torch.min(torch.stack(q_pi, dim=0), dim=0).values
-            with torch.no_grad():
+            q_pi = _torch.min(_torch.stack(q_pi, dim=0), dim=0).values
+            with _torch.no_grad():
                 mu_old, logstd_old = self.actor_old.forward(state)
             mu_new, logstd_new = self.actor.forward(state)
             kl = 0.5 * (
@@ -1246,71 +2054,100 @@ class SACMPOAgent:
                 self._soft_update(self.critics[i], self.critics_target[i])
             self._soft_update(self.actor, self.actor_old)
 
-class Probe:
-    def __init__(self, run_id):
-        self.path = get_path("debug/probe.ndjson", run_id)
-        os.makedirs(os.path.dirname(self.path), exist_ok=True)
-        self._lock = asyncio.Lock()
+class BaseAgentAdapter:
+    """Wrap baseline agent to the society interface."""
+    def __init__(self, agent, name="base"):
+        self.agent = agent; self.name = name
+    async def select_action(self, state, mind):
+        try: return self.agent.select_action(state)
+        except Exception: 
+            import numpy as _np; return _np.zeros(mind.action_dim, dtype=_np.float32)
 
-    async def log(self, **kv):
-        kv["ts"] = datetime.now(timezone.utc).isoformat()
+class ActionCandidateSampler:
+    def __init__(self, mind, K=12, mag=0.04):
+        self.mind = mind; self.K=int(K); self.mag=float(mag)
+    def sample(self):
+        import numpy as _np
+        ad = int(self.mind.action_dim); c=[_np.zeros(ad, dtype=_np.float32)]
+        for i in range(min(self.K, ad)):
+            v=_np.zeros(ad, dtype=_np.float32); v[i]=self.mag; c.append(v); c.append(-v)
+        return c[:max(1,self.K)]
+
+class NoveltyAgent:
+    def __init__(self, sampler): self.sampler=sampler; self.name="nov"
+    async def select_action(self, state, mind):
+        import numpy as _np
+        wm = getattr(mind, 'world_model', None); c = self.sampler.sample()
+        best,score=None,-1e9
+        for a in c:
+            s = float(wm.score_transition(state,a)) if (wm and getattr(wm,'available',False) and getattr(wm,'ready',False)) else float(_np.linalg.norm(a))
+            if s>score: best,score=a,s
+        return best or c[0]
+
+class StabilityAgent:
+    def __init__(self, sampler): self.sampler=sampler; self.name="stab"
+    async def select_action(self, state, mind):
+        import numpy as _np
+        c=self.sampler.sample()
+        idx=int(_np.argmin([_np.linalg.norm(a) for a in c]))
+        return c[idx]
+
+class SynthesisAgent:
+    def __init__(self, sampler): self.sampler=sampler; self.name="syn"
+    async def select_action(self, state, mind):
+        import numpy as _np
+        c=self.sampler.sample(); anchors=getattr(mind,'anchors',None)
+        target=None
         try:
-            async with self._lock:
-                with open(self.path, "a", encoding="utf-8") as f:
-                    f.write(json.dumps(kv, ensure_ascii=False) + "\n")
-        except Exception:
-            pass
-
-    def log_sync(self, **kv):
-        kv["ts"] = datetime.now(timezone.utc).isoformat()
-        try:
-            with open(self.path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(kv, ensure_ascii=False) + "\n")
-        except Exception:
-            pass
-
-def set_asyncio_exception_logger(probe: Probe):
-    try:
-        loop = asyncio.get_running_loop()
-        def _handler(loop, context):
-            msg = context.get("message", "")
-            exc = context.get("exception")
-            tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)) if exc else msg
+            if anchors and getattr(anchors,'anchors',None):
+                vecs=[_np.asarray(v,dtype=_np.float32) for v,_ in anchors.anchors]
+                if len(vecs)>=2:
+                    dmax,pair=-1,(vecs[0],vecs[0])
+                    for i in range(len(vecs)):
+                        for j in range(i+1,len(vecs)):
+                            d=float(_np.linalg.norm(vecs[i]-vecs[j])); 
+                            if d>dmax: dmax,pair=d,(vecs[i],vecs[j])
+                    target=0.5*(pair[0]+pair[1])
+        except Exception: target=None
+        if target is None:
+            return await NoveltyAgent(self.sampler).select_action(state, mind)
+        wm = getattr(mind, 'world_model', None)
+        def score(a):
             try:
-                if loop.is_running() and not loop.is_closed():
-                    asyncio.create_task(probe.log(ev="loop_exception", message=msg, traceback=tb))
-                else:
-                    probe.log_sync(ev="loop_exception", message=msg, traceback=tb)
-            except Exception:
-                probe.log_sync(ev="loop_exception", message=msg, traceback=tb)
-        loop.set_exception_handler(_handler)
-    except RuntimeError: # No running loop
-        pass
+                if wm and getattr(wm,'available',False) and getattr(wm,'ready',False):
+                    return -abs(wm.score_transition(state,a))
+            except Exception: pass
+            return float(_np.linalg.norm(a))
+        idx=int(_np.argmin([score(a) for a in c]))
+        return c[idx]
 
-class InstrumentedLock:
-    def __init__(self, name="lock", probe=None):
-        self._lock = asyncio.Lock()
-        self.name = name
-        self.probe = probe
-        self._t_acq = 0.0
+def _softmax_b(values, beta: float):
+    import numpy as _np
+    x=_np.asarray(values, dtype=_np.float64); x=x-x.max(); ex=_np.exp(beta*x); s=ex.sum()
+    return ex/s if s>0 and _np.isfinite(s) else _np.ones_like(ex)/len(ex)
 
-    async def __aenter__(self):
-        t0 = time.time()
-        await self._lock.acquire()
-        wait = (time.time() - t0) * 1000.0
-        if self.probe:
-            await self.probe.log(ev="lock_acquire", lock=self.name, wait_ms=round(wait,2))
-        self._t_acq = time.time()
-        return self
-
-    async def __aexit__(self, exc_type, exc, tb):
-        held = (time.time() - self._t_acq) * 1000.0
-        if self.probe:
-            await self.probe.log(ev="lock_release", lock=self.name, held_ms=round(held,2))
-        self._lock.release()
+class MetaArbiter:
+    def __init__(self, agents: dict, drive_system, beta: float = 3.0, console=None, metrics=None):
+        self.agents=agents; self.drive_system=drive_system; self.beta=float(beta); self.console=console; self.metrics=metrics
+    def utilities(self, state, mind):
+        ds=self.drive_system
+        def _safe(fn, fallback):
+            try: return float(fn(state))
+            except Exception: return float(fallback)
+        # Heuristics if drives are missing
+        try:
+            sims = mind.memory.find_similar_in_main_storage(state, k=5)
+            nn = sims[0][1] if sims else 0.0
+        except Exception: nn=0.25
+        u_nov = _safe(getattr(ds,'novelty_need', lambda s: nn), nn)
+        u_syn = _safe(getattr(ds,'synthesis_need', lambda s: nn), nn)
+        u_stab= _safe(getattr(ds,'stability_need', lambda s: 0.3), 0.3)
+        u_base= _safe(getattr(ds,'exploit_need', lambda s: 0.5*(1.0-u_nov)), 0.5*(1.0-u_nov))
+        return {"nov":u_nov,"syn":u_syn,"stab":u_stab,"base":u_base}
+    # [note] Context management is handled by InstrumentedLock; MetaArbiter isn't a lock.
 
 class AsyncOpenAIClient:
-    def __init__(self, api_key: str, console: Console):
+    def __init__(self, api_key: str, console: Any):
         from openai import AsyncOpenAI, BadRequestError
         self.client = AsyncOpenAI(api_key=api_key)
         self.BadRequestError = BadRequestError
@@ -1318,12 +2155,24 @@ class AsyncOpenAIClient:
 
     async def chat(self, messages, model=None, max_tokens=None, temperature=None):
         try:
+            _model = model or DEFAULT_OPENAI_CHAT_MODEL
             cc = await self.client.chat.completions.create(
-                model=model, messages=messages, max_tokens=max_tokens, temperature=temperature)
+                model=_model, messages=messages, max_tokens=max_tokens, temperature=temperature)
             if cc.choices:
                 return (cc.choices[0].message.content or "").strip()
             return "[LLM ERROR] No choices returned from API."
         except self.BadRequestError as e:
+            # Try a safe fallback model if preview is not available
+            try:
+                fallback_model = "gpt-4o-mini"
+                if (model or DEFAULT_OPENAI_CHAT_MODEL) != fallback_model:
+                    cc = await self.client.chat.completions.create(
+                        model=fallback_model, messages=messages, max_tokens=max_tokens, temperature=temperature)
+                    if cc.choices:
+                        self.console.log(f"[yellow]Fell back to {fallback_model} after BadRequestError for model '{model or DEFAULT_OPENAI_CHAT_MODEL}'.[/yellow]")
+                        return (cc.choices[0].message.content or "").strip()
+            except Exception:
+                pass
             self.console.log(f"[bold red]OpenAI API Error: {e}[/bold red]")
             return f"[LLM ERROR] {e}"
 
@@ -1332,8 +2181,11 @@ class AsyncOpenAIClient:
 
     async def embedding(self, text, model=None, dimensions=None):
         try:
-            res = await self.client.embeddings.create(
-                input=[text], model=model or "text-embedding-3-small", dimensions=dimensions)
+            _model = model or "text-embedding-3-small"
+            if dimensions is None:
+                res = await self.client.embeddings.create(input=[text], model=_model)
+            else:
+                res = await self.client.embeddings.create(input=[text], model=_model, dimensions=int(dimensions))
             return res.data[0].embedding
         except Exception as e:
             self.console.log(f"[bold red]OpenAI Embedding Error: {e}[/bold red]")
@@ -1341,15 +2193,18 @@ class AsyncOpenAIClient:
 
     async def batch_embedding(self, texts, model=None, dimensions=None):
         try:
-            res = await self.client.embeddings.create(
-                input=texts, model=model or "text-embedding-3-small", dimensions=dimensions)
+            _model = model or "text-embedding-3-small"
+            if dimensions is None:
+                res = await self.client.embeddings.create(input=texts, model=_model)
+            else:
+                res = await self.client.embeddings.create(input=texts, model=_model, dimensions=int(dimensions))
             return [d.embedding for d in res.data]
         except Exception as e:
             self.console.log(f"[bold red]OpenAI Batch Embedding Error: {e}[/bold red]")
             return [np.zeros(EMBED_DIM).tolist() for _ in texts]
 
 class OllamaClient:
-    def __init__(self, ollama_model: str, console: Console):
+    def __init__(self, ollama_model: str, console: Any):
         if ollama is None:
             raise RuntimeError("Python package 'ollama' not installed. Please `pip install ollama`.")
         self.client = ollama.AsyncClient()
@@ -1397,13 +2252,25 @@ class OllamaClient:
             return out
 
 class GeminiClient:
-    def __init__(self, api_key: str, model_name: str, console: Console):
+    def __init__(self, api_key: str, model_name: str, console: Any):
         if genai is None:
             raise RuntimeError("google-generativeai is not installed. Please `pip install google-generativeai`. ")
         if not api_key:
             raise ValueError("Gemini API key is required.")
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel(model_name)
+        # Configure using documented API. Fallback if attributes differ.
+        try:
+            if hasattr(genai, "configure"):
+                genai.configure(api_key=api_key)  # type: ignore[call-arg]
+        except Exception:
+            pass
+        try:
+            self.model = genai.GenerativeModel(model_name)  # type: ignore[attr-defined]
+        except Exception:
+            # Fallback: some versions use genai.GenerativeModel with model= kw
+            try:
+                self.model = genai.GenerativeModel(model=model_name)  # type: ignore[call-arg]
+            except Exception:
+                self.model = None
         self.console = console
 
     async def chat(self, messages, max_tokens=None, temperature=None, **kwargs):
@@ -1420,8 +2287,20 @@ class GeminiClient:
                     else:
                         deduped[-1] = gemini_messages[i]
                 gemini_messages = deduped
-            config = genai.types.GenerationConfig(max_output_tokens=max_tokens, temperature=temperature)
-            response = await self.model.generate_content_async(gemini_messages, generation_config=config)
+            # Build generation config defensively
+            config = None
+            try:
+                types_mod = getattr(genai, "types", None)
+                if types_mod is not None:
+                    config = types_mod.GenerationConfig(max_output_tokens=max_tokens, temperature=temperature)
+            except Exception:
+                config = None
+            # Some SDKs are sync only; call in a thread if needed
+            if hasattr(self.model, "generate_content_async"):
+                response = await self.model.generate_content_async(gemini_messages, generation_config=config)  # type: ignore[call-arg]
+            else:
+                import asyncio as _asyncio
+                response = await _asyncio.to_thread(self.model.generate_content, gemini_messages, generation_config=config)  # type: ignore[call-arg]
 
             text_out = ""
             try:
@@ -1468,24 +2347,42 @@ class GeminiClient:
 
     async def embedding(self, text, model="models/embedding-001", **kwargs):
         try:
-            result = await genai.embed_content_async(
-                model="models/embedding-001",
-                content=text,
-                task_type="retrieval_document"
-            )
-            return result['embedding']
+            # Use to_thread to call sync embed_content on versions without async
+            _embed_async = getattr(genai, "embed_content_async", None)
+            _embed_sync = getattr(genai, "embed_content", None)
+            if _embed_async is not None:
+                result = await _embed_async(model=model, content=text, task_type="retrieval_document")  # type: ignore[call-arg]
+            elif _embed_sync is not None:
+                import asyncio as _asyncio
+                result = await _asyncio.to_thread(_embed_sync, model=model, content=text, task_type="retrieval_document")  # type: ignore[call-arg]
+            else:
+                return np.zeros(EMBED_DIM).tolist()
+            # result may be dict-like or object; handle generically
+            emb = getattr(result, "embedding", None)
+            if emb is None and isinstance(result, dict):
+                emb = result.get("embedding")
+            return emb if emb is not None else np.zeros(EMBED_DIM).tolist()
         except Exception as e:
             self.console.log(f"[bold red]Gemini Embedding Error: {e}[/bold red]")
             return np.zeros(EMBED_DIM).tolist()
 
     async def batch_embedding(self, texts, model="models/embedding-001", **kwargs):
         try:
-            result = await genai.embed_content_async(
-                model="models/embedding-001",
-                content=texts,
-                task_type="retrieval_document"
-            )
-            return result['embedding']
+            _embed_async = getattr(genai, "embed_content_async", None)
+            _embed_sync = getattr(genai, "embed_content", None)
+            if _embed_async is not None:
+                result = await _embed_async(model=model, content=texts, task_type="retrieval_document")  # type: ignore[call-arg]
+            elif _embed_sync is not None:
+                import asyncio as _asyncio
+                result = await _asyncio.to_thread(_embed_sync, model=model, content=texts, task_type="retrieval_document")  # type: ignore[call-arg]
+            else:
+                return [np.zeros(EMBED_DIM).tolist() for _ in texts]
+            emb = getattr(result, "embedding", None)
+            if emb is None and isinstance(result, dict):
+                emb = result.get("embedding")
+            if isinstance(emb, list):
+                return emb
+            return [np.zeros(EMBED_DIM).tolist() for _ in texts]
         except Exception as e:
             self.console.log(f"[bold red]Gemini Batch Embedding Error: {e}[/bold red]")
             return [np.zeros(EMBED_DIM).tolist() for _ in texts]
@@ -1500,6 +2397,11 @@ class AsyncLLMPool:
         self._results: Dict[int, Any] = {}
         self._next_id = 0
         self.running = True
+        self._sem = asyncio.Semaphore(int(os.getenv('E8_MAX_INFLIGHT', '32')))
+        try:
+            self._timeout = float(os.getenv('E8_LLM_TIMEOUT', '45'))
+        except Exception:
+            self._timeout = 45.0
 
     async def _worker(self):
         while self.running:
@@ -1579,9 +2481,123 @@ class AsyncLLMPool:
             await asyncio.sleep(0.01)
 
     async def enqueue_and_wait(self, prompt, **kwargs):
-        pid = await self.submit(prompt, **kwargs)
-        return await self.get_result(pid)
+        async def _inner():
+            pid = await self.submit(prompt, **kwargs)
+            return await self.get_result(pid, timeout=self._timeout)
+        async def _wrapped():
+            async with self._sem:
+                try:
+                    # Py3.10 compatibility: use wait_for instead of asyncio.timeout CM
+                    return await asyncio.wait_for(_inner(), timeout=self._timeout)
+                except Exception:
+                    return "[LLM:DEGRADED]"
+        return await _wrapped()
 
+# --- Minimal instrumentation and optional-module stubs ---
+class InstrumentedLock:
+    """An asyncio.Lock wrapper that logs acquire/release events via Probe."""
+    def __init__(self, name: str, probe: Optional["Probe"] = None):
+        import asyncio as _asyncio
+        self._lock = _asyncio.Lock()
+        self.name = str(name)
+        self.probe = probe
+        self._t_acq = None
+
+    async def __aenter__(self):
+        import time as _time
+        t0 = _time.time()
+        await self._lock.acquire()
+        self._t_acq = _time.time()
+        if self.probe is not None:
+            try:
+                await self.probe.log(ev="lock_acquire", lock=self.name, wait_ms=round((_time.time()-t0)*1000.0,2))
+            except Exception:
+                self.probe.log_sync(ev="lock_acquire", lock=self.name)
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        import time as _time
+        if self.probe is not None:
+            try:
+                await self.probe.log(ev="lock_release", lock=self.name, held_ms=round((_time.time()-float(self._t_acq or _time.time()))*1000.0,2))
+            except Exception:
+                self.probe.log_sync(ev="lock_release", lock=self.name)
+        self._lock.release()
+
+    # Provide explicit acquire/release for direct use
+    async def acquire(self):
+        return await self._lock.acquire()
+    def release(self):
+        return self._lock.release()
+
+class Probe:
+    """Lightweight async probe that writes newline-delimited JSON events."""
+    def __init__(self, run_id: str):
+        self.run_id = str(run_id)
+        self.path = os.path.join(RUNTIME_DIR, self.run_id, "debug", "probe.ndjson")
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        self._lock = asyncio.Lock()
+
+    def _write(self, record: dict):
+        try:
+            with open(self.path, "a", encoding="utf-8") as f:
+                json.dump(record, f, ensure_ascii=False)
+                f.write("\n")
+        except Exception:
+            pass
+
+    async def log(self, **fields):
+        rec = {"ts": (datetime.now(timezone.utc).isoformat() if (datetime is not None and timezone is not None) else __import__('datetime').datetime.utcnow().isoformat())}
+        rec.update(fields)
+        async with self._lock:
+            await asyncio.to_thread(self._write, rec)
+
+    def log_sync(self, **fields):
+        rec = {"ts": (datetime.now(timezone.utc).isoformat() if (datetime is not None and timezone is not None) else __import__('datetime').datetime.utcnow().isoformat())}
+        rec.update(fields)
+        self._write(rec)
+
+def set_asyncio_exception_logger(probe: Probe):
+    """Install an asyncio exception handler that forwards to the probe."""
+    try:
+        loop = asyncio.get_event_loop()
+        def _handler(loop, context):
+            msg = context.get("message") or str(context.get("exception"))
+            try:
+                loop.create_task(probe.log(ev="asyncio_exception", message=str(msg)))
+            except Exception:
+                probe.log_sync(ev="asyncio_exception", message=str(msg))
+        loop.set_exception_handler(_handler)
+    except Exception:
+        pass
+
+class SocietyOfMind:
+    """Minimal stub: selects a neutral action when advanced society is unavailable."""
+    def __init__(self, mind, beta: float = 3.0, K: int = 12):
+        self.mind = mind
+        self.beta = float(beta)
+        self.K = int(K)
+    async def step(self, state: np.ndarray, mind):
+        return np.zeros(getattr(mind, 'action_dim', 6), dtype=np.float32)
+
+# Wavey integration (guarded import)
+try:
+    from wavey import WaveyE8Bridge, integrate_one_cycle, PotentialFunction  # type: ignore
+except Exception:
+    class WaveyE8Bridge:  # type: ignore
+        def __init__(self, embed_dim: int = EMBED_DIM, seed: int = 0, topk: int = 8):
+            self.embed_dim = int(embed_dim)
+            self.seed = int(seed)
+            self.topk = int(topk)
+    def integrate_one_cycle(mind, bridge):  # type: ignore
+        return {
+            "hamiltonian_bias": np.zeros(240, dtype=np.float32),
+            "attention_weights": np.zeros((0,), dtype=np.float32),
+            "potentials": [],
+            "events": [],
+            "seed_used": False,
+            "node_potentials": np.zeros(240, dtype=np.float32),
+        }
 def neuro_to_engine(DA: float, NE: float, ACh: float, S5: float):
     DA, NE, ACh, S5 = np.clip([DA, NE, ACh, S5], 0.0, 1.0)
     sigma = float(np.clip(1.25 * (1.0 + 0.6*NE - 0.3*ACh + 0.3*S5), 0.8, 2.2))
@@ -1756,6 +2772,8 @@ class E8Physics:
             P = Q[:, :3]
             pts = self.roots @ P
 
+        # At this point, pts should not be None; assert for type-checkers and safety
+        assert pts is not None, "Projection points (pts) must be computed before normalization."
         pts -= pts.mean(axis=0, keepdims=True)
         pts /= (np.abs(pts).max() + 1e-6)
         self.projection_matrix = P
@@ -1795,11 +2813,18 @@ class E8Physics:
         return blueprint_coords
 
     def _build_normalized_laplacian(self):
-        if csr_matrix is None or diags is None: return np.eye(self.weights.shape[0])
+        if csr_matrix is None or diags is None:
+            # Pure numpy fallback for normalized Laplacian
+            W = np.asarray(self.weights, dtype=np.float32)
+            deg = np.sum(W, axis=1)
+            d_is = 1.0 / np.sqrt(np.maximum(deg, 1e-9))
+            D_inv_sqrt = np.diag(d_is)
+            return np.eye(W.shape[0], dtype=np.float32) - D_inv_sqrt @ W @ D_inv_sqrt
         W = csr_matrix(self.weights, dtype=np.float32)
         deg = np.asarray(W.sum(axis=1)).ravel()
         D_inv_sqrt = diags(1.0 / np.sqrt(np.maximum(deg, 1e-9)))
-        return diags(np.ones(W.shape[0])) - D_inv_sqrt @ W @ D_inv_sqrt
+        n = int(np.shape(self.weights)[0])
+        return diags(np.ones(n, dtype=np.float32)) - D_inv_sqrt @ W @ D_inv_sqrt
 
     def heat_mask_cached(self, center_idx, sigma=1.25):
         key = (int(center_idx), round(float(sigma), 2))
@@ -1819,6 +2844,14 @@ class QuantumConfig:
                  dephase: float = 0.0, locality_sigma: float = 1.5,
                  seed=None, topk_amp: int = 5, non_linearity_strength: float = 2.5):
         self.gamma = gamma
+        # Graph-aware extensions
+        self.mode = os.getenv('E8_QMODE', 'lattice')  # 'lattice' or 'graph'
+        self.lambda_V = float(os.getenv('E8_Q_LAMBDA', '0.2'))
+        self.decay_tau = float(os.getenv('E8_Q_DECAY_TAU', '600'))
+        self.rebuild_every = int(os.getenv('E8_Q_REBUILD_EVERY', '10'))
+        self.alpha_edge = float(os.getenv('E8_Q_ALPHA_EDGE', '1.0'))
+        self.reward_gain = float(os.getenv('E8_Q_REWARD_GAIN', '0.5'))
+
         self.dt = dt
         self.batch = batch
         self.dephase = dephase
@@ -1827,14 +2860,92 @@ class QuantumConfig:
         self.topk_amp = topk_amp
         self.non_linearity_strength = non_linearity_strength
 
+# === Graph-aware Hamiltonian helpers (CTQW on memory graph projected to E8) ===
+def _safe_node_to_root_idx(nid, memory, mind):
+    try:
+        node = memory.graph_db.get_node(nid)
+        loc = node.get('blueprint_location_id') if node else None
+        if isinstance(loc, (int, np.integer)) and 0 <= int(loc) < 240:
+            return int(loc)
+        vec = getattr(memory, 'main_vectors', {}).get(nid) if hasattr(memory, 'main_vectors') else None
+        if vec is not None and TORCH_AVAILABLE and getattr(mind, 'autoencoder', None) and getattr(mind.autoencoder, 'is_trained', False):
+            import torch as _torch
+            with _torch.no_grad():
+                z8 = mind.autoencoder.project_to_dim(_torch.from_numpy(np.asarray(vec, dtype=np.float32)).float().unsqueeze(0), 8)
+                if z8 is not None:
+                    try:
+                        z8_np = z8.squeeze(0).cpu().numpy()
+                    except Exception:
+                        z8_np = np.asarray(z8).squeeze()
+                    idx = mind.physics.find_nearest_root_index(z8_np)
+                    return int(idx) if idx is not None else None
+    except Exception:
+        return None
+    return None
+
+def build_adjacency_240_from_memory(memory, mind, alpha=1.0, decay_tau=600.0, reward_gain=0.5):
+    rows, cols, data = [], [], []
+    try:
+        G = memory.graph_db.graph
+        now = getattr(mind, 'step_num', 0)
+        for u, v, attr in G.edges(data=True):
+            iu = _safe_node_to_root_idx(u, memory, mind)
+            iv = _safe_node_to_root_idx(v, memory, mind)
+            if iu is None or iv is None or iu == iv:
+                continue
+            w = float(attr.get('weight', 1.0))
+            ts = float(attr.get('ts', 0.0))
+            lu = float((G.nodes[u] or {}).get('last_step', 0)) if u in G.nodes else 0.0
+            lv = float((G.nodes[v] or {}).get('last_step', 0)) if v in G.nodes else 0.0
+            last_seen = max(ts, lu, lv)
+            rec = float(np.exp(-(max(0.0, now - last_seen))/max(1e-6, decay_tau)))
+            ru = float((G.nodes[u] or {}).get('insight_reward', 0.0)) if u in G.nodes else 0.0
+            rv = float((G.nodes[v] or {}).get('insight_reward', 0.0)) if v in G.nodes else 0.0
+            rewd = float(attr.get('reward', 0.0))
+            rbar = (ru + rv + rewd) / 3.0
+            wij = alpha * w * rec * (1.0 + reward_gain * rbar)
+            if wij <= 0: 
+                continue
+            rows.append(iu); cols.append(iv); data.append(wij)
+            rows.append(iv); cols.append(iu); data.append(wij)
+        if csr_matrix is None:
+            # Dense fallback
+            A = np.zeros((240,240), dtype=np.float32)
+            if data:
+                r = np.asarray(rows, dtype=np.int32)
+                c = np.asarray(cols, dtype=np.int32)
+                d = np.asarray(data, dtype=np.float32)
+                A[r, c] = d
+            return A
+        else:
+            if data:
+                A = csr_matrix((np.asarray(data, dtype=np.float32), (np.asarray(rows), np.asarray(cols))), shape=(240,240))
+            else:
+                A = csr_matrix((240,240), dtype=np.float32)
+            return A
+    except Exception as e:
+        try:
+            console.log(f"[Quantum] build_adjacency_240_from_memory failed: {e}")
+        except Exception:
+            pass
+        if csr_matrix is None:
+            return np.zeros((240,240), dtype=np.float32)
+        return csr_matrix((240,240), dtype=np.float32)
+# === End Graph-aware helpers ===
 class QuantumEngine:
-    def __init__(self, physics, config, console: Console):
+    def attach_mind(self, mind_instance):
+        self.mind = mind_instance
+        return self
+    def __init__(self, physics, config, console: Any):
+        self.mind = None
+        self._last_graph_build_step = -1
+
         self.console = console
         self.physics, self.config = physics, config
         self.psi = np.ones((config.batch, 240), dtype=np.complex64) / np.sqrt(240)
         self.rng = np.random.default_rng(config.seed)
-        self.H: Optional[csr_matrix] = None
-        self._last_H: Optional[csr_matrix] = None
+        self.H: Any = None
+        self._last_H: Any = None
         self._last_potential: Optional[np.ndarray] = None
         self._last_norm = np.nan
         self._last_energy = np.nan
@@ -1842,31 +2953,71 @@ class QuantumEngine:
         self.console.log("[INIT] Quantum Engine online (Non-Linear Edition).")
 
     def build_hamiltonian(self, V: Optional[np.ndarray] = None):
-        if diags is None or csr_matrix is None: return
+        if diags is None or csr_matrix is None:
+            # Fallback: store dense H using numpy
+            if V is None:
+                V = np.zeros(240, dtype=np.float32)
+            H = (self.config.gamma * np.asarray(self.physics.L_norm, dtype=np.complex64)) + np.diag(V)
+            self.H = H
+            self._last_H = H
+            self._last_potential = np.asarray(V).copy()
+            return
         if V is None:
             V = np.zeros(240, dtype=np.float32)
-
-        H = (self.config.gamma * self.physics.L_norm.astype(np.complex64)) + diags(V)
-        self.H = csr_matrix(H)
-
+        # Safer guard for optional mind/memory
+        _mind = getattr(self, 'mind', None)
+        _mem = getattr(_mind, 'memory', None) if _mind is not None else None
+        use_graph = (getattr(self.config, 'mode', 'lattice') == 'graph' and _mind is not None and _mem is not None)
+        if use_graph and (self._last_graph_build_step < 0 or (getattr(_mind, 'step_num', 0) - self._last_graph_build_step) >= getattr(self.config,'rebuild_every',10)):
+            A = build_adjacency_240_from_memory(_mem, _mind,
+                                               alpha=getattr(self.config,'alpha_edge',1.0),
+                                               decay_tau=getattr(self.config,'decay_tau',600.0),
+                                               reward_gain=getattr(self.config,'reward_gain',0.5))
+            if csr_matrix is None or diags is None:
+                H = (-self.config.gamma * np.asarray(A, dtype=np.complex64)) + getattr(self.config,'lambda_V',0.2) * np.diag(V)
+                self.H = H
+            else:
+                H = (-self.config.gamma * A.astype(np.complex64)) + getattr(self.config,'lambda_V',0.2) * diags(V)
+                self.H = csr_matrix(H)
+            self._last_graph_build_step = getattr(_mind, 'step_num', 0)
+        else:
+            if diags is None or csr_matrix is None:
+                H = (self.config.gamma * np.asarray(self.physics.L_norm, dtype=np.complex64)) + np.diag(V)
+                self.H = H
+            else:
+                H = (self.config.gamma * self.physics.L_norm.astype(np.complex64)) + diags(V)
+                self.H = csr_matrix(H)
         self._last_H = self.H
         self._last_potential = np.asarray(V).copy()
+
 
     def _probs(self):
         p = np.abs(self.psi)**2
         return p / (np.sum(p, axis=1, keepdims=True) + 1e-12)
 
     def step_adaptive(self, tv_target=0.07, dt_min=0.02, dt_max=1.2):
-        if self.H is None or expm_multiply is None:
+        if self.H is None:
             return 0.0
 
         p0 = self._probs()
         H_eff = self.H.copy()
         if self.config.non_linearity_strength != 0:
             feedback = self.config.non_linearity_strength * p0[0]
-            H_eff += diags(feedback.astype(np.float32), 0)
+            if diags is not None and hasattr(H_eff, 'shape') and csr_matrix is not None:
+                try:
+                    H_eff = H_eff + diags(feedback.astype(np.float32), 0)
+                except Exception:
+                    pass
+            else:
+                # dense numpy path
+                H_eff = np.asarray(H_eff) + np.diag(feedback.astype(np.float32))
 
-        psi_new = expm_multiply(-1j * H_eff * self.config.dt, self.psi.T).T
+        if expm_multiply is not None and hasattr(H_eff, 'dot'):
+            psi_new = expm_multiply(-1j * H_eff * self.config.dt, self.psi.T).T
+        else:
+            # crude Euler step fallback for environments without scipy
+            H_dense = np.asarray(H_eff)
+            psi_new = (self.psi + (-1j * self.config.dt) * (self.psi @ H_dense.T)).astype(np.complex64)
         nrm = np.linalg.norm(psi_new, axis=1, keepdims=True)
         self.psi = psi_new / np.maximum(nrm, 1e-12)
         p1 = self._probs()
@@ -1961,7 +3112,7 @@ class QuantumEngine:
             "locality_sigma": float(getattr(self.config, "locality_sigma", 1.5)),
         }
 
-    def measure_ablation(self, prev_idx:int, sigma:float=None, window:int=5, trials:int=512):
+    def measure_ablation(self, prev_idx:int, sigma: Optional[float]=None, window:int=5, trials:int=512):
         """Compare local vs hybrid measurement near prev_idx.
         Returns dict with hit counts and rates inside ±window."""
         if sigma is None:
@@ -1996,7 +3147,7 @@ class QuantumEngine:
         }
 
 class ClassicalEngine:
-    def __init__(self, physics, config, console: Console):
+    def __init__(self, physics, config, console: Any):
         self.console = console
         self.physics, self.config = physics, config
         self.rng = np.random.default_rng(config.seed)
@@ -2026,8 +3177,8 @@ class E8BoundaryFabric:
         Dm12 = 1.0 / np.sqrt(np.maximum(deg, 1e-9))
         L = np.eye(self.N, dtype=np.float32) - (Dm12[:,None] * W * Dm12[None,:])
         try:
-            if sp is None or eigsh is None: raise RuntimeError("scipy is required for layout_2d")
-            _, vecs = eigsh(sp.csr_matrix(L), k=4, which='SM')
+            if csr_matrix is None or eigsh is None: raise RuntimeError("scipy is required for layout_2d")
+            _, vecs = eigsh(csr_matrix(L), k=4, which='SM')
             P = vecs[:, 1:4]
         except Exception:
             _, vecs = np.linalg.eigh(L)
@@ -2064,7 +3215,7 @@ class HoloEncoder:
         self._U_cache: Dict[Tuple, np.ndarray] = {}
         self.store: Dict[Tuple[int, int], float] = {}
 
-    def shadow_set(self, bulk_idx: int, pos_hint_xy: np.ndarray = None) -> np.ndarray:
+    def shadow_set(self, bulk_idx: int, pos_hint_xy: Optional[np.ndarray] = None) -> np.ndarray:
         if pos_hint_xy is not None and self.fabric.pos2d is not None:
             d = np.sum((self.fabric.pos2d - pos_hint_xy[None,:])**2, axis=1)
             return np.argsort(d)[:self.shadow_k].astype(np.int32)
@@ -2103,6 +3254,38 @@ class HoloEncoder:
         y = y[:U.shape[0]]
         return (U.T @ y).astype(np.float32)
 
+    def encode(self, embedding: np.ndarray) -> np.ndarray:
+        """Compress a high-D embedding to feat_dim (default 8). Safe fallbacks if compressor isn't ready."""
+        try:
+            v = np.asarray(embedding, dtype=np.float32).reshape(-1)
+            comp = getattr(self, "_compressor", None)
+            if comp is None:
+                in_dim = int(v.size)
+                try:
+                    comp = TinyCompressor(in_dim=in_dim, code_dim=int(self.feat_dim))
+                except Exception:
+                    comp = None
+                setattr(self, "_compressor", comp)
+            if comp is not None:
+                try:
+                    z = comp.encode(v)
+                except Exception:
+                    z = None
+            else:
+                z = None
+            if z is None:
+                z = v[: self.feat_dim]
+            z = np.asarray(z, dtype=np.float32).reshape(-1)
+            if z.size < self.feat_dim:
+                z = np.pad(z, (0, self.feat_dim - z.size))
+            elif z.size > self.feat_dim:
+                z = z[: self.feat_dim]
+            return z.astype(np.float32)
+        except Exception:
+            v = np.asarray(embedding, dtype=np.float32).reshape(-1)
+            if v.size < self.feat_dim:
+                v = np.pad(v, (0, self.feat_dim - v.size))
+            return v[: self.feat_dim].astype(np.float32)
 class EntropyMap:
     def __init__(self, fabric: "E8BoundaryFabric", k_bits_per_edge: float = 4.0):
         self.fabric, self.k = fabric, float(k_bits_per_edge)
@@ -2118,7 +3301,7 @@ class EntropyMap:
     def budget_bits(self, region_nodes: np.ndarray) -> float:
         return self.k * self.perimeter(region_nodes)
 
-    def usage_bits(self, store: dict, region_nodes: np.ndarray, slice_id: int = None) -> float:
+    def usage_bits(self, store: dict, region_nodes: np.ndarray, slice_id: Optional[int] = None) -> float:
         rset = set(int(i) for i in region_nodes.tolist())
         bits = 0.0
         for (nid, sid), val in store.items():
@@ -2126,7 +3309,7 @@ class EntropyMap:
                 bits += 32.0
         return float(bits)
 
-    def deficit_ratio(self, store: dict, region_nodes: np.ndarray, slice_id: int = None) -> float:
+    def deficit_ratio(self, store: dict, region_nodes: np.ndarray, slice_id: Optional[int] = None) -> float:
         B = self.budget_bits(region_nodes) + 1e-6
         U = self.usage_bits(store, region_nodes, slice_id)
         return float((U - B) / B)
@@ -2169,34 +3352,57 @@ class TinyCompressor:
         self.in_dim, self.code_dim = in_dim, code_dim
         self.ready, self._pca = False, None
         self._use_torch = TORCH_AVAILABLE
-        if self._use_torch:
-            class AE(nn.Module):
-                def __init__(self, D, C):
-                    super().__init__(); self.enc = nn.Linear(D, C, bias=False); self.dec = nn.Linear(C, D, bias=False)
-                def forward(self, x): return self.enc(x), self.dec(self.enc(x))
+        # If torch is available, build a tiny linear autoencoder
+        if self._use_torch and TORCH_AVAILABLE:
+            import torch as _torch  # local alias
+            import torch.nn as _nn
+            class AE(_nn.Module):
+                def __init__(self, D: int, C: int):
+                    super().__init__()
+                    self.enc = _nn.Linear(D, C, bias=False)
+                    self.dec = _nn.Linear(C, D, bias=False)
+                def forward(self, x):
+                    z = self.enc(x)
+                    xh = self.dec(z)
+                    return z, xh
             self.net = AE(self.in_dim, self.code_dim)
-            for p in self.net.parameters(): nn.init.xavier_uniform_(p.data)
-            self.opt = torch.optim.Adam(self.net.parameters(), lr=3e-3)
-        self.ready = self._use_torch
+            for p in self.net.parameters():
+                try:
+                    _nn.init.xavier_uniform_(p.data)
+                except Exception:
+                    pass
+            self.opt = _torch.optim.Adam(self.net.parameters(), lr=3e-3)
+            self.ready = True
 
     def fit(self, X: np.ndarray, epochs=5, bs=64):
         if X.shape[0] < max(bs, self.code_dim + 1): return
-        if self._use_torch:
-            self.net.train(); loss_fn = nn.MSELoss()
+        if self._use_torch and TORCH_AVAILABLE:
+            import torch as _torch
+            import torch.nn as _nn
+            self.net.train()
+            loss_fn = _nn.MSELoss()
+            # Shuffle each epoch
             for _ in range(epochs):
+                idx = np.random.permutation(X.shape[0])
                 for i in range(0, X.shape[0], bs):
-                    b = torch.from_numpy(X[np.random.permutation(X.shape[0])[i:i+bs]])
-                    self.opt.zero_grad(); _, xh = self.net(b); loss = loss_fn(xh, b)
-                    loss.backward(); self.opt.step()
+                    b = _torch.from_numpy(X[idx[i:i+bs]])
+                    self.opt.zero_grad()
+                    _, xh = self.net(b)
+                    loss = loss_fn(xh, b)
+                    loss.backward()
+                    self.opt.step()
+            self.ready = True
         elif PCA is not None:
+            # Fallback to PCA when torch is not available
             self._pca = PCA(n_components=self.code_dim).fit(X)
-        self.ready = True
+            self.ready = True
 
     def encode(self, x: np.ndarray) -> np.ndarray:
         x = x.reshape(1, -1)
-        if self._use_torch and self.ready:
+        if self._use_torch and self.ready and TORCH_AVAILABLE:
+            import torch as _torch
             self.net.eval()
-            with torch.no_grad(): z, _ = self.net(torch.from_numpy(x))
+            with _torch.no_grad(): z, _ = self.net(_torch.from_numpy(x))
             return z.cpu().numpy().ravel()
         if self._pca and self.ready: return self._pca.transform(x).ravel()
         return x.ravel()[:self.code_dim]
@@ -2226,7 +3432,7 @@ class MultiAnchorField:
         return V
 
 class GoalField:
-    def __init__(self, embedding_fn, console: Console):
+    def __init__(self, embedding_fn, console: Any):
         self.console = console
         self.embedding_fn = embedding_fn
         self.goals: Dict[str, Dict[str, Any]] = {}
@@ -2256,8 +3462,13 @@ class GoalField:
     def update_from_embedding(self, vector: np.ndarray, weight: float = 0.1):
         if not self.is_initialized or vector is None: return
         total_similarity, sims = 0.0, {}
+        def _cos(a, b):
+            a = np.asarray(a, dtype=np.float32); b = np.asarray(b, dtype=np.float32)
+            na, nb = np.linalg.norm(a), np.linalg.norm(b)
+            if na < 1e-9 or nb < 1e-9: return 0.0
+            return float(np.dot(a, b) / (na * nb))
         for name, goal_data in self.goals.items():
-            sim = MemoryManager._cos_sim(vector, goal_data["embedding"])
+            sim = _cos(vector, goal_data.get("embedding", np.zeros_like(vector)))
             sims[name], total_similarity = sim, total_similarity + sim
         if total_similarity > 1e-9:
             for name, sim in sims.items():
@@ -2285,8 +3496,9 @@ class GoalField:
 
     def get_top_goals(self, k: int = 2) -> List[tuple[str, str]]:
         if not self.is_initialized: return [("nascent", "The mind is still forming its goals.")]
-        sorted_goals = sorted(self.goals.items(), key=lambda item: -item[1]["activation"])
-        return [(name, data["description"]) for name, data in sorted_goals[:k]]
+        if not self.goals: return [("empty", "No goals defined.")]
+        sorted_goals = sorted(self.goals.items(), key=lambda item: -item[1].get("activation", 0.0))
+        return [(name, data.get("description", "No description")) for name, data in sorted_goals[:k]]
 
 class StatePotentialEvaluator:
     def __init__(self, dimensional_shells: Dict[int, 'DimensionalShell'], goal_field: 'GoalField'):
@@ -2300,14 +3512,15 @@ class StatePotentialEvaluator:
         total_resonance = 0.0
         goal_vec = np.zeros(EMBED_DIM, dtype=np.float32)
         for name, data in self.goal_field.goals.items():
-            goal_vec += data["activation"] * data["embedding"]
+            goal_vec += data.get("activation", 0.0) * data.get("embedding", np.zeros(EMBED_DIM, dtype=np.float32))
         if np.linalg.norm(goal_vec) == 0:
             return 0.0
 
         resonance_count = 0
         for dim, shell in self.dimensional_shells.items():
             matrix, _ = shell.get_all_vectors_as_matrix()
-            if matrix is None: continue
+            if matrix is None:
+                continue
 
             projected_goal_vec = np.zeros(dim)
             size_to_copy = min(EMBED_DIM, dim)
@@ -2317,8 +3530,7 @@ class StatePotentialEvaluator:
             shell_resonance = np.mean(similarities)
             total_resonance += shell_resonance
             resonance_count += 1
-
-        return total_resonance / resonance_count if resonance_count > 0 else 0.0
+        return float(total_resonance / resonance_count) if resonance_count > 0 else 0.0
 
     def calculate_potential_and_get_reward(self) -> float:
         goal_resonance_potential = self._calculate_goal_resonance()
@@ -2341,14 +3553,15 @@ class DriveSystem:
         return sorted(self.drives.items(), key=lambda item: -item[1])[:k]
 
 class MoodEngine:
-    def __init__(self, console: Console, baseline=0.5, decay_rate=0.995):
+    def __init__(self, console: Any, baseline=0.5, decay_rate=0.995):
         self.console = console
         self.baseline, self.decay_rate = baseline, decay_rate
         self.mood_vector = {"intensity": 0.5, "entropy": 0.5, "coherence": 0.5, "positivity": 0.5, "fluidity": 0.5, "intelligibility": 0.5}
         self.event_queue = deque()
         self._wx_last_code = None
         self._wx_repeat = 0
-        self.console.log("🌦️  Affective WeatherEngine Initialized.")
+        if self.console:
+            self.console.log("🌦️  Affective WeatherEngine Initialized.")
 
     def _nudge(self, key: str, amount: float):
         if key in self.mood_vector: self.mood_vector[key] = np.clip(self.mood_vector[key] + amount, 0.0, 1.0)
@@ -2449,7 +3662,7 @@ class MoodEngine:
         return normalize_vector(modulation)
 
 class SubconsciousLayer:
-    def __init__(self, embedding_fn, llm_caller, console: Console, decay_rate=0.95, accumulation_rate=0.004):
+    def __init__(self, embedding_fn, llm_caller, console: Any, decay_rate=0.95, accumulation_rate=0.004):
         self.embedding_fn = embedding_fn
         self.llm_caller = llm_caller
         self.console = console
@@ -2474,13 +3687,13 @@ class SubconsciousLayer:
         total_influence_vec = np.zeros_like(self.bias_vector, dtype=np.float32)
         active_influences = []
         for influence in self.influences:
-            time_delta = current_step - influence["start_step"]
+            time_delta = current_step - influence.get("start_step", current_step)
             if time_delta < 0: continue
-            decay_factor = math.exp(-influence["decay"] * time_delta)
-            oscillation_factor = math.cos(influence["frequency"] * time_delta)
-            current_strength = influence["initial_strength"] * decay_factor * oscillation_factor
+            decay_factor = math.exp(-influence.get("decay", 0.1) * time_delta)
+            oscillation_factor = math.cos(influence.get("frequency", 0.25) * time_delta)
+            current_strength = influence.get("initial_strength", 0.0) * decay_factor * oscillation_factor
             if abs(current_strength) > 0.001:
-                total_influence_vec += current_strength * influence["vector"]
+                total_influence_vec += current_strength * influence.get("vector", np.zeros_like(self.bias_vector))
                 active_influences.append(influence)
         if np.linalg.norm(total_influence_vec) > 0:
              self.bias_vector += total_influence_vec
@@ -2490,12 +3703,19 @@ class SubconsciousLayer:
     async def track_concept(self, label, weight=1.0):
         vec = await self.embedding_fn(label)
         if np.linalg.norm(vec) > 0:
-            if self.bias_vector is None: self.bias_vector = np.zeros_like(vec)
-            if self.bias_vector.shape != vec.shape: return
-            self.bias_vector += self.accumulation_rate * normalize_vector(vec) * weight
-            self.bias_vector = normalize_vector(self.bias_vector)
+            # Ensure we have a bias vector to work with and shapes are compatible
+            if self.bias_vector is None:
+                self.bias_vector = np.zeros_like(vec)
+            bv = self.bias_vector
+            if getattr(bv, 'shape', None) != vec.shape:
+                return
+            bv = bv + self.accumulation_rate * normalize_vector(vec) * weight
+            self.bias_vector = normalize_vector(bv)
             if len(self.bias_history) == 0 or np.linalg.norm(self.bias_history[-1] - self.bias_vector) > 0.01:
-                self.bias_history.append(self.bias_vector.copy())
+                try:
+                    self.bias_history.append(np.array(self.bias_vector, copy=True))
+                except Exception:
+                    self.bias_history.append(self.bias_vector)
 
     def get_bias(self):
         return self.bias_vector if self.bias_vector is not None else np.zeros(EMBED_DIM)
@@ -2530,534 +3750,770 @@ class SubconsciousLayer:
         except Exception as e:
             self.console.log(f"[Subconscious] Narrative generation failed: {e}")
 
+# --- NEW HELPER CLASSES FOR UPGRADES ---
+
+# [UPGRADE 1] Modern Hopfield Nets for attractor clean-up
+class HopfieldModern:
+    """Applies an energy minimization step to clean up synthesized vectors."""
+    def __init__(self, memory_manager, top_k=50, tau=0.1):
+        self.memory = memory_manager
+        self.top_k = top_k
+        self.tau = tau
+        self.prototypes = np.array([], dtype=np.float32)
+
+    def update_prototypes(self):
+        """Selects the top-K highest-rated nodes as stable memory patterns."""
+        nodes = self.memory.graph_db.graph.nodes(data=True)
+        high_reward_nodes = sorted(
+            [(nid, data) for nid, data in nodes if 'rating' in data and nid in self.memory.main_vectors],
+            key=lambda item: item[1]['rating'],
+            reverse=True
+        )[:self.top_k]
+
+        if high_reward_nodes:
+            vecs = [self.memory.main_vectors[nid] for nid, _ in high_reward_nodes]
+            # Prototypes P should be shape [D, K] for P @ v
+            self.prototypes = np.array(vecs, dtype=np.float32).T
+            console.log(f"[Hopfield] Updated prototypes with {self.prototypes.shape[1]} vectors.")
+
+    def clean_up(self, vector, steps=3):
+        """Pulls a vector towards the nearest energy minimum (prototype)."""
+        if self.prototypes.shape[1] == 0:
+            return vector
+        v = vector.copy()
+        for _ in range(steps):
+            # v_t+1 = softmax(P.T @ v_t / tau) @ P
+            energy = self.prototypes.T @ v / self.tau
+            exp_energy = np.exp(energy - np.max(energy)) # Softmax
+            softmax_energy = exp_energy / np.sum(exp_energy)
+            v_new = self.prototypes @ softmax_energy
+            v_new /= (np.linalg.norm(v_new) + 1e-9) # Normalize
+            if np.linalg.norm(v_new - v) < 1e-4:
+                break
+            v = v_new
+        return v
+
+# [UPGRADE 2] Kanerva Sparse Distributed Memory
+class KanervaSDM:
+    """A sparse, error-correcting secondary memory system."""
+    def __init__(self, mind_instance, num_addresses=4096, dim=8, radius=0.85):
+        self.mind = mind_instance
+        self.num_addresses = num_addresses
+        self.dim = dim
+        self.radius = radius
+        rng = np.random.default_rng(GLOBAL_SEED)
+        self.addresses = rng.standard_normal((num_addresses, dim)).astype(np.float32)
+        self.addresses /= np.linalg.norm(self.addresses, axis=1, keepdims=True)
+        self.kdtree = KDTree(self.addresses)
+        self.memory = np.zeros((num_addresses, dim), dtype=np.float32)
+        self.hits = np.zeros(num_addresses, dtype=np.int32)
+
+    def _get_vec8d(self, vec_embed):
+        """Projects a high-dimensional vector to the 8D address space."""
+        if (not TORCH_AVAILABLE) or getattr(self.mind, 'autoencoder', None) is None or (not getattr(self.mind.autoencoder, 'is_trained', False)):
+            return None
+        try:
+            import torch as _torch
+            with _torch.no_grad():
+                source_tensor = _torch.from_numpy(np.asarray(vec_embed, dtype=np.float32)).float().unsqueeze(0)
+                proj_tensor = self.mind.autoencoder.project_to_dim(source_tensor, self.dim)
+                if proj_tensor is None: return None
+                try:
+                    return proj_tensor.squeeze(0).detach().cpu().numpy()
+                except Exception:
+                    return np.asarray(proj_tensor).squeeze()
+        except Exception:
+            return None
+
+    def write(self, vec_embed):
+        """Sparse multi-write: reinforces memory at multiple nearby addresses."""
+        vec8d = self._get_vec8d(vec_embed)
+        if vec8d is None: return
+        impl = getattr(self.kdtree, '_impl', None)
+        if impl is not None and hasattr(impl, 'query_radius'):
+            indices = impl.query_radius(vec8d.reshape(1, -1), r=self.radius)[0]
+            if len(indices) > 0:
+                update_vec = np.sign(vec8d)
+                for idx in indices:
+                    self.memory[idx] = 0.95 * self.memory[idx] + 0.05 * update_vec
+                    self.hits[idx] += 1
+
+    def read_strength(self, vec_embed):
+        """Radius-gated read: aggregates hits to determine memory strength."""
+        vec8d = self._get_vec8d(vec_embed)
+        if vec8d is None: return 0.5
+        impl = getattr(self.kdtree, '_impl', None)
+        if impl is not None and hasattr(impl, 'query_radius'):
+            indices = impl.query_radius(vec8d.reshape(1, -1), r=self.radius)[0]
+            if len(indices) == 0: return 0.0
+            total_hits = np.sum(self.hits[indices])
+            # Sigmoid scaling: strength approaches 1 as hits increase
+            strength = 1 / (1 + np.exp(-(total_hits - 10) / 5.0))
+            return strength
+        return 0.5 # Fallback if radius query is unavailable
+
+# [UPGRADE 3] Vector-Symbolic Architecture / Holographic Reduced Representations
+class VSA:
+    """Encodes and decodes compositional structure in vectors using FFT."""
+    def __init__(self, dim, seed=GLOBAL_SEED):
+        self.dim = dim
+        rng = np.random.default_rng(seed)
+        self.roles = {
+            "PARENT_A": self._make_rand_vec(rng), "PARENT_B": self._make_rand_vec(rng),
+            "CAUSE": self._make_rand_vec(rng), "EFFECT": self._make_rand_vec(rng),
+        }
+    def _make_rand_vec(self, rng):
+        vec = rng.standard_normal(self.dim).astype(np.float32)
+        return vec / np.linalg.norm(vec)
+    def bind(self, role_key, filler_vec):
+        """Binds a role to a filler vector using circular convolution."""
+        role_vec = self.roles[role_key]
+        return np.fft.ifft(np.fft.fft(role_vec) * np.fft.fft(filler_vec)).real.astype(np.float32)
+    def unbind(self, role_key, bound_vec):
+        """Approximately recovers the filler vector."""
+        role_vec = self.roles[role_key]
+        return np.fft.ifft(np.fft.fft(bound_vec) * np.conj(np.fft.fft(role_vec))).real.astype(np.float32)
+    def encode_parentage(self, vec_a, vec_b):
+        """Combines two parent vectors into a single structural representation."""
+        bound_a = self.bind("PARENT_A", vec_a)
+        bound_b = self.bind("PARENT_B", vec_b)
+        combined = bound_a + bound_b
+        return combined / (np.linalg.norm(combined) + 1e-9)
+
+# [UPGRADE 7] Contrastive Micro-Reranker
+class MicroReranker:
+    """A small, local reranker to separate true insights from near-misses."""
+    def __init__(self, memory_manager):
+        self.memory = memory_manager
+        # Simple linear model weights: positive for good features, negative for bad
+        self.weights = np.array([
+            0.4,  # coherence (good)
+            0.3,  # novelty (good)
+            -0.1, # ppl (lower is better, feature is placeholder)
+            -0.2, # dup_rate (lower is better, feature is placeholder)
+            0.15, # parent_coh_mean (good)
+        ], dtype=np.float32)
+
+    def _get_features(self, novelty, coherence, parent_ids):
+        """Extracts features for a candidate concept."""
+        ppl = 100.0 # Placeholder: perplexity would need a language model
+        dup_rate = 0.1 # Placeholder: duplication rate would need text analysis
+        parent_coh_mean = 0.5
+        if parent_ids:
+            ratings = [self.memory.graph_db.get_node(pid).get('rating', 0.5) for pid in parent_ids if self.memory.graph_db.get_node(pid)]
+            if ratings: parent_coh_mean = np.mean(ratings) if ratings else 0.5
+        return np.array([coherence, novelty, ppl, dup_rate, parent_coh_mean], dtype=np.float32)
+
+    def score(self, features):
+        return np.dot(self.weights, features)
+
+    def validate(self, candidate_vec, parent_ids, novelty, coherence, margin=0.1):
+        """Validates a candidate against known low-coherence "hard negatives"."""
+        candidate_features = self._get_features(novelty, coherence, parent_ids)
+        candidate_score = self.score(candidate_features)
+
+        # Find nearby nodes with low coherence scores (ratings)
+        similar_nodes = self.memory.find_similar_in_main_storage(candidate_vec, k=10)
+        hard_negatives = [(nid, d) for nid, _ in similar_nodes if (d := self.memory.graph_db.get_node(nid)) and d.get('rating', 1.0) < 0.45][:3]
+
+        if not hard_negatives: return True # No negatives to compare against
+
+        for neg_id, neg_data in hard_negatives:
+            # Create a proxy feature vector for the negative node
+            neg_features = self._get_features(0.5, neg_data.get('rating', 0.0), [])
+            neg_score = self.score(neg_features)
+            if candidate_score <= neg_score + margin:
+                self.memory.mind.console.log(f"[Reranker] Rejected. Too similar to low-coherence node '{neg_data.get('label', '')}' (Score {candidate_score:.2f} <= {neg_score:.2f} + {margin})")
+                return False
+        return True
+
+# =======================================================================================
+# ======================== FULLY CORRECTED MEMORY MANAGER CLASS =========================
+# =======================================================================================
+# =======================================================================================
+# ======================== FULLY CORRECTED MEMORY MANAGER CLASS =========================
+# =======================================================================================
 class MemoryManager:
-    def __init__(self, embedding_fn, mood, subconscious, run_id, probe, llm_caller, mind_instance, **kwargs):
-        self.embedding_fn, self.mood, self.subconscious, self.run_id = embedding_fn, mood, subconscious, run_id
-        self.probe, self.llm_caller, self.mind = mind_instance.probe, mind_instance.llm_pool, mind_instance
+    """
+    An advanced, high-performance memory management system for the E8Mind.
+    This class orchestrates the mind's Long-Term Memory (LTM), managing a graph
+    database for relationships (GraphDB) and a high-dimensional vector space for
+    semantic content. It features batched index updates for performance, dynamic
+    reranking for intelligent retrieval, and a suite of advanced cognitive modules
+    for memory processing, including Hopfield networks, VSA, and a MicroReranker.
+    """
+    def __init__(self, mind_instance: 'E8Mind', **kwargs):
+        # --- CORRECTED: Initialize all attributes FIRST ---
+        self.mind = mind_instance
+        self.embedding_fn = self.mind.get_embedding
+        self.mood = self.mind.mood
+        self.subconscious = self.mind.subconscious
+        self.run_id = self.mind.run_id
+        self.probe = self.mind.probe
+        self.llm_caller = self.mind.llm_pool
+        self.console = self.mind.console
         self.lock = InstrumentedLock("memory", probe=self.probe)
 
+        # Initialize data structures and state
         self.graph_db = GraphDB()
         self.main_vectors: Dict[str, np.ndarray] = {}
         self.main_kdtree: Optional[KDTree] = None
         self._main_storage_ids: List[str] = []
         self._main_storage_matrix = np.empty((0, EMBED_DIM), dtype=np.float32)
+        self.pending_additions: List[Tuple[str, np.ndarray]] = []
+        self.pending_embeddings: List[np.ndarray] = []
         self.label_to_node_id: Dict[str, str] = {}
-        self.autobio_index = defaultdict(list)
-        self.symbol_history = defaultdict(list)
-        self.core_self = np.zeros(EMBED_DIM)
-        self.core_self_strength = 0.0
         self.consolidation_buffer: List[Dict] = []
         self.consolidation_task: Optional[asyncio.Task] = None
-        self.memory_consolidation_min = int(kwargs.get("memory_consolidation_min", 50))
-        self.max_knn_links = int(kwargs.get("max_knn_links", 4))
-        self._compressor = TinyCompressor(in_dim=EMBED_DIM, code_dim=8)
-        self.pending_embeddings: List[np.ndarray] = []
-        self._repeat_ngrams: Dict[Tuple, int] = defaultdict(int)
         self.field: Dict[str, float] = defaultdict(float)
         self.background_temp = 0.0
         self.active_locks: Dict[Tuple[str, str], int] = {}
 
-    def apply_soft_link(self, id_a, id_b, weight_delta=0.05, decay=0.985):
+        # Performance and configuration parameters
+        self.KDTREE_REBUILD_THRESHOLD = int(os.getenv("E8_KDTREE_BATCH_SIZE", "32"))
+        self.memory_consolidation_min = int(kwargs.get("memory_consolidation_min", 50))
+
+        # --- Advanced Cognitive Modules ---
+        self.hopfield = HopfieldModern(self)
+        self.sdm = KanervaSDM(self.mind)
+        self.vsa = VSA(EMBED_DIM)
+        self.reranker = MicroReranker(self)
+
+        self.console.log("🧠 [MemoryManager] New advanced instance initialized.")
+        
+
+        self._kdtree_latency_ms_window = []
+        self._kdtree_latency_threshold_ms = float(os.getenv('E8_KDTREE_LATENCY_MS', '25'))
+        self._novelty_stats_path = get_path('novelty_stats.json', self.run_id)
+        self._avg_nn_ema = None
         try:
-            if not self.graph_db.graph.has_edge(id_a, id_b):
-                self.graph_db.graph.add_edge(id_a, id_b, weight=float(weight_delta), type="proximity")
+            if os.path.exists(self._novelty_stats_path):
+                d = json.load(open(self._novelty_stats_path, 'r'))
+                self._avg_nn_ema = d.get('avg_nn_ema')
+        except Exception:
+            self._avg_nn_ema = None
+    def _rebuild_main_kdtree(self):
+        matrix_list = [self.main_vectors[nid] for nid in self._main_storage_ids]
+        if matrix_list:
+            self._main_storage_matrix = np.array(matrix_list, dtype=np.float32)
+            self.main_kdtree = KDTree(self._main_storage_matrix)
+        else:
+            self._main_storage_matrix = np.empty((0, EMBED_DIM), dtype=np.float32)
+            self.main_kdtree = None
+    @staticmethod
+    def _cos_sim(v1, v2) -> float:
+        """Calculates cosine similarity between two vectors."""
+        v1 = np.asarray(v1, dtype=np.float32)
+        v2 = np.asarray(v2, dtype=np.float32)
+        norm1 = np.linalg.norm(v1)
+        norm2 = np.linalg.norm(v2)
+        if norm1 < 1e-9 or norm2 < 1e-9:
+            return 0.0
+        return float(np.dot(v1, v2) / (norm1 * norm2))
+
+    async def add_entry(self, entry_data: dict, parent_ids: Optional[List[str]] = None, target_shells: Optional[List[int]] = None, precomputed_vec: Optional[np.ndarray] = None) -> str:
+        """
+        Adds a new concept to memory. This is the primary entry point for creating new memories.
+        The process involves embedding, validation, and queuing for indexed retrieval.
+        """
+        # --- 1. Vector Computation & Normalization ---
+        if precomputed_vec is not None:
+            vec = precomputed_vec
+        else:
+            text_to_embed = f"{entry_data.get('label', '')}: {entry_data.get('metaphor', '')}".strip()
+            if text_to_embed:
+                raw_vec = await self.embedding_fn(text_to_embed)
+                mood_mod = self.mood.get_mood_modulation_vector(raw_vec.shape[0])
+                mood_blend = mood_get(self.mood.mood_vector, "intensity") * 0.15
+                vec = normalize_vector(raw_vec + mood_blend * mood_mod)
             else:
-                w = float(self.graph_db.graph[id_a][id_b].get("weight", 0.0))
-                self.graph_db.graph[id_a][id_b]["weight"] = w * float(decay) + float(weight_delta)
-            if hasattr(self, "spike_temperature"):
-                self.spike_temperature(id_a, 0.02)
-                self.spike_temperature(id_b, 0.02)
+                vec = np.zeros(EMBED_DIM, dtype=np.float32)
+
+        if np.linalg.norm(vec) > 1e-9:
+            vec = normalize_vector(vec)
+            # Add to buffer for VAE training
+            self.pending_embeddings.append(vec)
+
+        entry_data["embedding"] = vec
+
+        # --- 2. Autoencoder-based Blueprint Location ---
+        if TORCH_AVAILABLE and getattr(self.mind, 'autoencoder', None) is not None and getattr(self.mind.autoencoder, 'is_trained', False):
+            try:
+                import torch as _torch
+                with _torch.no_grad():
+                    source_tensor = _torch.from_numpy(vec).float().unsqueeze(0)
+                    z8_tensor = self.mind.autoencoder.project_to_dim(source_tensor, 8)
+                    if z8_tensor is not None:
+                        try:
+                            z_np = np.asarray(z8_tensor).squeeze()
+                        except Exception:
+                            z_np = None
+                        if z_np is not None and np.size(z_np) > 0:
+                            location_id = self.mind.physics.find_nearest_root_index(z_np)
+                            entry_data["blueprint_location_id"] = location_id
+            except Exception:
+                pass
+
+        # --- 3. Add to Graph and Queue for KD-Tree ---
+        async with self.lock:
+            node_id = entry_data.get('idx')
+            if not node_id:
+                content_str = f"{entry_data.get('label', '')}{entry_data.get('metaphor', '')}{time.time()}"
+                node_id = hashlib.sha1(content_str.encode()).hexdigest()[:16]
+                entry_data['idx'] = node_id
+
+            if self.graph_db.graph.has_node(node_id):
+                self.spike_temperature(node_id, amount=0.5)
+                try:
+                    nd = self.graph_db.get_node(node_id)
+                    if isinstance(nd, dict):
+                        nd['last_step'] = self.mind.step_num
+                except Exception:
+                    pass
+                return node_id
+            
+            entry_data.setdefault("temperature", 1.0)
+            entry_data.setdefault("age", 0)
+            entry_data["last_step"] = self.mind.step_num
+            entry_data["mood_context"] = self.mood.mood_vector.copy()
+            
+            self.graph_db.add_node(node_id, **entry_data)
+            self.main_vectors[node_id] = vec
+            if entry_data.get('label'):
+                self.label_to_node_id[entry_data['label']] = node_id
+
+            shells_to_update = [self.mind.dimensional_shells[d] for d in target_shells] if target_shells else self.mind.dimensional_shells.values()
+            for shell in shells_to_update:
+                shell.add_vector(node_id, vec)
+        # Auto-schedule validation of new insight/concept nodes
+        try:
+            hv = getattr(self.mind, 'hypothesis_validator', None)
+            if os.getenv('E8_AUTO_VALIDATE_INSIGHTS', '1') == '1' and hv is not None and hasattr(hv, 'validate_insight'):
+                asyncio.create_task(hv.validate_insight(node_id))
         except Exception:
             pass
 
-    def apply_gravitational_lock(self, node_id_a: str, node_id_b: str, duration_steps: int):
-        if not self.graph_db.get_node(node_id_a) or not self.graph_db.get_node(node_id_b):
-            return
-        expiry_step = self.mind.step_num + duration_steps
-        edge_tuple = tuple(sorted((node_id_a, node_id_b)))
-        self.graph_db.add_edge(node_id_a, node_id_b, type="gravitational_lock", weight=5.0)
-        self.active_locks[edge_tuple] = expiry_step
-        self.mind.console.print(Panel(f"Gravitational Lock engaged between [cyan]{node_id_a}[/] and [cyan]{node_id_b}[/]",
-                        title="[bold yellow]ANCHOR[/]", border_style="yellow"))
+        if parent_ids:
+            for parent_id in parent_ids:
+                if self.graph_db.get_node(parent_id):
+                    self.graph_db.add_edge(node_id, parent_id, type="reflection_source", weight=0.9)
+        
+        self.pending_additions.append((node_id, vec))
+        if len(self.pending_additions) >= self.KDTREE_REBUILD_THRESHOLD:
+            self._commit_pending_additions_locked()
 
-    def decay_locks(self):
-        current_step = self.mind.step_num
-        expired_locks = [edge for edge, expiry in self.active_locks.items() if current_step >= expiry]
-        for edge in expired_locks:
-            node_a, node_b = edge
-            if self.graph_db.graph.has_edge(node_a, node_b):
-                edge_data = self.graph_db.graph.get_edge_data(node_a, node_b)
-                if edge_data and edge_data.get("type") == "gravitational_lock":
-                    self.graph_db.graph.remove_edge(node_a, node_b)
-            del self.active_locks[edge]
-
-    def neighbors(self, nid: str):
-        return self.graph_db.get_neighbors(nid)
-
-    def find_latest_node_at_blueprint(self, blueprint_index: int) -> Optional[str]:
-        for node_id, data in reversed(list(self.graph_db.graph.nodes(data=True))):
-            if data.get("blueprint_location_id") == blueprint_index:
-                return node_id
-        return None
-
-    def node_vec(self, nid: str):
-        v = self.main_vectors.get(nid)
-        if v is None: return None
-        n = float(np.linalg.norm(v)) + 1e-12
-        return (v / n).astype(np.float32)
-
-    def _rebuild_main_kdtree(self):
-        if self.main_vectors:
-            self._main_storage_ids = list(self.main_vectors.keys())
-            self._main_storage_matrix = np.array([self.main_vectors[nid] for nid in self._main_storage_ids], dtype=np.float32)
-            if self._main_storage_matrix.shape[0] > 0:
-                self.main_kdtree = KDTree(self._main_storage_matrix)
-            else:
-                self.main_kdtree = None
-        else:
-            self._main_storage_ids = []
-            self._main_storage_matrix = np.empty((0, EMBED_DIM), dtype=np.float32)
-            self.main_kdtree = None
-
-    def find_similar_in_main_storage(self, query_vector: np.ndarray, k: int = 5) -> List[tuple[str, float]]:
-        if self.main_kdtree is None or not self._main_storage_ids:
-            return []
-        k = min(k, len(self._main_storage_ids))
-        if k == 0:
-            return []
-        distances, indices = self.main_kdtree.query(query_vector, k=k)
-        node_ids = self._main_storage_ids
-        if isinstance(indices, (int, np.integer)):
-            return [(node_ids[indices], float(distances))]
-        return [(node_ids[i], d) for d, i in zip(np.atleast_1d(distances), np.atleast_1d(indices))]
-
-    def get_average_nearest_neighbor_distance(self, sample_k: int = 256) -> float:
-        if self.main_kdtree is None:
-            return 1.0
-        n = len(self._main_storage_ids)
-        if n < 2:
-            return 1.0
-        rng = np.random.default_rng()
-        idxs = rng.choice(n, size=min(sample_k, n), replace=False)
-        pts = self._main_storage_matrix[idxs]
-        dists, _ = self.main_kdtree.query(pts, k=2)
-        nn_dists = dists[:, 1]
-        mean_dist = float(np.mean(nn_dists))
-        return mean_dist if np.isfinite(mean_dist) and mean_dist > 1e-9 else 1.0
-
-    def _compute_rings(self, center_id: str, radius: int):
-        rings = {center_id: 0}
-        frontier = [center_id]
-        for d in range(1, radius + 1):
-            nxt = []
-            for n in frontier:
-                for nb in self.neighbors(n):
-                    if nb not in rings:
-                        rings[nb] = d
-                        nxt.append(nb)
-            frontier = nxt
-            if not frontier: break
-        return rings
-
-    async def _cosmological_spread(self, remnant_vec: np.ndarray, mass: float):
-        if mass <= 0 or remnant_vec is None:
-            return
-        self.mind.console.print(Panel("A cognitive aeon ends. The remnant seed will now imprint a new universe of thought.",
-                                    title="[bold #D02090]COSMOLOGICAL Spread[/]", border_style="#D02090"))
-
-        projected_vec_8d = None
-        if TORCH_AVAILABLE and self.mind.autoencoder and self.mind.autoencoder.is_trained:
-            with torch.no_grad():
-                remnant_tensor = torch.from_numpy(remnant_vec).float().unsqueeze(0)
-
-                projected_tensor = self.mind.autoencoder.project_to_dim(remnant_tensor, 8)
-                if projected_tensor is not None:
-                    projected_vec_8d = projected_tensor.squeeze(0).numpy()
-
-        if projected_vec_8d is None:
-            self.mind.console.log("[yellow]Cosmological spread skipped: Autoencoder projection to 8D failed or unavailable.[/yellow]")
-            return
-
-        e8_roots = self.mind.physics.roots_unit
-
-        imprint_scores = e8_roots @ normalize_vector(projected_vec_8d)
-
-        beta = 1.0
-        exp_scores = np.exp(beta * imprint_scores)
-        energy_distribution = exp_scores / np.sum(exp_scores)
-        new_holographic_field = defaultdict(float)
-        total_energy_to_distribute = BH_SPREAD_FRAC * float(mass)
-        for node_index in range(len(e8_roots)):
-            node_energy = total_energy_to_distribute * energy_distribution[node_index]
-            node_id_at_location = self.find_latest_node_at_blueprint(node_index)
-            if node_id_at_location:
-                new_holographic_field[node_id_at_location] = node_energy
-        self.field = new_holographic_field
-        self.background_temp = BH_BG_FRAC * float(mass)
-
-    def diffuse_field(self, eta: float = BH_DIFFUSION_ETA, leak: float = BH_FIELD_LEAK):
-        if not self.field:
-            self.background_temp *= (1.0 - leak)
-            return
-        new_field = defaultdict(float)
-        for n, val in list(self.field.items()):
-            if val <= 1e-12:
-                continue
-            stay = max(0.0, (1.0 - eta - leak)) * val
-            new_field[n] += stay
-            if eta > 0.0:
-                nbrs = self.neighbors(n)
-                deg = len(nbrs) or 1
-                portion = (eta * val) / deg
-                for nb in nbrs:
-                    new_field[nb] += portion
-        self.field = new_field
-        self.background_temp *= (1.0 - leak)
-
-    def _path(self, rel: str) -> str:
-        return get_path(rel, self.run_id)
-
-    @staticmethod
-    def _cos_sim(a: np.ndarray, b: np.ndarray) -> float:
-        norm_a, norm_b = np.linalg.norm(a), np.linalg.norm(b)
-        return np.dot(a, b) / (norm_a * norm_b) if norm_a > 1e-9 and norm_b > 1e-9 else 0.0
-
-    async def add_entry(self, entry_data: dict, parent_ids: Optional[List[str]] = None, target_shells: Optional[List[int]] = None) -> str:
-        pre_vec = entry_data.get("embedding")
-        if entry_data.get("type") == "void":
-            pre_vec = np.zeros(EMBED_DIM, dtype=np.float32)
-
-        if not isinstance(pre_vec, np.ndarray) or np.linalg.norm(pre_vec) == 0:
-            txt = f"{entry_data.get('label', '')}: {entry_data.get('metaphor', '')}"
-            if txt.strip():
-                raw_vec = await self.embedding_fn(txt.strip())
-                if raw_vec is not None and np.linalg.norm(raw_vec) > 0:
-                    mood_mod = self.mood.get_mood_modulation_vector(raw_vec.shape[0])
-                    mood_blend = mood_get(self.mood.mood_vector, "intensity") * 0.15
-                    pre_vec = normalize_vector(raw_vec + mood_blend * mood_mod)
-                else:
-                    pre_vec = np.zeros(EMBED_DIM)
-            else:
-                pre_vec = np.zeros(EMBED_DIM)
-
-        if np.linalg.norm(pre_vec) > 0:
-            pre_vec = normalize_vector(pre_vec)
-
-        entry_data["embedding"] = pre_vec
-
-        if pre_vec is not None:
-            self.pending_embeddings.append(pre_vec)
-
-        if pre_vec is not None and TORCH_AVAILABLE and self.mind.autoencoder and self.mind.autoencoder.is_trained:
-            with torch.no_grad():
-                if np.linalg.norm(pre_vec) > 1e-8:
-                    source_tensor = torch.from_numpy(pre_vec).float().unsqueeze(0)
-                    x_embed_tensor = self.mind.autoencoder.project_between_dim(source_tensor, EMBED_DIM, 8)
-                    if x_embed_tensor is not None:
-                        x_embed_8d = x_embed_tensor.numpy().squeeze()
-                        location_id = self.mind.physics.find_nearest_root_index(x_embed_8d)
-                        if location_id is not None:
-                            entry_data["blueprint_location_id"] = location_id
-
-        async with self.lock:
-            entry_data.setdefault("temperature", 1.0)
-            entry_data.setdefault("age", 0)
-            entry_data.setdefault("last_step", self.mind.step_num)
-            entry_data["mood_context"] = self.mood.mood_vector.copy()
-            entry_data["timestamp"] = datetime.now(timezone.utc).isoformat()
-            rating = entry_data.get("rating", 0.5)
-            if rating > 0.8 and pre_vec is not None:
-                current_step = entry_data.get("step", 0)
-                self.subconscious.add_waveform_influence(pre_vec, rating, current_step)
-            self._penalize_repeats_in_entry(entry_data)
-            self.mood.process_event("new_concept", rating=rating, metaphor_themes=entry_data.get("metaphor_themes", []))
-            node_id = self._add_node_to_ltm_locked(entry_data, precomputed_vec=pre_vec, target_shells=target_shells)
-            if parent_ids:
-                for parent_id in parent_ids:
-                    if self.graph_db.get_node(parent_id):
-                        self.graph_db.add_edge(node_id, parent_id, type="reflection_source", weight=0.9)
-            if entry_data.get("rating", 0.5) > 0.8:
-                self.spike_temperature(node_id, amount=1.5)
-                node = self.graph_db.get_node(node_id)
-                if node: node["vivid_until_step"] = self.mind.step_num + 24
-            if entry_data.get("type") not in ["meta_reflection", "phase_summary"]:
-                self.consolidation_buffer.append(entry_data)
-            self.update_shell_tension(node_id)
-
-        if self.subconscious and entry_data.get("label") and pre_vec is not None:
+        # AFTER
+        # --- 4. Post-processing and Cognitive Hooks ---
+        self.sdm.write(vec)
+        self.mood.process_event("new_concept", rating=entry_data.get("rating", 0.5))
+        if entry_data.get("label"):
             await self.subconscious.track_concept(entry_data["label"], weight=entry_data.get("rating", 0.5))
 
-        if len(self.consolidation_buffer) >= self.memory_consolidation_min and (self.consolidation_task is None or self.consolidation_task.done()):
-            self.consolidation_task = asyncio.create_task(self._consolidate_memories())
-
+        # Add this line to create connections to older, similar concepts
+       
+        asyncio.create_task(self.mind.perform_retro_relink(node_id, vec))
+        # Add this at the end of the method, inside the lock or just after
+        self.mind.new_node_id_queue.append(node_id)
         return node_id
 
-    def _add_node_to_ltm_locked(self, node_data: Dict[str, Any], precomputed_vec: Optional[np.ndarray] = None, target_shells: Optional[List[int]] = None) -> str:
-        if precomputed_vec is None: return ""
-        idx_val = node_data.get("idx")
-        if not idx_val:
-            content_str = f"{node_data.get('label', '')}{node_data.get('metaphor', '')}{time.time()}"
-            idx_val = hashlib.sha1(content_str.encode()).hexdigest()[:16]
-            node_data['idx'] = idx_val
-        if self.graph_db.graph.has_node(idx_val):
-            self.spike_temperature(idx_val, amount=0.5)
-            node = self.graph_db.get_node(idx_val)
-            if node: node['last_step'] = self.mind.step_num
-            return idx_val
-
-        self.graph_db.add_node(idx_val, **node_data)
-        self.main_vectors[idx_val] = precomputed_vec
-        top_k = int(os.getenv("E8_KNN_ON_ADD", "8"))
-        if len(self.main_vectors) > top_k:
-            sims = []
-            for other_id, vec in self.main_vectors.items():
-                if other_id == idx_val: continue
-                s = float(np.dot(precomputed_vec, vec) / (np.linalg.norm(precomputed_vec) * np.linalg.norm(vec) + 1e-9))
-                sims.append((s, other_id))
-            from heapq import nlargest
-            for s, other_id in nlargest(top_k, sims, key=lambda t: t[0]):
-                self.graph_db.add_edge(idx_val, other_id, type="knn", weight=s)
-
-        shells_to_update = [self.mind.dimensional_shells[d] for d in target_shells] if target_shells else self.mind.dimensional_shells.values()
-        for shell in shells_to_update:
-            shell.add_vector(idx_val, precomputed_vec)
-
-        if 'label' in node_data:
-            self.label_to_node_id[node_data['label']] = idx_val
-        return idx_val
-
-    def update_shell_tension(self, node_id: str):
-        if not TORCH_AVAILABLE or not self.mind.autoencoder or node_id not in self.main_vectors: return
-        snapped_vectors_in_shells = []
-        for dim, shell in self.mind.dimensional_shells.items():
-            vec = shell.get_vector(node_id)
-            if vec is not None:
-                snapped_vectors_in_shells.append((dim, vec))
-        if len(snapped_vectors_in_shells) < 2:
-            node = self.graph_db.get_node(node_id)
-            if node: node['shell_tension'] = 0.0
+    def _commit_pending_additions_locked(self):
+        """
+        Rebuilds the main KD-Tree index using batched additions.
+        Must be called from within a locked context.
+        """
+        if not self.pending_additions:
             return
 
-        reconstructed_vectors = []
-        with torch.no_grad():
-            for dim, vec in snapped_vectors_in_shells:
-                if dim == EMBED_DIM:
-                    reconstructed_vectors.append(vec)
-                    continue
-                tensor_vec = torch.from_numpy(vec).float().unsqueeze(0)
-                reconstructed_tensor = self.mind.autoencoder.project_between_dim(tensor_vec, dim, EMBED_DIM)
-                if reconstructed_tensor is not None:
-                    reconstructed_vectors.append(reconstructed_tensor.squeeze(0).numpy())
+        self.console.log(f"🧠 [MemoryManager] Committing {len(self.pending_additions)} new vectors to KD-Tree index...")
+        self._main_storage_ids = list(self.main_vectors.keys())
+        matrix_list = [self.main_vectors[nid] for nid in self._main_storage_ids]
+        
+        if matrix_list:
+            self._main_storage_matrix = np.array(matrix_list, dtype=np.float32)
+            self.main_kdtree = KDTree(self._main_storage_matrix)
+        else:
+            self._main_storage_matrix = np.empty((0, EMBED_DIM), dtype=np.float32)
+            self.main_kdtree = None
+            
+        self.pending_additions.clear()
 
-        if len(reconstructed_vectors) < 2:
-            node = self.graph_db.get_node(node_id)
-            if node: node['shell_tension'] = 0.0
-            return
+    def find_similar_in_main_storage(self, query_vector: np.ndarray, k: int = 5) -> List[tuple[str, float]]:
+        """
+        Finds k-nearest neighbors using a dynamic reranking strategy that considers
+        distance, recency, temperature, and semantic community.
+        """
+        if self.main_kdtree is None or not self._main_storage_ids:
+            return []
+        
+        initial_k = min(k * 5, len(self._main_storage_ids))
+        if initial_k == 0: return []
+        
+        t0=time.perf_counter(); distances, indices = self.main_kdtree.query(query_vector, k=initial_k)
+        try:
+            dt_ms=(time.perf_counter()-t0)*1000.0
+            self._kdtree_latency_ms_window.append(dt_ms)
+            try:
+                self.mind.metrics.timing('kdtree.query_ms', dt_ms)
+            except Exception:
+                pass
+            if len(self._kdtree_latency_ms_window)>64:
+                self._kdtree_latency_ms_window.pop(0)
+            if len(self._kdtree_latency_ms_window)>=16 and (sum(self._kdtree_latency_ms_window)/len(self._kdtree_latency_ms_window))>self._kdtree_latency_threshold_ms:
+                self._rebuild_main_kdtree()
+                self._kdtree_latency_ms_window.clear()
+        except Exception:
+            pass
+        distances, indices = np.atleast_1d(distances), np.atleast_1d(indices)
 
-        distances = cosine_distances(np.array(reconstructed_vectors), np.array(reconstructed_vectors))
-        tension_score = np.mean(distances[np.triu_indices_from(distances, k=1)])
-        node = self.graph_db.get_node(node_id)
-        if node: node['shell_tension'] = float(tension_score)
+        query_community = (self.graph_db.get_node(self._main_storage_ids[indices[0]]) or {}).get("community_id", -1)
 
-    def _penalize_repeats_in_entry(self, entry: Dict[str, Any]):
-        text = f"{entry.get('label', '')} {entry.get('metaphor', '')}"
-        words = re.findall(r'\b\w{3,}\b', text.lower())
-        rating = entry.get("rating", 0.5)
-        for i in range(len(words) - 2):
-            trigram = tuple(words[i:i+3])
-            self._repeat_ngrams[trigram] += 1
-            if self._repeat_ngrams[trigram] > 2:
-                penalty = 0.05 * (self._repeat_ngrams[trigram] - 2)
-                rating = max(0.1, rating - penalty)
-        entry["rating"] = rating
+        reranked_candidates = []
+        for dist, idx in zip(distances, indices):
+            nid = self._main_storage_ids[idx]
+            node_data = self.graph_db.get_node(nid)
+            if not node_data: continue
 
-    def spike_temperature(self, node_id, amount=1.0):
-        node = self.graph_db.get_node(node_id)
-        if node:
-            node['temperature'] = node.get('temperature', 1.0) + amount
+            score = float(dist)
+            temp = node_data.get('temperature', 0.1)
+            score *= (1.2 - (temp * 0.2))
+            recency_penalty = max(0, self.mind.step_num - node_data.get('last_step', 0)) * 0.0001
+            score += recency_penalty
+            if query_community != -1 and node_data.get("community_id") == query_community:
+                score *= 0.90
 
+            reranked_candidates.append((nid, score))
+
+        reranked_candidates.sort(key=lambda item: item[1])
+        return reranked_candidates[:k]
+    
     async def apply_decay(self):
+        """Applies time-based decay to concept temperatures and runs maintenance."""
         async with self.lock:
             decay_vivid, decay_hot, decay_warm, decay_cold = 0.5**(1.0/TEMP_HALF_LIFE_VIVID), 0.5**(1.0/TEMP_HALF_LIFE_HOT), 0.5**(1.0/TEMP_HALF_LIFE_WARM), 0.5**(1.0/TEMP_HALF_LIFE_COLD)
-            nodes_to_update = list(self.graph_db.graph.nodes(data=True))
-            for node_id, data in nodes_to_update:
+            for node_id, data in self.graph_db.graph.nodes(data=True):
                 temp = data.get('temperature', 1.0)
                 if data.get("vivid_until_step", -1) > self.mind.step_num: temp *= decay_vivid
                 elif temp > 1.5: temp *= decay_hot
                 elif temp > 0.5: temp *= decay_warm
                 else: temp *= decay_cold
-                data['temperature'] = max(0.01, temp * 0.995)
+                data['temperature'] = max(0.01, temp)
                 data['age'] = data.get('age', 0) + 1
+        
+        if self.mind.step_num > 0 and self.mind.step_num % 200 == 0:
+            asyncio.create_task(self._run_maintenance_cycle())
+
+    async def _run_maintenance_cycle(self):
+        """Performs periodic housekeeping tasks on the memory graph."""
+        self.console.log("🧹 [MemoryManager] Running maintenance cycle...")
+        async with self.lock:
+            self._commit_pending_additions_locked()
+            self.graph_db.compute_and_store_communities()
+            self._evict_if_needed_locked()
+            self.hopfield.update_prototypes()
+        self.console.log("🧹 [MemoryManager] Maintenance cycle complete.")
+    
+    def _calculate_importance_score(self, node_id: str, data: Dict) -> float:
+        """Calculates a holistic importance score for a node for eviction purposes."""
+        rating = data.get('rating', 0.5)
+        temp = data.get('temperature', 0.1)
+        age = data.get('age', 1)
+        degree = self._safe_degree(node_id)
+        return (rating + temp * 0.5) / (np.log1p(age) * (degree + 1))
+
+    def _evict_if_needed_locked(self, max_nodes: int = 50000, eviction_ratio: float = 0.05):
+        """Prunes the least important nodes. Must be called from within a locked context."""
+        num_nodes = self.graph_db.graph.number_of_nodes()
+        if num_nodes <= max_nodes: return
+
+        self.console.log(f"🧠 [MemoryManager] Memory limit ({max_nodes}) exceeded. Evicting nodes...")
+        num_to_evict = int(num_nodes * eviction_ratio)
+        candidates = []
+        for nid, data in self.graph_db.graph.nodes(data=True):
+            if data.get('type') in ['blackhole_remnant', 'self_code']: continue
+            candidates.append((self._calculate_importance_score(nid, data), nid))
+        
+        candidates.sort()
+        for _, node_id_to_evict in candidates[:num_to_evict]:
+            try:
+                self.graph_db.graph.remove_node(node_id_to_evict)
+                self.main_vectors.pop(node_id_to_evict, None)
+            except Exception: pass
+        
+        self._commit_pending_additions_locked()
+        self.console.log(f"🧠 [MemoryManager] Evicted {num_to_evict} nodes.")
+
+    def spike_temperature(self, node_id: str, amount: float = 1.0):
+        """Safely increases a node's temperature."""
+        node = self.graph_db.get_node(node_id)
+        if node:
+            node['temperature'] = node.get('temperature', 1.0) + amount
 
     def find_event_horizon(self, density_threshold=0.20, temp_threshold=1.05, age_threshold=1):
+        """Identifies the most unstable point in memory, the epicenter for a black hole event."""
         graph, candidates = self.graph_db.graph, []
         for nid, d in graph.nodes(data=True):
             if d.get('age', 0) < age_threshold: continue
             temp = d.get('temperature', 0.0)
             density = self._local_density(nid)
             pressure = float(temp) * float(density)
-            candidates.append((nid, pressure, (temp > temp_threshold) and (density >= density_threshold)))
+            if (temp > temp_threshold) and (density >= density_threshold):
+                candidates.append((pressure, nid))
         if not candidates: return None, None
-        passing = [c for c in candidates if c[2]]
-        pool = passing if passing else candidates
-        if not pool: return None, None
-        best = max(pool, key=lambda t: t[1])
-        return best[0], best[1]
+        best_pressure, best_id = max(candidates)
+        return best_id, best_pressure
 
     def _local_density(self, center_id: str, radius: int = 4) -> float:
+        """Calculates the connection density of a node's local neighborhood."""
         try:
-            nodes_in_radius = set(nx.ego_graph(self.graph_db.graph, center_id, radius=radius).nodes())
-        except nx.NetworkXError:
+            if nx is None:
+                return 0.0
+            try:
+                nodes_in_radius = set(nx.ego_graph(self.graph_db.graph, center_id, radius=radius).nodes())
+            except Exception:
+                return 0.0
+            subgraph = self.graph_db.graph.subgraph(nodes_in_radius)
+            num_nodes, num_edges = subgraph.number_of_nodes(), subgraph.number_of_edges()
+            possible_edges = num_nodes * (num_nodes - 1) / 2
+            return num_edges / possible_edges if possible_edges > 0 else 0.0
+        except Exception:
             return 0.0
 
-        if not nodes_in_radius: return 0.0
-        subgraph = self.graph_db.graph.subgraph(nodes_in_radius)
-        num_nodes, num_edges = subgraph.number_of_nodes(), subgraph.number_of_edges()
-        possible_edges = num_nodes * (num_nodes - 1) / 2
-        return num_edges / possible_edges if possible_edges > 0 else 0.0
-
     def collect_cluster(self, center_id: str, radius: int = 4) -> List[str]:
+        """Collects a cluster of nodes around a center using DBSCAN, with a robust fallback."""
         if DBSCAN is None:
-            return list(nx.ego_graph(self.graph_db.graph, center_id, radius=2).nodes())
-
+            try:
+                if nx is not None:
+                    return list(nx.ego_graph(self.graph_db.graph, center_id, radius=2).nodes())
+            except Exception:
+                pass
+            return [center_id]
         try:
-            nodes_in_radius = list(nx.ego_graph(self.graph_db.graph, center_id, radius=radius).nodes())
-        except nx.NetworkXError:
+            try:
+                if nx is not None:
+                    nodes_in_radius = list(nx.ego_graph(self.graph_db.graph, center_id, radius=radius).nodes())
+                else:
+                    return [center_id]
+            except Exception:
+                return [center_id]
+            vectors = [self.main_vectors.get(nid) for nid in nodes_in_radius]
+            valid_indices = [i for i, v in enumerate(vectors) if v is not None and np.any(v)]
+            if len(valid_indices) < 3: return [nodes_in_radius[i] for i in valid_indices]
+            
+            matrix = np.array([vectors[i] for i in valid_indices])
+            node_ids = [nodes_in_radius[i] for i in valid_indices]
+            
+            clustering = DBSCAN(eps=0.85, min_samples=2, metric='cosine').fit(matrix)
+            center_idx = node_ids.index(center_id)
+            center_label = clustering.labels_[center_idx]
+
+            if center_label == -1 or np.sum(clustering.labels_ == center_label) < 3:
+                try:
+                    if nx is not None:
+                        return list(nx.ego_graph(self.graph_db.graph, center_id, radius=2).nodes())
+                except Exception:
+                    pass
+                return [center_id]
+            
+            return [node_ids[i] for i, label in enumerate(clustering.labels_) if label == center_label]
+        except Exception:
+            try:
+                if nx is not None:
+                    return list(nx.ego_graph(self.graph_db.graph, center_id, radius=2).nodes())
+            except Exception:
+                pass
             return [center_id]
 
-        vectors = [self.main_vectors[nid] for nid in nodes_in_radius if nid in self.main_vectors]
-        if len(vectors) < 3: return nodes_in_radius
-        vector_matrix = np.array(vectors)
-
-        valid_indices = [i for i, v in enumerate(vectors) if np.any(v)]
-        if len(valid_indices) < 3: return [nodes_in_radius[i] for i in valid_indices]
-
-        valid_vector_matrix = vector_matrix[valid_indices]
-        valid_node_ids = [nodes_in_radius[i] for i in valid_indices]
-
-        clustering = DBSCAN(eps=0.85, min_samples=2, metric='cosine').fit(valid_vector_matrix)
-
-        if center_id not in valid_node_ids: return [center_id]
-        center_vector_idx_in_valid = valid_node_ids.index(center_id)
-
-        center_cluster_label = clustering.labels_[center_vector_idx_in_valid]
-        if center_cluster_label == -1: return [center_id]
-
-        cluster_indices_in_valid = np.where(clustering.labels_ == center_cluster_label)[0]
-
-        return [valid_node_ids[i] for i in cluster_indices_in_valid]
-
     async def synthesize_remnant(self, cluster_nodes: List[str], label_hint: str, is_macro: bool = False) -> Tuple[Optional[Dict], Optional[np.ndarray], float]:
+        """Synthesizes a new 'remnant' concept from a cluster of nodes during a collapse event."""
         if not cluster_nodes: return None, None, 0.0
-        cluster_data = [self.graph_db.get_node(nid) for nid in cluster_nodes if self.graph_db.get_node(nid)]
-        cluster_vectors = [self.main_vectors.get(nid) for nid in cluster_nodes if self.main_vectors.get(nid) is not None]
-        total_temp = sum(d.get('temperature', 1.0) for d in cluster_data)
-        avg_rating = np.mean([d.get('rating', 0.5) for d in cluster_data]) if cluster_data else 0.5
-        mass = total_temp * avg_rating
-        if not cluster_vectors: return None, None, mass
+        
+        cluster_data = [d for nid in cluster_nodes if (d := self.graph_db.get_node(nid))]
+        cluster_vectors = [v for nid in cluster_nodes if (v := self.main_vectors.get(nid)) is not None]
+        
+        if not cluster_data or not cluster_vectors: return None, None, 0.0
 
-        weights = np.array([self.graph_db.get_node(nid).get('temperature', 1.0) for nid in cluster_nodes if nid in self.main_vectors and self.graph_db.get_node(nid)])
-        if weights.sum() < 1e-9:
-            weights = np.ones(len(cluster_vectors))
+        weights = np.array([d.get('temperature', 1.0) for d in cluster_data])
+        if weights.sum() < 1e-9: weights = np.ones(len(cluster_data))
         weights /= weights.sum()
 
+        avg_rating = np.average([d.get('rating', 0.5) for d in cluster_data], weights=weights)
+        mass = sum(d.get('temperature', 1.0) for d in cluster_data) * avg_rating
+        
         remnant_vec = np.average(np.array(cluster_vectors), axis=0, weights=weights)
-        prompt_intro = "A major cognitive reset is occurring. Synthesize the core essence of these diverse ideas into a single, foundational principle for a new era of thought." if is_macro else "Synthesize the following fragmented ideas into a single, dense, core concept."
+        remnant_vec = self.hopfield.clean_up(remnant_vec)
+
         fragments = [d.get('metaphor', d.get('label', '')) for d in cluster_data]
-        prompt = (f"{prompt_intro} Provide a short, evocative label and a one-sentence metaphor for the new idea.\n\n"
+        prompt = (f"Synthesize the following fragmented ideas into a single, dense, core concept. "
+                  f"Provide a short, evocative label and a one-sentence metaphor for the new idea.\n\n"
                   f"Ideas: {'; '.join(fragments[:10])}\n\nRespond in JSON format with keys 'label' and 'metaphor'.")
+        
         try:
             response = await self.llm_caller.enqueue_and_wait(prompt, max_tokens=120)
-            parsed_response = _parse_json_object(response)
-            new_label = parsed_response.get('label', label_hint)
-            new_metaphor = parsed_response.get('metaphor', 'A consolidated memory.')
+            parsed = _parse_json_object(response)
+            new_label, new_metaphor = parsed.get('label', label_hint), parsed.get('metaphor', 'A consolidated memory.')
         except Exception:
             new_label, new_metaphor = label_hint, "A synthesized concept."
-        remnant_data = {"type": "blackhole_remnant", "label": new_label, "metaphor": new_metaphor, "embedding": remnant_vec,
-                        "rating": avg_rating, "step": self.mind.step_num, "is_macro": is_macro}
-        return remnant_data, remnant_vec, mass
+            
+        return {
+            "type": "blackhole_remnant", "label": new_label, "metaphor": new_metaphor,
+            "embedding": remnant_vec, "rating": avg_rating, "step": self.mind.step_num, "is_macro": is_macro
+        }, remnant_vec, mass
 
     def fold_and_prune(self, cluster_nodes: List[str]):
+        """Marks nodes as 'folded' after a collapse, effectively archiving them."""
         for node_id in cluster_nodes:
             node = self.graph_db.get_node(node_id)
             if node:
                 node['folded'] = True
                 node['temperature'] *= 0.1
                 for shell in self.mind.dimensional_shells.values():
-                    if node_id in shell.vectors:
-                        del shell.vectors[node_id]
-
-    async def _consolidate_memories(self):
-        async with self.lock:
-            if len(self.consolidation_buffer) < CONSOLIDATE_MIN: return
-            buffer = self.consolidation_buffer[:]
-            self.consolidation_buffer.clear()
-        self.mind.console.log(f"[Memory] Consolidating {len(buffer)} memories... (Feature stub)")
+                    shell.vectors.pop(node_id, None)
 
     async def snapshot(self):
+        """Saves a snapshot of the mind's current state to a file."""
         async with self.lock:
-            filepath = self._path(f"snapshot_step_{self.mind.step_num:06d}.json")
-            graph_data = export_graph(self.graph_db.graph)
-            self._rebuild_main_kdtree()
-            main_vectors_serializable = {nid: vec.tolist() for nid, vec in self.main_vectors.items()}
-            snapshot_data = { "graph": graph_data, "main_vectors": main_vectors_serializable, "step": self.mind.step_num,
-                              "mood": self.mind.mood.mood_vector, "subconscious_narrative": self.mind.subconscious.narrative, }
+            self._commit_pending_additions_locked()
+            filepath = get_path(f"snapshot_step_{self.mind.step_num:06d}.json", self.run_id)
+            snapshot_data = {
+                "graph": export_graph(self.graph_db.graph),
+                "main_vectors": {nid: vec.tolist() for nid, vec in self.main_vectors.items()},
+                "step": self.mind.step_num,
+                "mood": self.mind.mood.mood_vector,
+                "subconscious_narrative": self.mind.subconscious.narrative,
+                "novelty_stats": {"avg_nn_ema": self._avg_nn_ema},
+                "embedding_adapter": {
+                    "in_dim": getattr(self.mind.embed_adapter, "in_dim", None),
+                    "out_dim": getattr(self.mind.embed_adapter, "out_dim", None),
+                    "W": (np.asarray(getattr(getattr(self.mind, 'embed_adapter', None), 'W', None)).tolist() if getattr(getattr(self.mind, 'embed_adapter', None), 'W', None) is not None else None)
+                },
+                "kd_index_meta": {
+                    "backend": "faiss" if getattr(self.main_kdtree, "_is_faiss", False) else ("sklearn/scipy" if not getattr(self.main_kdtree, "_is_fallback", True) else "numpy"),
+                    "n": int(getattr(self.main_kdtree, "n", 0)),
+                    "dim": int(EMBED_DIM)
+                },
+                "metrics_counters": self.mind.metrics.snapshot_counters(),
+            }
         safe_json_write(filepath, snapshot_data)
-        all_snapshots = sorted(glob.glob(self._path("snapshot_step_*.json")), key=os.path.getmtime)
+        try:
+            sz = os.path.getsize(filepath)
+            self.mind.metrics.gauge('snapshot.bytes', sz)
+        except Exception:
+            pass
+        all_snapshots = sorted(glob.glob(get_path("snapshot_step_*.json", self.run_id)), key=os.path.getmtime)
         while len(all_snapshots) > 10:
             os.remove(all_snapshots.pop(0))
 
-    async def mutate_memory(self, k: int = 1):
-        mood_entropy = self.mind.mood.get_entropy_level()
-        num_mutations = k + int(mood_entropy * 3)
-        temp_boost = 1 + mood_entropy * 0.5
+    def diffuse_field(self):
+        """
+        Simulates the diffusion of a generic activation field across the memory graph.
+        This allows for spreading influence and temperature between connected concepts.
+        """
+        eta = BH_DIFFUSION_ETA
+        next_field = defaultdict(float)
+        nodes_with_field = list(self.field.keys())
+        for node_id in nodes_with_field:
+            current_val = self.field.get(node_id, 0.0)
+            if current_val < 1e-4: continue
+            retained_value = current_val * (1.0 - eta)
+            next_field[node_id] += retained_value
+            value_to_spread = current_val * eta
+            neighbors = list(self.graph_db.get_neighbors(node_id))
+            if neighbors:
+                share_per_neighbor = value_to_spread / len(neighbors)
+                for neighbor_id in neighbors:
+                    next_field[neighbor_id] += share_per_neighbor
+        self.field = next_field
 
-        async with self.lock:
-            candidates = []
-            for nid, data in self.graph_db.graph.nodes(data=True):
-                if data.get("type") == "concept" and not data.get("folded") and "novelty_score" in data:
-                    temp = data.get("temperature", 0.5)
-                    if 0.3 < temp < 1.5 and data.get("novelty_score", 0.0) > 0.6:
-                        candidates.append((data["novelty_score"], nid, data))
+    def decay_locks(self):
+        """
+        Decrements the timer on all active locks and removes any that have expired.
+        This allows for temporary, decaying associations between concepts in memory.
+        """
+        expired_locks = [key for key, timer in self.active_locks.items() if timer <= 1]
+        for key in expired_locks:
+            del self.active_locks[key]
+        for key in self.active_locks:
+            self.active_locks[key] -= 1
 
-        if not candidates:
-            self.mind.console.log("[MUTATION] No high-potential seeds found for mutation.")
-            return
+    async def _cosmological_spread(self, remnant_vec: np.ndarray, mass: float):
+        """Spreads influence from a black hole event to distant but similar concepts."""
+        similar_nodes = self.find_similar_in_main_storage(remnant_vec, k=50)
+        spread_factor = mass * BH_SPREAD_FRAC
+        for node_id, dist in similar_nodes:
+            # Spread is stronger for closer nodes
+            energy = spread_factor * (1.0 - dist)
+            if energy > 0:
+                self.spike_temperature(node_id, amount=energy)
+    
+    def get_average_nearest_neighbor_distance(self) -> float:
+        """Calculates the average distance between nearest neighbors in the main KD-tree."""
+        if self.main_kdtree is None or self._main_storage_matrix.shape[0] < 2:
+            return 1.0 # Default value if memory is sparse
+        
+        # Query for the 2 nearest neighbors: the point itself (dist=0) and its true nearest neighbor
+        distances, _ = self.main_kdtree.query(self._main_storage_matrix, k=2)
+        
+        # The second column contains the distances to the actual nearest neighbors
+        nearest_distances = distances[:, 1]
+        avg=float(np.mean(nearest_distances))
+        try:
+            alpha=float(os.getenv('E8_NOVELTY_EMA_ALPHA','0.2'))
+            if self._avg_nn_ema is None:
+                self._avg_nn_ema=avg
+            else:
+                self._avg_nn_ema=alpha*avg+(1-alpha)*self._avg_nn_ema
+            json.dump({'avg_nn_ema': self._avg_nn_ema}, open(self._novelty_stats_path,'w'))
+        except Exception:
+            pass
+        return avg
 
-        candidates.sort(key=lambda x: x[0], reverse=True)
-        seeds, new_metaphors, parent_ids = candidates[:num_mutations], [], []
+    def _allow_edge(self, u: str, v: str) -> bool:
+        """Checks if an edge can be safely added between two nodes."""
+        g = self.graph_db.graph
+        return g.has_node(u) and g.has_node(v) and not g.has_edge(u, v)
 
-        for _, seed_id, seed_data in seeds:
-            parent_ids.append(seed_id)
-            seed_text = seed_data.get("metaphor", seed_data.get("label", "a thought"))
-            mutation_type = random.choice(["analogy", "contrast", "merge"])
-            prompt = (f"Given the idea: '{seed_text}', generate a novel variant via {mutation_type}. "
-                      f"Use a creative, metaphorical style. Respond with only the new variant.")
+    def _safe_degree(self, node_id: str) -> int:
+        """Returns node degree safely without relying on dict(DegreeView) conversions."""
+        try:
+            g = self.graph_db.graph
+            d_attr = getattr(g, 'degree', None)
+            if callable(d_attr):
+                try:
+                    val = d_attr(node_id)
+                    if isinstance(val, (int, np.integer)):
+                        return int(val)
+                except Exception:
+                    pass
+            if d_attr is not None:
+                try:
+                    val2 = d_attr[node_id]  # type: ignore[index]
+                    if isinstance(val2, (int, np.integer)):
+                        return int(val2)
+                except Exception:
+                    pass
             try:
-                mutation_text = await self.llm_caller.enqueue_and_wait(prompt, max_tokens=100, temperature=0.8 * temp_boost)
-                if mutation_text and not mutation_text.startswith("[LLM"):
-                    new_metaphors.append(mutation_text)
-            except Exception as e:
-                self.mind.console.log(f"[MUTATION] LLM call failed for seed {seed_id}: {e}")
+                return int(len(list(g.neighbors(node_id))))
+            except Exception:
+                return 0
+        except Exception:
+            return 0
 
-        if not new_metaphors: return
-
-        new_entries = []
-        for new_text in new_metaphors:
-            new_emb = await self.embedding_fn(new_text)
-            new_rating = await self.mind.rate_concept(new_text)
-            new_entries.append({"type": "mutation", "label": sanitize_line(f"mutation of {seeds[0][2].get('label')}"), "metaphor": new_text,
-                               "rating": new_rating, "embedding": new_emb, "temperature": 0.2, "step": self.mind.step_num})
-
-        new_node_ids = []
-        for entry in new_entries:
-            node_id = await self.add_entry(entry, parent_ids=parent_ids)
-            new_node_ids.append(node_id)
-
-        self.mind.console.print(Panel(f"Generated {len(new_node_ids)} new mutated concepts (Entropy Boost: {temp_boost:.2f}x).", title="[bold yellow]MUTATION[/bold yellow]", border_style="yellow"))
-        return new_node_ids
-
-import random
+    def _trim_degree(self, node_id: str, max_deg: int = 16):
+        """If a node has too many connections, prune the weakest ones."""
+        g = self.graph_db.graph
+        try:
+            deg = self._safe_degree(node_id)
+            if (not g.has_node(node_id)) or deg <= max_deg:
+                return
+            edges = sorted(
+                list(g.edges(node_id, data=True)),
+                key=lambda e: e[2].get('weight', 0.0)  # Sort by weight, weakest first
+            )
+            num_to_prune = max(0, deg - max_deg)
+            for u, v, _ in edges[:num_to_prune]:
+                g.remove_edge(u, v)
+        except Exception:
+            return
 
 class DreamEngine:
     """
@@ -3096,9 +4552,7 @@ class DreamEngine:
         # Sort by temperature to prioritize "hot" concepts
         elig.sort(key=lambda item: (item[1].get("temperature", 0.0), item[1].get("step", 0)), reverse=True)
         
-        # --- CORRECTED LOGIC ---
-        # Instead of always picking the single hottest concept, which is deterministic and
-        # repetitive, create a small pool of top candidates and choose randomly from it.
+        # Create a small pool of top candidates and choose randomly from it.
         pool_size = min(len(elig), 5) # Take the top 5 or fewer if not enough concepts exist.
         if pool_size == 0:
             return []
@@ -3110,10 +4564,12 @@ class DreamEngine:
         return random.sample(top_candidates, num_to_sample)
 
     async def run_dream_sequence(self, depth=1):
-        """
-        UPGRADED: Runs a "thought experiment" instead of a surreal dream.
-        It selects a seed concept and generates a hypothetical future narrative based on it.
-        """
+        # --- HOTFIX INTEGRATED: Thought Experiment Gating ---
+        min_for_thought_exp = int(os.getenv("E8_MIN_FOR_THOUGHT_EXP", "40"))
+        current_nodes = self.memory.graph_db.graph.number_of_nodes()
+        if current_nodes < min_for_thought_exp:
+            return # Silently skip if not enough concepts
+
         if not DREAM_MODE_ENABLED: return
         now = time.monotonic()
         if self.mind._dream_lock.locked() or (now - self.mind._last_dream_at < DREAM_MIN_INTERVAL_SEC):
@@ -3129,7 +4585,6 @@ class DreamEngine:
                 self.console.log("[Thought Experiment] No suitable concepts found.")
                 return
 
-            # Use the corrected picking method to get a non-deterministic seed
             seed = self._pick_neutral(elig, k=1)
             if not seed:
                 self.console.log("[Thought Experiment] Seed picking failed.")
@@ -3143,7 +4598,6 @@ class DreamEngine:
                 top_goal_desc = "achieve a greater understanding"
 
             try:
-
                 experiment_prompt = self.mind.prompts.render(
                     "thought_experiment",
                     concept=seed_node_data.get('label', 'a concept'),
@@ -3156,6 +4610,18 @@ class DreamEngine:
                 ), timeout=30)
 
                 if narrative and not narrative.startswith("[LLM"):
+                    # --- HOTFIX INTEGRATED: Vocabulary Constraint Check ---
+                    try:
+                        seed_neighbors = self.memory.graph_db.get_neighbors(seed_node_id)
+                        neighbor_data = [self.memory.graph_db.get_node(n) for n in seed_neighbors if self.memory.graph_db.get_node(n)]
+                        neighbor_labels = [d.get('label', '') for d in neighbor_data]
+                        local_terms = set(re.findall(r"[A-Za-z0-9]+", " ".join(neighbor_labels).lower()))
+
+                        if local_terms and not any(term in narrative.lower() for term in local_terms):
+                            narrative = f"(loose) {narrative}"
+                    except Exception as e:
+                        self.console.log(f"[Thought Experiment] Vocab check failed: {e}")
+                    # --- END HOTFIX ---
 
                     new_node_id = await self.mind.memory.add_entry({
                         "type": "synthetic_memory",
@@ -3179,6 +4645,105 @@ class DreamEngine:
             except Exception as e:
                 self.console.log(f"[Thought Experiment] Failed to run experiment: {e}")
 
+class DreamReplayService:
+    """Offline consolidation via prioritized replay (PER) into world model and graph memory."""
+    def __init__(self, mind, batch=32, steps=50):
+        self.mind = mind
+        self.batch = int(batch)
+        self.steps = int(steps)
+        self.alpha = float(os.getenv("E8_REPLAY_ALPHA","1.0"))
+        self.beta = float(os.getenv("E8_REPLAY_BETA","0.8"))
+        self.gamma = float(os.getenv("E8_REPLAY_GAMMA","0.6"))
+        self.eta = float(os.getenv("E8_REPLAY_PER_ETA","0.6"))
+        self.edge_eta = float(os.getenv("E8_REINFORCE_ETA","0.08"))
+        self.edge_decay = float(os.getenv("E8_REINFORCE_DECAY","0.01"))
+
+    def _episodes(self):
+        ia = getattr(self.mind, "insight_agent", None)
+        if ia is None or not hasattr(ia, "episodic_memory"):
+            return []
+        return ia.episodic_memory.sample_prioritized(self.batch, mind=self.mind, alpha=self.alpha, beta=self.beta, gamma=self.gamma, eta=self.eta)
+
+    def _to_traj(self, episodes):
+        traj = []
+        adim = int(getattr(self.mind, "action_dim", 0))
+        for ep in episodes:
+            node_id = ep.get("node_id")
+            child = self.mind.memory.main_vectors.get(node_id)
+            child = self.mind.memory.main_vectors.get(node_id)
+            if child is None:
+                child = ep.get("embedding")
+            parents = ep.get("parent_ids") or []
+            if child is None or not parents:
+                # fallback: skip or synthesize from neighbors
+                continue
+            pv = [self.mind.memory.main_vectors.get(pid) for pid in parents if pid in self.mind.memory.main_vectors]
+            if not pv: 
+                continue
+            s = np.mean(np.stack(pv), axis=0).astype(np.float32)
+            sp = np.array(child, dtype=np.float32)
+            a = np.zeros(adim, dtype=np.float32)
+            r = float(ep.get("reward", ep.get("rating", 0.0)))
+            traj.append((s,a,sp,r, node_id, parents))
+        return traj
+
+    def _reinforce_graph(self, traj):
+        G = self.mind.memory.graph_db
+        vsa = getattr(self.mind.memory, "vsa", None)
+        reinforced = 0
+        for (s,a,sp,r, node_id, parents) in traj:
+            for pid in parents:
+                try:
+                    hv = None
+                    if vsa is not None:
+                        vec_a = self.mind.memory.main_vectors.get(pid); vec_b = self.mind.memory.main_vectors.get(node_id)
+                        if vec_a is not None and vec_b is not None:
+                            hv = self.mind.memory.vsa.encode_parentage(vec_a, vec_b)
+                    G.increment_edge_weight(pid, node_id, delta=self.edge_eta*r, kind="consolidated")
+                    if hv is not None:
+                        try: G.graph[pid][node_id]['hypervector'] = hv
+                        except Exception: pass
+                    reinforced += 1
+                except Exception:
+                    pass
+            # passive decay on unrelated edges could be scheduled elsewhere
+        try:
+            try:
+                if getattr(self.mind, 'metrics', None) and hasattr(self.mind.metrics, 'increment'):
+                    self.mind.metrics.increment("graph.edge_reinforce", reinforced)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    async def run(self):
+        t0 = time.monotonic()
+        wm = getattr(self.mind, "world_model", None)
+        total = 0
+        for _ in range(self.steps):
+            episodes = self._episodes()
+            if not episodes:
+                break
+            traj = self._to_traj(episodes)
+            if not traj:
+                break
+            if wm and getattr(wm, "available", True):
+                # train world model
+                try:
+                    loss = wm.train_batch([(s,a,sp,r) for (s,a,sp,r,_,_) in traj])
+                    if loss and hasattr(self.mind, "metrics"):
+                        try:
+                            self.mind.metrics.observe("wm.loss.recon", loss.get("loss_recon"))
+                            self.mind.metrics.observe("wm.loss.kl", loss.get("loss_kl"))
+                        except Exception: pass
+                except Exception:
+                    pass
+            self._reinforce_graph(traj)
+            total += len(traj)
+        dt = time.monotonic() - t0
+        if dt > 0 and hasattr(self.mind, "metrics"):
+            try: self.mind.metrics.observe("replay.samples_per_sec", total/max(1e-6, dt))
+            except Exception: pass
 class NarrativeStreamer:
     def __init__(self, memory_manager, llm_pool, run_id):
         self.memory = memory_manager
@@ -3197,30 +4762,31 @@ class NarrativeStreamer:
                 if data.get("step", -1) > self.last_narrative_step:
                     event_type, rating = data.get("type"), data.get("rating", 0.0)
                     if event_type in ["dream", "blackhole_remnant", "meta_reflection"] or rating > 0.85:
-                        significant_events.append(f"- Type: {event_type}, Title: '{data.get('label', '...')}', Content: '{data.get('metaphor', '...')}'")
-            if len(significant_events) < 3: return
-            event_summary = "\n".join(significant_events[-15:])
+                        # --- CORRECTED LOGIC ---
+                        event_summary = f"- {data.get('label', 'Untitled event')} (Type: {event_type})"
+                        significant_events.append(event_summary)
+            
+            # CORRECTED: The guard clause is now correctly placed *after* the loop.
+            if len(significant_events) < 3: 
+                return
+            
+            event_summary_text = "\n".join(significant_events[-15:])
+            
             prompt = (f"You are the mind's historian. The current subconscious narrative is: '{mind_state.subconscious.narrative}'\n"
                       f"The prevailing mood feels like: {mind_state.mood.describe()}\n\n"
                       "Based on the following significant events, write a short, reflective journal entry (2-3 paragraphs) "
                       "that captures the tone and theme of this recent period. Synthesize them into a cohesive story.\n\n"
-                      f"Events:\n{event_summary}\n\nJournal Entry for Steps {self.last_narrative_step} to {current_step}:")
+                      f"Events:\n{event_summary_text}\n\nJournal Entry for Steps {self.last_narrative_step} to {current_step}:")
+            
             narrative_entry = await self.llm_pool.enqueue_and_wait(prompt, max_tokens=300, temperature=0.7)
             if narrative_entry and not narrative_entry.startswith("[LLM"):
-                await self.add_entry(f"## Chronicle: Steps {self.last_narrative_step}-{current_step}\n\n"
+                await self.memory.add_entry(f"## Chronicle: Steps {self.last_narrative_step}-{current_step}\n\n"
                                      f"**Mood**: {mind_state.mood.get_symbolic_weather()} | "
                                      f"**Theme**: {mind_state.synthetic_env.current_theme_region}\n\n"
                                      f"{narrative_entry}\n\n---\n\n")
                 self.last_narrative_step = current_step
         except Exception as e:
             console.log(f"[NarrativeStreamer] Failed to generate entry: {e}")
-
-    async def add_entry(self, text: str):
-        try:
-            with open(self.narrative_file, "a", encoding="utf-8") as f:
-                f.write(text)
-        except Exception as e:
-            console.log(f"[NarrativeStreamer] Error writing to file: {e}")
 
 class SyntheticEnvironment:
     def __init__(self, llm_caller, mind_instance):
@@ -3453,6 +5019,8 @@ class DataIngestionPipeline:
         self.running = False
         self.state_file = get_path("ingestion_state.json", self.mind.run_id)
 
+    
+        self._recent_ids = {}
     def add_source(self, name: str, config: Dict[str, Any]):
         """Adds a data source to be monitored."""
         self.sources[name] = config
@@ -3505,11 +5073,21 @@ class DataIngestionPipeline:
 
     async def _process_arxiv(self, name: str, config: Dict[str, Any]):
         """Fetches and parses new entries from an arXiv Atom feed."""
-        last_published_str = self.state.get(name, {}).get("last_published", "1970-01-01T00:00:00Z")
-        last_published_dt = datetime.fromisoformat(last_published_str.replace("Z", "+00:00"))
-        new_max_published_dt = last_published_dt
-        new_entries = []
+        # Get the unique ID of the last processed entry to prevent gaps
+        last_processed_id = self.state.get(name, {}).get("last_processed_id", None)
+        new_entries_to_add = []
+        
+        # Use a set for efficient lookup of recently processed articles in this session
+        processed_ids_this_session = set()
 
+        
+        seen_ids = set(self.state.get(name, {}).get('seen_ids', []))
+        if name not in self._recent_ids:
+            from collections import deque as _deque
+            self._recent_ids[name] = _deque(maxlen=4096)
+        if aiohttp is None or ET is None:
+            self.console.log("[yellow][Ingestion] aiohttp or ET not available; skipping arXiv fetch[/yellow]")
+            return
         async with aiohttp.ClientSession() as session:
             async with session.get(config["url"]) as response:
                 if response.status != 200:
@@ -3517,33 +5095,50 @@ class DataIngestionPipeline:
                     return
                 feed_xml = await response.text()
 
-        root = ET.fromstring(feed_xml)
+        try:
+            root = ET.fromstring(feed_xml)
+        except Exception:
+            self.console.log("[bold red][Ingestion] Failed to parse arXiv feed XML[/bold red]")
+            return
         ns = {'atom': 'http://www.w3.org/2005/Atom'}
+        
+        # The feed is sorted newest-first, so we can stop when we see an old entry
         for entry in root.findall('atom:entry', ns):
-            published_str = entry.find('atom:published', ns).text
-            published_dt = datetime.fromisoformat(published_str.replace("Z", "+00:00"))
-            if published_dt > last_published_dt:
-                title = entry.find('atom:title', ns).text.strip()
-                summary = entry.find('atom:summary', ns).text.strip().replace('\n', ' ')
-                new_entries.append((published_dt, f"{title}: {summary}"))
-                if published_dt > new_max_published_dt:
-                    new_max_published_dt = published_dt
+            id_el = entry.find('atom:id', ns)
+            entry_id = (id_el.text or '').strip() if id_el is not None else ''
 
-        if new_entries:
-            new_entries.sort(key=lambda x: x[0])
-            for _, text in new_entries:
+            if entry_id in seen_ids or entry_id in set(self._recent_ids.get(name, [])):
+                continue
+            if entry_id == last_processed_id:
+                # We've reached the last article we processed in a previous run. Stop here.
+                break
+
+            title_el = entry.find('atom:title', ns)
+            summary_el = entry.find('atom:summary', ns)
+            title = (title_el.text or '').strip() if title_el is not None else ''
+            summary = ((summary_el.text or '').strip().replace('\n', ' ')) if summary_el is not None else ''
+            new_entries_to_add.append((entry_id, f"{title}: {summary}"))
+            processed_ids_this_session.add(entry_id)
+
+        if new_entries_to_add:
+            # Reverse the list so we add concepts in chronological order (oldest first)
+            new_entries_to_add.reverse()
+            
+            for _, text in new_entries_to_add:
                 await self._add_text_as_concept(text, source_name=name)
 
+            # Update state with the ID of the newest article from this batch
+            latest_id = new_entries_to_add[-1][0]
             if name not in self.state:
                 self.state[name] = {}
-            self.state[name]["last_published"] = new_max_published_dt.isoformat().replace('+00:00', 'Z')
+            self.state[name]["last_processed_id"] = latest_id
             safe_json_write(self.state_file, self.state)
-            self.console.log(f"[Ingestion] Added {len(new_entries)} new concepts from '{name}'.")
+            self.console.log(f"[Ingestion] Added {len(new_entries_to_add)} new concepts from '{name}'.")
 
     async def _process_file(self, name: str, config: Dict[str, Any]):
         """Processes a local file if it has been modified."""
-        filepath = config.get("path")
-        if not os.path.exists(filepath):
+        filepath = str(config.get("path", ""))
+        if not filepath or not os.path.exists(filepath):
             return
 
         last_mod_time = self.state.get(name, {}).get("last_mod_time", 0)
@@ -3622,7 +5217,9 @@ class MetaTelemetryLogger:
         self.bh_event_steps.append(step_num)
 
     async def generate_diary_entry(self):
-        if len(self.mood_history) < self.mood_history.maxlen: return
+        maxlen = int(self.mood_history.maxlen or 0)
+        if len(self.mood_history) < maxlen:
+            return
         avg_tension = np.mean(self.shell_tension_history)
         bh_frequency = len(self.bh_event_steps) / len(self.shell_tension_history)
         mood_variance = np.mean(np.var(np.array(list(self.mood_history)), axis=0))
@@ -3684,10 +5281,7 @@ class TopologyMonitor:
         b0,b1 = self._betti(X)
         prev = self.prev_betti.get(shell.dim, (b0,b1))
         self.prev_betti[shell.dim] = (b0,b1)
-        return float(abs(b0-prev[0]) + abs(b1-prev[1]))
-
-if TORCH_AVAILABLE:
-    class VariationalAutoencoder(nn.Module):
+        return float(abs(b0 - prev[0]) + abs(b1 - prev[1]))
         def __init__(self, layer_sizes, console=None):
             super().__init__()
             self.console = console
@@ -3799,6 +5393,7 @@ class CognitiveScheduler:
         self.SNAPSHOT_INTERVAL = 100
         self.DECAY_INTERVAL = 24
         
+        self.DREAM_REPLAY_INTERVAL = int(os.getenv('E8_DREAM_EVERY_STEPS','200'))
         # --- Teacher/Explorer Cadence from Config ---
         self.TEACHER_ASK_EVERY = TEACHER_ASK_EVERY
         self.TEACHER_OFFSET = TEACHER_OFFSET
@@ -3809,6 +5404,28 @@ class CognitiveScheduler:
         return interval > 0 and step >= offset and ((step - offset) % interval == 0)
 
     def tick(self, step: int):
+
+        # Backpressure & mood gating
+        try:
+            qdepth = self.mind.llm_pool.queue.qsize() if getattr(self.mind, 'llm_pool', None) else 0
+        except Exception:
+            qdepth = 0
+        entropy = float(self.mind.mood.mood_vector.get('entropy', 0.0)) if getattr(self.mind, 'mood', None) else 0.0
+        max_q = int(os.getenv('E8_LLM_MAX_QUEUE', '64'))
+        high_entropy = float(os.getenv('E8_HIGH_ENTROPY', '0.85'))
+        skip_dream = qdepth > max_q or entropy > high_entropy
+        try:
+            self.mind.metrics.gauge('llm.queue_depth', qdepth)
+            self.mind.metrics.gauge('mood.entropy', entropy)
+            if skip_dream:
+                try:
+                    if getattr(self.mind, 'metrics', None) and hasattr(self.mind.metrics, 'increment'):
+                        self.mind.metrics.increment('dream.skipped')
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    
         """
         Called on every single step of the cognitive cycle. It checks its schedule
         and launches tasks in the background if their time has come.
@@ -3820,7 +5437,7 @@ class CognitiveScheduler:
         
         # Check if a pending question should be answered
         elif self.mind.teacher_question is not None and self._fire(step, self.TEACHER_ASK_EVERY, self.EXPLORER_OFFSET):
-            asyncio.create_task(self.mind._explorer_answer_pending_question())
+            asyncio.create_task(self.mind._explorer_answer_pending_question()) if not skip_dream else None
 
         # --- Other Asynchronous Cognitive Functions ---
         if self._fire(step, self.PROXIMITY_ALERT_INTERVAL, 5):
@@ -3830,7 +5447,7 @@ class CognitiveScheduler:
             asyncio.create_task(self.mind._run_proactive_insight_synthesis())
             
         if self._fire(step, self.DREAM_INTERVAL, 0):
-            asyncio.create_task(self.mind.dream_engine.run_dream_sequence())
+            asyncio.create_task(self.mind.dream_engine.run_dream_sequence()) if not skip_dream else None
             
         if self._fire(step, self.NARRATIVE_SUMMARY_INTERVAL, 2):
             asyncio.create_task(self.mind._generate_subconscious_narrative())
@@ -3841,28 +5458,673 @@ class CognitiveScheduler:
         if self._fire(step, self.DECAY_INTERVAL, 21):
             asyncio.create_task(self.mind.memory.apply_decay())
 
-class E8Mind:
-    def __init__(self, semantic_domain_val, run_id, llm_client_instance, client_model, embedding_model_name, embed_adapter, embed_in_dim, console: Console):
-        self.console = console
-        self.console.rule(f"[bold cyan]Initializing E8 Mind | Run ID: {run_id}[/]")
+# --- M17 ADDITIONS & BUGFIX: Missing Class and Function Definitions ---
+class MetricsManager:
+    """
+    A structured manager for logging various types of performance metrics
+    (counters, gauges, timings) to a durable, machine-readable format.
+    """
+    def __init__(self, run_id: str):
         self.run_id = run_id
+        self.log_file = get_path("metrics.ndjson", self.run_id)
+        os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
+        self.lock = threading.Lock() # Use a thread-safe lock for file I/O
+        self.console = console
+        self._counters = defaultdict(int)
+
+    def snapshot_counters(self):
+        return dict(self._counters)
+
+    def _log(self, metric_type: str, data: dict):
+        """Internal logging method to write a structured entry to the log file."""
+        try:
+            log_entry = {
+                "ts": (datetime.now(timezone.utc).isoformat() if (datetime is not None and timezone is not None) else __import__('datetime').datetime.utcnow().isoformat()),
+                "run_id": self.run_id,
+                "type": metric_type,
+                **data
+            }
+            with self.lock:
+                with open(self.log_file, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(log_entry, cls=NumpyEncoder) + "\n")
+        except Exception as e:
+            self.console.log(f"[bold red][MetricsManager] Failed to log metric: {e}[/bold red]")
+
+    def increment(self, name: str, value: int = 1, tags: Optional[Dict] = None):
+        """Increments a counter metric."""
+        self._log("counter", {"name": name, "value": value, "tags": tags or {}})
+        try:
+            self._counters[name] += int(value)
+        except Exception:
+            pass
+
+    def gauge(self, name: str, value: float, tags: Optional[Dict] = None):
+        """Sets a gauge metric to a specific value."""
+        self._log("gauge", {"name": name, "value": value, "tags": tags or {}})
+
+    def timing(self, name: str, duration_ms: float, tags: Optional[Dict] = None):
+        """Logs a timing or duration metric in milliseconds."""
+        self._log("timing", {"name": name, "duration_ms": duration_ms, "tags": tags or {}})
+
+    # Replace the old 'log' method with a more generic event logger
+    def event(self, name: str, data: dict):
+        """Logs a generic event with a dictionary payload."""
+        self._log("event", {"name": name, **data})
+        self._log("event", {"name": name, **data})
+
+class ContextBandit:
+    """
+    A true Contextual Bandit using the LinUCB (Linear Upper Confidence Bound) algorithm.
+    It uses the mind's state (context) to make smarter, adaptive decisions about which
+    set of parameters ("arm") to use for the cognitive cycle.
+    """
+    def __init__(self, arms: list, state_dim: int, path_json: str, alpha: float = 1.0):
+        self.arms = arms
+        self.num_arms = len(arms)
+        self.state_dim = state_dim
+        self.path = path_json
+        self.alpha = alpha  # Exploration parameter
+
+        # LinUCB parameters: one model per arm
+        # A: (d x d) matrix for each arm (covariance)
+        # b: (d x 1) vector for each arm (reward sum)
+        self.A = [np.identity(state_dim) for _ in range(self.num_arms)]
+        self.b = [np.zeros((state_dim, 1)) for _ in range(self.num_arms)]
+        self.load()
+
+    def load(self):
+        """Loads the learned models for each arm from a file."""
+        data = safe_json_read(self.path)
+        if data and 'A' in data and 'b' in data:
+            try:
+                self.A = [np.array(arr) for arr in data['A']]
+                self.b = [np.array(arr) for arr in data['b']]
+                console.log("📈 [ContextBandit] Loaded learned models.")
+            except Exception as e:
+                console.log(f"[ContextBandit] Failed to load models, resetting: {e}")
+
+    def save(self):
+        """Saves the learned models to a file."""
+        data = {
+            'A': [arr.tolist() for arr in self.A],
+            'b': [arr.tolist() for arr in self.b]
+        }
+        safe_json_write(self.path, data)
+
+    def pull(self, context: np.ndarray) -> int:
+        """
+        Pulls an arm based on the current context using the LinUCB formula.
+        """
+        if context.shape[0] != self.state_dim:
+            # Fallback for dimension mismatch
+            return random.randrange(self.num_arms)
+        
+        x = context.reshape((self.state_dim, 1)).astype(float)
+        p_t = np.zeros(self.num_arms, dtype=float)
+
+        for i in range(self.num_arms):
+            A_inv = np.linalg.inv(self.A[i])
+            theta = A_inv @ self.b[i]  # Predicted reward coefficients
+
+            # Predicted reward for this arm given the context
+            pred_reward = float((theta.T @ x).squeeze())
+
+            # Exploration bonus based on the model's uncertainty
+            uncertainty = float(np.sqrt((x.T @ A_inv @ x).squeeze()))
+
+            # UCB Score = Predicted Reward + Alpha * Uncertainty
+            p_t[i] = pred_reward + self.alpha * uncertainty
+
+        # Choose the arm with the highest UCB score
+        return int(np.argmax(p_t))
+
+    def update(self, arm_index: int, reward: float, context: np.ndarray):
+        """
+        Updates the model for the chosen arm with the observed reward and context.
+        """
+        if context.shape[0] != self.state_dim:
+            return  # Cannot update if context is invalid
+
+        x = context.reshape((self.state_dim, 1)).astype(float)
+        # Update covariance matrix A
+        self.A[arm_index] = self.A[arm_index] + (x @ x.T)
+
+        # Update reward vector b
+        rr = float(reward)
+        # Ensure shapes are consistent (both (d,1)) and update in place
+        inc = (rr * x).reshape(self.state_dim, 1)
+        b_i = self.b[arm_index]
+        if b_i.shape != (self.state_dim, 1):
+            b_i = b_i.reshape(self.state_dim, 1)
+        b_i = b_i + inc
+        # Cast to Any to appease static analyzers about __setitem__ on ndarray lists
+        self.b[arm_index] = cast(Any, b_i)
+
+        # Periodically save the updated models
+        if sum(a.trace() for a in self.A) % 20 < 1:
+            self.save()
+
+    # HTTP handlers are defined globally below to avoid class scoping/type issues.
+
+
+class NoOpWorldModel:
+    """Graceful fallback when torch is unavailable or the WM isn't ready."""
+    def __init__(self):
+        self.available = False
+        self.ready = False
+    async def imagine_with_policy(self, *args, **kwargs):
+        return []
+    def score_transition(self, state, action):
+        return 0.0
+
+if TORCH_AVAILABLE:
+    # Create local Any-casted aliases to avoid static type checker ambiguity
+    _nn_seq = cast(Any, nn.Sequential)
+    _nn_linear = cast(Any, nn.Linear)
+    _nn_relu = cast(Any, nn.ReLU)
+    _nn_gru = cast(Any, nn.GRU)
+    _nn_module = cast(Any, nn)
+    _torch_any = cast(Any, torch)
+    _F_any = cast(Any, F)
+    class TorchStateVAEWorldModel:
+        """
+        A world model using a Variational Autoencoder (VAE) to learn a compressed
+        latent representation of the state space, and an RNN to model state transitions.
+        This allows for efficient planning through imagination.
+        """
+        def __init__(self, input_dim, action_dim, latent_dim=32, rnn_hidden_dim=256):
+            self.input_dim = input_dim
+            self.action_dim = action_dim
+            self.latent_dim = latent_dim
+            self.rnn_hidden_dim = rnn_hidden_dim
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+            self.available = True
+            # VAE Components
+            self.encoder = _nn_seq(
+                _nn_linear(input_dim, 128), _nn_relu(),
+                _nn_linear(128, 64), _nn_relu()
+            ).to(self.device)
+            self.fc_mu = _nn_linear(64, latent_dim).to(self.device)
+            self.fc_logvar = _nn_linear(64, latent_dim).to(self.device)
+            self.decoder = _nn_seq(
+                _nn_linear(latent_dim, 64), _nn_relu(),
+                _nn_linear(64, 128), _nn_relu(),
+                _nn_linear(128, input_dim)
+            ).to(self.device)
+
+            # Transition Model (RNN)
+            self.rnn = _nn_gru(latent_dim + action_dim, rnn_hidden_dim, batch_first=True).to(self.device)
+            self.fc_next_latent = _nn_linear(rnn_hidden_dim, latent_dim).to(self.device)
+
+            # Optimizer
+            _params = (
+                list(cast(Any, self.encoder).parameters()) + list(cast(Any, self.fc_mu).parameters()) +
+                list(cast(Any, self.fc_logvar).parameters()) + list(cast(Any, self.decoder).parameters()) +
+                list(cast(Any, self.rnn).parameters()) + list(cast(Any, self.fc_next_latent).parameters())
+            )
+            self.optimizer = _torch_any.optim.Adam(_params, lr=1e-4)
+            self.replay_buffer = deque(maxlen=10000)
+            self.ready = False
+            console.log(f"🌍 [WorldModel] Initialized with VAE and RNN on device: {self.device}.")
+
+        def _reparameterize(self, mu, logvar):
+            std = _torch_any.exp(0.5 * logvar)
+            eps = _torch_any.randn_like(std)
+            return mu + eps * std
+
+        def _encode(self, state):
+            h = self.encoder(state)
+            return self.fc_mu(h), self.fc_logvar(h)
+
+        def observe(self, state, action, next_state, reward):
+            """Stores a transition in the replay buffer for future training."""
+            self.replay_buffer.append((state, action, next_state, reward))
+            if len(self.replay_buffer) > 256: # Start training when buffer has enough samples
+                self._train()
+                if not self.ready:
+                    self.ready = True
+                    console.log("🌍 [WorldModel] Model is now ready for imagination.")
+
+        def _train(self, batch_size=64):
+            """Trains the VAE and transition model on a batch of experiences."""
+            if len(self.replay_buffer) < batch_size:
+                return
+
+            batch = random.sample(self.replay_buffer, batch_size)
+            states, actions, next_states, _ = zip(*batch)
+
+            t = _torch_any
+            states = t.tensor(np.array(states), dtype=t.float32).to(self.device)
+            actions = t.tensor(np.array(actions), dtype=t.float32).to(self.device)
+            next_states = t.tensor(np.array(next_states), dtype=t.float32).to(self.device)
+
+            # 1. Train VAE on states and next_states
+            mu, logvar = self._encode(_torch_any.cat([states, next_states]))
+            z = self._reparameterize(mu, logvar)
+            recon_states = self.decoder(z)
+            recon_loss = _F_any.mse_loss(recon_states, _torch_any.cat([states, next_states]))
+            kld_loss = -0.5 * _torch_any.mean(1 + logvar - mu.pow(2) - logvar.exp())
+            
+            # 2. Train Transition Model
+            with _torch_any.no_grad():
+                mu_z, _ = self._encode(states)
+                mu_next_z, _ = self._encode(next_states)
+            
+            rnn_input = _torch_any.cat([mu_z, actions], dim=1).unsqueeze(1)
+            rnn_output, _ = self.rnn(rnn_input)
+            pred_next_z = self.fc_next_latent(rnn_output.squeeze(1))
+            transition_loss = _F_any.mse_loss(pred_next_z, mu_next_z)
+
+            # Total loss and optimization step
+            loss = recon_loss + 0.1 * kld_loss + transition_loss
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+
+        def imagine_with_policy(self, start_state, policy, horizon=10):
+            """Generates a sequence of imagined future states using the agent's policy."""
+            if not self.ready:
+                return []
+            
+            with _torch_any.no_grad():
+                start_state_t = _torch_any.tensor(start_state, dtype=_torch_any.float32).to(self.device).unsqueeze(0)
+                mu, _ = self._encode(start_state_t)
+                
+                imagined_latents = []
+                current_z = mu
+                rnn_hidden = _torch_any.zeros(1, 1, self.rnn_hidden_dim).to(self.device)
+
+                for _ in range(horizon):
+                    current_state_recon = self.decoder(current_z).cpu().numpy().flatten()
+                    action = policy.select_action(current_state_recon, deterministic=True)
+                    action_t = _torch_any.tensor(action, dtype=_torch_any.float32).to(self.device).unsqueeze(0)
+                    
+                    rnn_input = _torch_any.cat([current_z, action_t], dim=1).unsqueeze(1)
+                    rnn_output, rnn_hidden = self.rnn(rnn_input, rnn_hidden)
+                    next_z = self.fc_next_latent(rnn_output.squeeze(1))
+                    
+                    imagined_latents.append(self.decoder(next_z))
+                    current_z = next_z
+
+            return imagined_latents
+
+        def is_ready(self):
+            return self.ready
+
+        def train_batch(self, traj, recon_w=1.0, kl_w=0.1, trans_w=1.0):
+            if not getattr(self, 'available', True):
+                return None
+            try:
+                states, actions, next_states, rewards = [], [], [], []
+                for (s,a,sp,r) in traj:
+                    states.append(np.array(s, dtype=np.float32))
+                    actions.append(np.array(a, dtype=np.float32))
+                    next_states.append(np.array(sp, dtype=np.float32))
+                    rewards.append(float(r))
+                t = _torch_any
+                states = t.tensor(np.array(states), dtype=t.float32).to(self.device)
+                actions = t.tensor(np.array(actions), dtype=t.float32).to(self.device)
+                next_states = t.tensor(np.array(next_states), dtype=t.float32).to(self.device)
+                # VAE losses
+                mu, logvar = self._encode(_torch_any.cat([states, next_states]))
+                z = self._reparameterize(mu, logvar)
+                recon_states = self.decoder(z)
+                recon_loss = _F_any.mse_loss(recon_states, _torch_any.cat([states, next_states]))
+                kld_loss = -0.5 * _torch_any.mean(1 + logvar - mu.pow(2) - logvar.exp())
+                # Transition loss
+                with _torch_any.no_grad():
+                    mu_z, _ = self._encode(states)
+                    mu_next_z, _ = self._encode(next_states)
+                rnn_input = _torch_any.cat([mu_z, actions], dim=1).unsqueeze(1)
+                rnn_output, _ = self.rnn(rnn_input)
+                pred_next_z = self.fc_next_latent(rnn_output.squeeze(1))
+                transition_loss = _F_any.mse_loss(pred_next_z, mu_next_z)
+                # Optimize
+                loss = recon_w*recon_loss + kl_w*kld_loss + trans_w*transition_loss
+                self.optimizer.zero_grad()
+                loss.backward()
+                # Clip by summing params explicitly (avoid self.parameters resolution issues)
+                _nn_module.utils.clip_grad_norm_(list(cast(Any, self.encoder).parameters()) + list(cast(Any, self.fc_mu).parameters()) +
+                                                 list(cast(Any, self.fc_logvar).parameters()) + list(cast(Any, self.decoder).parameters()) +
+                                                 list(cast(Any, self.rnn).parameters()) + list(cast(Any, self.fc_next_latent).parameters()), 1.0)
+                self.optimizer.step()
+                self.ready = True
+            except Exception:
+                return None
+else:
+    # Define a lightweight stub so code referring to StateVAEWorldModel can import
+    class StateVAEWorldModelStub:
+        def __init__(self, *args, **kwargs):
+            self.available = False
+            self.ready = False
+        def observe(self, *args, **kwargs):
+            return None
+        def _train(self, *args, **kwargs):
+            return None
+        def imagine_with_policy(self, *args, **kwargs):
+            return []
+        def is_ready(self):
+            return False
+        def train_batch(self, *args, **kwargs):
+            return None
+    # (alias added below)
+ # end if TORCH_AVAILABLE
+ # Provide a single public alias for the world model class
+StateVAEWorldModel = TorchStateVAEWorldModel if TORCH_AVAILABLE else StateVAEWorldModelStub  # type: ignore[name-defined]
+class CausalEngine:
+    """
+    Infers a simplified causal graph from the stream of the mind's experiences.
+    It tracks correlations in the changes of state/action variables and reward
+    to build a directed graph of potential influences.
+    """
+    def __init__(self, console_instance):
+        if nx is None:
+            raise ImportError("networkx is required for the CausalEngine.")
+        self.console = console_instance
+        self.graph = nx.DiGraph()
+        self.correlation_matrix = defaultdict(float)
+        self.update_counts = defaultdict(int)
+        self.learning_rate = 0.01
+        self.last_state_reward = {"reward": 0.0}
+        console.log("🔗 [CausalEngine] Initialized with correlation tracker.")
+
+    def update_on_step(self, mind_state: 'E8Mind', action: np.ndarray, reward: float):
+        """Updates the causal graph based on the latest transition."""
+        current_state_reward = self._get_state_reward_dict(mind_state, action, reward)
+        
+        # Calculate deltas (changes) from the last step
+        deltas = {
+            key: current_state_reward.get(key, 0) - self.last_state_reward.get(key, 0)
+            for key in current_state_reward
+        }
+        
+        reward_delta = deltas.get("reward", 0)
+        
+        # If reward changed, update correlations with all other variables that changed
+        if abs(reward_delta) > 1e-4:
+            for key, delta in deltas.items():
+                if key == "reward" or abs(delta) < 1e-4:
+                    continue
+                
+                # Update correlation with EMA: if delta and reward_delta have same sign, increase correlation
+                correlation_direction = 1.0 if (delta * reward_delta) > 0 else -1.0
+                
+                # Update the running correlation
+                edge = (key, "reward")
+                self.correlation_matrix[edge] = \
+                    (1 - self.learning_rate) * self.correlation_matrix[edge] + self.learning_rate * correlation_direction
+                self.update_counts[edge] += 1
+                
+                # If correlation is strong enough, add/update edge in the graph
+                if abs(self.correlation_matrix[edge]) > 0.3 and self.update_counts[edge] > 50:
+                    self.graph.add_edge(key, "reward", weight=self.correlation_matrix[edge])
+
+        self.last_state_reward = current_state_reward
+
+    def _get_state_reward_dict(self, mind: 'E8Mind', action: np.ndarray, reward: float) -> Dict[str, float]:
+        """Flattens the mind's state into a dictionary of variables."""
+        data = {"reward": reward}
+        data.update({f"mood_{k}": v for k, v in mind.mood.mood_vector.items()})
+        data.update({f"action_{i}": v for i, v in enumerate(action)})
+        return data
+        
+    def get_strongest_influences(self, target: str = "reward", k: int = 3):
+        """Returns the top k variables believed to influence a target variable."""
+        if not self.graph.has_node(target):
+            return []
+        
+        influences = sorted(
+            self.graph.in_edges(target, data=True),
+            key=lambda edge: abs(edge[2].get('weight', 0)),
+            reverse=True
+        )
+        return influences[:k]
+
+class _NullPE:
+    """A fallback potential evaluator that always returns zero. This is its correct, final implementation."""
+    def calculate_potential_and_get_reward(self):
+        return 0.0
+
+class HierarchicalController:
+    """
+    A high-level controller for Hierarchical Reinforcement Learning (HRL).
+    It sets long-term goals and provides intrinsic rewards to the low-level
+    policy for making progress towards them.
+    """
+    def __init__(self, goal_field: Any, potential_evaluator: Any, console_instance: Any):
+        self.console = console_instance
+        self.goal_field = goal_field
+        self.potential_evaluator = potential_evaluator
+        self.update_interval = 100 # How often to choose a new goal
+        self.current_goal_name = "synthesis"
+        self.current_goal_embedding: Optional[np.ndarray] = None
+        self.last_goal_similarity = 0.0
+        self.intrinsic_reward_scale = 0.1 # The weight of the bonus reward
+        console.log("👑 [HRL] Initialized with goal-directed reward shaping.")
+
+    def maybe_update(self, step: int):
+        """Periodically selects a new high-level goal from the GoalField."""
+        if step % self.update_interval == 0 and self.goal_field.is_initialized:
+            top_goals = self.goal_field.get_top_goals(k=1)
+            if top_goals:
+                self.current_goal_name, _ = top_goals[0]
+                self.current_goal_embedding = self.goal_field.goals[self.current_goal_name]["embedding"]
+                self.console.print(Panel(f"New high-level objective set: [bold cyan]{self.current_goal_name.upper()}[/]",
+                                         title="[bold yellow]HRL OBJECTIVE[/]", border_style="yellow"))
+
+    def shape_reward(self, state: np.ndarray, next_state: np.ndarray, base_reward: float) -> float:
+        """Adds an intrinsic reward based on progress towards the current goal."""
+        if self.current_goal_embedding is None or not self.goal_field.is_initialized:
+            return base_reward
+
+        # The state vector is a concatenation, we need to extract the part that corresponds to the embedding
+        # This is a simplification; a real system might use a dedicated state-to-embedding projection.
+        # For now, we assume the goal resonates with the overall state.
+        
+        # We need a way to compare the state to the goal embedding.
+        # Since state is not an embedding, we use the potential evaluator as a proxy.
+        # The 'goal_resonance' in the potential evaluator measures alignment with the goal field.
+        current_potential = self.potential_evaluator.last_potential # This was calculated for the *previous* step
+
+        # A more direct way is to check the change in potential, which is already the base_reward
+        # The base_reward *is* the intrinsic reward for goal progress in this architecture.
+        # So we can add a bonus for *consistency* with the top goal.
+        
+        intrinsic_reward = base_reward * self.intrinsic_reward_scale
+        
+        return base_reward + intrinsic_reward
+
+ 
+def bump_temps(memory: 'MemoryManager', node_ids: List[str], amount: float = 0.6):
+    """
+    Intelligently spikes the temperature of specified nodes. The boost is
+    stronger for colder nodes and weaker for already hot nodes to prevent
+    runaway feedback loops.
+    """
+    for nid in node_ids:
+        node = memory.graph_db.get_node(nid)
+        if node:
+            current_temp = node.get('temperature', 0.1)
+            # Apply less force as temperature increases (logarithmic scaling)
+            boost = amount / (1 + np.log1p(current_temp))
+            memory.spike_temperature(nid, boost)
+
+def attach_to_mind(mind: 'E8Mind'):
+    """
+    Attaches and initializes additional, potentially optional, cognitive modules
+    to the main mind instance after its core components are set up. This allows
+    for a modular and extensible architecture.
+    """
+    console.log("🧩 Attaching auxiliary cognitive modules...")
+    if getattr(mind, "action_dim", None) is None:
+        mind.action_dim = int(getattr(mind, "ACTION_SIZE_NO_LOCK", 8))
+
+    # Initialize the World Model (lazily)
+    if getattr(mind, "world_model", None) is None:
+        mind.world_model = None
+        def _wm_lazy_init(state_dim):
+            try:
+                wm = StateVAEWorldModel(input_dim=int(state_dim), action_dim=int(mind.action_dim))
+            except Exception as e:
+                console.log(f"[Attach] World Model init failed: {e}")
+                wm = None
+            setattr(mind, "world_model", wm)
+        setattr(mind, "_wm_lazy_init", _wm_lazy_init)
+
+    # Initialize the Causal Engine
+    if getattr(mind, "causal", None) is None:
+        mind.causal = CausalEngine(getattr(mind, "console", console))
+
+    # Initialize the Hierarchical Controller
+    if getattr(mind, "hrl", None) is None:
+        pe = getattr(mind, "potential_evaluator", None) or _NullPE()
+        mind.hrl = HierarchicalController(getattr(mind, "goal_field", None), pe, getattr(mind, "console", console))
+
+class E8Mind:
+    # Declare commonly attached attributes for static analyzers
+    world_model: Any
+    causal: Any
+    hrl: Any
+    memory: Any
+    autoencoder: Any
+    dimensional_shells: Dict[int, Any]
+    physics: Any
+    step_num: int
+    metrics: Any
+    mood: Any
+    subconscious: Any
+    llm_pool: Any
+    console: Any
+    probe: Any
+    society: Any
+    diffusion_proposer: Any
+    macro_manager: Any
+    agent: Any
+    latent_planner: Any
+    action_dim: int
+    goal_field: Any
+    potential_evaluator: Any
+    _wm_lazy_init: Any
+    sse_clients: Any
+
+    def __getattr__(self, name: str) -> Any:  # dynamic attributes tolerated
+        return getattr(self.__dict__, name, None)
+
+    
+    def register_proximity_alert(self, distance: float):
+        try:
+            self.last_proximity_distance = float(distance)
+            if hasattr(self, "console") and self.console:
+                self.console.log(f"[PROXIMITY] Alert distance set to {self.last_proximity_distance:.4f}")
+        except Exception:
+            self.last_proximity_distance = float(getattr(self, 'last_proximity_distance', 0.0))
+
+# --- inserted: seed domain if empty ---
+    async def seed_domain_if_empty(self):
+        """
+        If memory is empty, add one bootstrap concept using the semantic domain.
+        Controlled by E8_SEED_DOMAIN flag.
+        """
+        try:
+            # Count existing vectors across dimensional shells
+            total = 0
+            ds = getattr(self, "dimensional_shells", {}) or {}
+            for shell in ds.values():
+                try:
+                    mat, _ = shell.get_all_vectors_as_matrix()
+                    total += (len(mat) if mat is not None else 0)
+                except Exception:
+                    pass
+            if total > 0:
+                return  # already has content
+            if not E8_SEED_DOMAIN:
+                return
+            label = E8_SEED_LABEL.strip() or f"domain:{getattr(self, 'semantic_domain', 'experience')}"
+            entry = {
+                "type": "seed",
+                "label": label,
+                "metaphor": "bootstrap seed",
+                "rating": 0.6,
+                "step": getattr(self, "step_num", 0),
+                "source": "seed"
+            }
+            try:
+                await self.memory.add_entry(entry)
+                self.console.log(f"[seed] Inserted initial concept: {label}")
+            except Exception as _e:
+                self.console.log(f"[seed] Failed to insert seed concept: {_e}")
+        except Exception as e:
+            try:
+                self.console.log(f"[seed] Error during seed check: {e}")
+            except Exception:
+                pass
+    # --- end inserted ---
+    def _safe_compute_state_dim(self) -> int:
+        """
+        Calculates the total dimension of the state vector by summing the
+        fixed dimensions of its constituent parts.
+        """
+        # Mood vector size from its class definition (known keys)
+        mood_size = 6
+
+        # Goal vector size (based on the 4 initial goals)
+        goal_size = 4
+
+        # Shell attention vector size from its class definition
+        shell_att_size = ShellAttention().out_dim
+
+        # Dynamics vector size (as constructed in _build_state_vector)
+        dynamics_size = 5
+
+        return mood_size + goal_size + shell_att_size + dynamics_size
+    
+    def __init__(self, semantic_domain_val, run_id, llm_client_instance, client_model, embedding_model_name, embed_adapter, embed_in_dim, console: Any, is_embed_placeholder: bool):
+        self.console = console
+        self.run_id = run_id
+        self.is_embed_placeholder = is_embed_placeholder
+
+        self.state_dim = self._safe_compute_state_dim()
+        self.metrics = MetricsManager(self.run_id)
+        self._quantizer_override = None
+        self._last_cb_arm_idx = None
+        self.snapshot_every = int(os.getenv('E8_SNAPSHOT_EVERY', str(CONSOLE_EXPORT_EVERY_STEPS)))
+        self._last_hourly_metrics_ts = time.time()
+        self.novelty_weight = 0.35
+        self._coh_roll = deque(maxlen=200)
+
+        self.bandit = ContextBandit(
+            arms=[
+                {"angle_vec": 0.15, "shell_mix": (0.2,0.3,0.5), "k": 24, "diffusion_sigma": 1.2, "hub_penalty": 0.0},
+                {"angle_vec": 0.25, "shell_mix": (0.4,0.2,0.4), "k": 32, "diffusion_sigma": 1.5, "hub_penalty": 0.03},
+                {"angle_vec": 0.10, "shell_mix": (0.1,0.2,0.7), "k": 40, "diffusion_sigma": 1.0, "hub_penalty": 0.06},
+            ],
+            state_dim=self.state_dim,
+            path_json=get_path("bandit_state.json", self.run_id),
+        )
+        self._last_cb_reward = 0.0
+
+        self.console.rule(f"[bold cyan]Initializing E8 Mind | Run ID: {run_id}[/]")
         os.makedirs(os.path.join(RUNTIME_DIR, self.run_id), exist_ok=True)
 
         self.proximity_log_path = get_path("logs/proximity_alerts.ndjson", self.run_id)
         os.makedirs(os.path.dirname(self.proximity_log_path), exist_ok=True)
         self._prox_lock = asyncio.Lock()
 
-        self.market_enabled = bool(int(os.getenv("MARKET_FEED_ENABLED", "0")))
+        self.market_enabled = bool(int(os.getenv("E8_MARKET_FEED_ENABLED", "0")))
         self.market_symbols = [s.strip().upper() for s in os.getenv("MARKET_SYMBOLS", "AAPL,MSFT,SPY").split(",") if s.strip()]
         finnhub_key = os.getenv("FINNHUB_KEY", "")
         self.market = None
-        if self.market_enabled and finnhub_key and MarketFeed is not None:
-            self.market = MarketFeed(
-                symbols=self.market_symbols,
-                api_key=finnhub_key,
-                on_tick=self._on_market_tick,
-                on_bar=self._on_market_bar,
-            )
+        if self.market_enabled and finnhub_key and 'websockets' in globals() and globals()['websockets'] is not None:
+            try:
+                self.market = MarketFeed(
+                    symbols=self.market_symbols,
+                    api_key=finnhub_key,
+                    on_tick=self._on_market_tick,
+                    on_bar=self._on_market_bar,
+                )
+            except NameError: # websockets might not be defined if import failed
+                 self.market = None
         self.market_last: Dict[str, float] = {}
         self.market_last_bar: Dict[Tuple[str, str], Bar] = {}
 
@@ -3870,7 +6132,6 @@ class E8Mind:
         set_asyncio_exception_logger(self.probe)
 
         self.llm_client = llm_client_instance
-
         self._recent_texts = deque(maxlen=500)
         self._recent_norms = deque(maxlen=500)
         self._anti_repeat_enabled = True
@@ -3880,7 +6141,7 @@ class E8Mind:
         self.client_model = client_model
         self.embedding_model = embedding_model_name
         self.semantic_domain = semantic_domain_val
-        self.llm_pool = AsyncLLMPool(self, worker_count=max(4, LOCAL_GEN_WORKERS))
+        self.llm_pool = AsyncLLMPool(self, worker_count=max(1, LOCAL_GEN_WORKERS))
         self.embed_adapter = embed_adapter
         self.embed_in_dim = embed_in_dim
 
@@ -3899,7 +6160,6 @@ class E8Mind:
         self.teacher_explorer_lock = asyncio.Lock()
         self._teacher_question_context_ids: List[str] = []
 
-        self.console.log("[INIT] Building E8 Physics and Geometric Foundations...")
         self.physics = E8Physics(self.console)
         self.fabric = E8BoundaryFabric(self.physics)
         self.fabric.layout_2d()
@@ -3909,52 +6169,56 @@ class E8Mind:
         self.blueprint_kdtree = KDTree([[p['x'], p['y']] for p in self.blueprint])
 
         if TORCH_AVAILABLE:
+            import torch as _torch
             self.autoencoder = VariationalAutoencoder(layer_sizes=AUTOENCODER_LAYER_SIZES, console=self.console)
             self.shell_lattices, self.shell_kdtree_indices = {}, {}
-            e8_roots_tensor = torch.from_numpy(self.physics.roots.astype(np.float32)).float()
-            with torch.no_grad():
+            roots_np = np.asarray(self.physics.roots, dtype=np.float32)
+            with _torch.no_grad():
                 for dim in DIMENSIONAL_SHELL_SIZES:
                     if dim == 8:
-                        lifted_vectors_np = e8_roots_tensor.numpy()
+                        lifted_vectors_np = roots_np
                     else:
                         projection_matrix = np.random.randn(8, dim)
-                        lifted_vectors_np = e8_roots_tensor.numpy() @ projection_matrix
-
+                        lifted_vectors_np = roots_np @ projection_matrix
                     self.shell_lattices[dim], self.shell_kdtree_indices[dim] = lifted_vectors_np, KDTree(lifted_vectors_np)
             console.log("✅ Lifted E8 reference lattices generated for all dimensional shells.")
         else:
-            self.autoencoder = VariationalAutoencoder(console=self.console)
+            self.autoencoder = VariationalAutoencoder(layer_sizes=AUTOENCODER_LAYER_SIZES, console=self.console)
             self.shell_lattices, self.shell_kdtree_indices = {}, {}
             console.log("[yellow]PyTorch not found. Autoencoder and shell lattices disabled.[/yellow]")
 
-        self.console.log("[INIT] Assembling Cognitive Architecture...")
         self.mood = MoodEngine(self.console)
         self.subconscious = SubconsciousLayer(self.get_embedding, self.llm_pool, self.console)
         self.goal_field = GoalField(self.get_embedding, self.console)
         self.drives = DriveSystem()
         self.dimensional_shells = {dim: DimensionalShell(dim, self) for dim in DIMENSIONAL_SHELL_SIZES}
         self.proximity_engine = ProximityEngine(shell_dims=DIMENSIONAL_SHELL_SIZES, mind_instance=self, console=self.console)
-        self.memory = MemoryManager(self.get_embedding, self.mood, self.subconscious, self.run_id, self.probe, self.llm_pool, self)
+        # In E8Mind.__init__
+        self.memory = MemoryManager(self)
         self.novelty_scorer = NoveltyScorer(self.memory, self.llm_pool, self.console)
         self.insight_agent = InsightAgent(self.llm_pool, self.novelty_scorer, self.console)
 
+        self.new_node_id_queue = deque(maxlen=500)
         self.shell_attention = ShellAttention(out_dim=32, keep_k=3)
         self.arbiter_gate = ArbiterGate()
         self.curriculum = AutoTaskManager(self.console)
-
         self.dream_engine = DreamEngine(self.memory, self)
-
+        self.dream_replay_service = DreamReplayService(self, batch=int(os.getenv('E8_REPLAY_BATCH','32')), steps=int(os.getenv('E8_REPLAY_STEPS','20')))
         self.narrative_streamer = NarrativeStreamer(self.memory, self.llm_pool, self.run_id)
         self.synthetic_env = SyntheticEnvironment(self.llm_pool, self)
         self.domain_tint = DomainTintEngine(self.semantic_domain, self.llm_pool)
         self.validator = HypothesisValidator(self)
         self.ingestion_pipeline = DataIngestionPipeline(self)
         self.scheduler = CognitiveScheduler(self)
-        self.console.log("[INIT] Configuring SAC-MPO Reinforcement Learning Agent...")
         self.potential_evaluator = StatePotentialEvaluator(self.dimensional_shells, self.goal_field)
-        TASK_EMBED_REDUCED_DIM = 32
-        self.state_dim = len(self.mood.mood_vector) + 4 + self.shell_attention.out_dim + 5 # Mood + Goals + Attention + Dynamics
-        self.action_dim = ACTION_SIZE_NO_LOCK # Bivectors + Angles
+        
+        # --- FIX: Moved attach_to_mind() to after its dependencies are initialized ---
+        try:
+            attach_to_mind(self)
+        except Exception as e:
+            self.console.log(f"[bold red]Error attaching auxiliary modules: {e}[/bold red]")
+
+        self.action_dim = ACTION_SIZE_NO_LOCK
         self.max_action = 0.1
 
         self._bh_window = deque(maxlen=50)
@@ -3963,9 +6227,17 @@ class E8Mind:
         self._prev_bh = 0.0
         self._low_bh_streak = 0
         self._prev_action = np.zeros(self.action_dim, dtype=np.float32)
+
         if TORCH_AVAILABLE:
             self.agent = SACMPOAgent(self.state_dim, self.action_dim, self.max_action, console=self.console, tau=0.002, use_per=True)
-
+        # Society of Mind
+        try:
+            if os.getenv('E8_SOCIETY_ENABLED','1')=='1':
+                self.society = SocietyOfMind(self, beta=float(os.getenv('E8_SOCIETY_BETA','3.0')), K=int(os.getenv('E8_SOCIETY_CANDIDATES','12')))
+            else:
+                self.society = None
+        except Exception:
+            self.society = None
             try:
                 self.diffusion_proposer = LatentDiffusionProposer(self.action_dim, horizon=8, samples=16)
             except Exception:
@@ -3979,8 +6251,8 @@ class E8Mind:
             self.diffusion_proposer = None
             self.macro_manager = None
 
-
         try:
+            # Accept both (layout, action_dim, ...) and (action_dim, max_action, ...) signatures in stub
             self.latent_planner = LatentCEMPlanner(ACTION_LAYOUT, self.action_dim, angle_scale=self.max_action, pop=64, elites=8, iters=3, horizon=8, sigma=0.06)
         except Exception:
             self.latent_planner = None
@@ -3988,6 +6260,9 @@ class E8Mind:
         self.qeng = QuantumEngine(self.physics, QuantumConfig(seed=GLOBAL_SEED), self.console)
         self.ceng = ClassicalEngine(self.physics, ClassicalConfig(seed=GLOBAL_SEED), self.console)
         self.anchors = MultiAnchorField(self.physics)
+        
+        self.wavey_bridge = WaveyE8Bridge(embed_dim=EMBED_DIM, seed=GLOBAL_SEED)
+        self._wavey_bias_last = None
         self.valence = SymmetryValenceEngine(self.physics)
         self.ego_gate = EgoGate(self.valence, min_delta=-0.01)
         self.holo, self.emap, self.slice_stack = HoloEncoder(self.fabric, feat_dim=8), EntropyMap(self.fabric), SliceStack()
@@ -4029,21 +6304,53 @@ class E8Mind:
             self.console.log(f"[bold red]Error in apply_manifold_action: {e}[/bold red]")
             pass
 
+        
     def _snap_to_lattice(self, vector: np.ndarray, dim: int) -> np.ndarray:
-        # ... (code to find nearest index)
+        # Quantizer switch: E8 (default via KD snap), cubic/random/none via env
+        try:
+            q = (os.getenv("E8_QUANTIZER", "e8") or "e8").lower()
+            cell = float(os.getenv("E8_CELL", "0.10"))
+        except Exception:
+            q, cell = "e8", 0.10
+        v = vector.astype(np.float32, copy=False)
+        if q == "none":
+            return v
+        if q == "cubic":
+            return (np.round(v / cell) * cell).astype(np.float32)
+        if q == "random":
+            try:
+                seed = int(os.getenv("GLOBAL_SEED", "1337"))
+            except Exception:
+                seed = 1337
+            rng = np.random.default_rng(seed)
+            jitter = rng.normal(0.0, cell, size=v.shape).astype(np.float32)
+            w = v + jitter
+            return (np.round(w / cell) * cell).astype(np.float32)
+        
+        # default 'e8': use existing KDTree-based snap if available
+        kdtree = self.shell_kdtree_indices.get(dim)
+        if kdtree is None:
+            return v # Fallback if no tree exists for this dimension
+        
         _, nearest_index_arr = kdtree.query(vector.reshape(1, -1), k=1)
         
-        # --- CORRECTED LOGIC ---
         try:
-            # CORRECTED: .item() robustly extracts the scalar index from the nested array (e.g., [[42]]).
+            # FIX: Use .item() to robustly extract the scalar index from the nested array.
+            # This prevents errors if the result shape is, for example, [[42]].
             scalar_index = nearest_index_arr.item()
-            # This now correctly returns a 1D vector.
             return self.shell_lattices[dim][scalar_index]
         except (ValueError, IndexError):
             # Fallback if the index array is empty or malformed.
-            return vectorr
+            return vector
 
     async def _teacher_ask_new_question(self):
+        # --- HOTFIX INTEGRATED: Teacher Gating ---
+        min_for_teacher = int(os.getenv("E8_MIN_FOR_TEACHER", "30"))
+        current_nodes = self.memory.graph_db.graph.number_of_nodes()
+        if current_nodes < min_for_teacher:
+            return # Silently skip if not enough concepts
+        
+
         async with self.teacher_explorer_lock:
                 try:
                     frontier_insights = []
@@ -4057,13 +6364,33 @@ class E8Mind:
                     if len(frontier_insights) > 1 and random.random() > 0.4:
                         id_A, data_A = frontier_insights[1]; id_B, data_B = frontier_insights[0]
                         self._teacher_question_context_ids = [id_A, id_B]
+                        # AFTER
                         prompt = (f"Goal: '{top_goal_desc}'.\nInsight A: '{data_A.get('metaphor', '')}'\nInsight B: '{data_B.get('metaphor', '')}'.\n\n"
-                                    "Ask one concise question (under 20 words) about the connection between A and B.")
+                                "Ask one concise question (under 20 words) about the connection between A and B. "
+                                "The question MUST include key terms from either Insight A or B.")
                     else:
                         recent_nodes_data = [d for _, d in self.memory.graph_db.graph.nodes(data=True) if not d.get("folded")]
                         memory_snippet = "\n".join(f"- {n.get('label','')}: {n.get('metaphor','')}" for n in recent_nodes_data[-4:])
-                        prompt = (f"Goal: '{top_goal_desc}'.\nRecent thoughts:\n{memory_snippet}\n\nAsk one profound, short question (under 20 words) to advance the goal.")
+                        prompt = (f"Goal: '{top_goal_desc}'.\nRecent thoughts:\n{memory_snippet}\n\nAsk one profound, short question (under 20 words) to advance the goal. "
+                                "The question MUST include at least one key term from the 'Recent thoughts' provided.")
+                    
                     question = await asyncio.wait_for(self.llm_pool.enqueue_and_wait(prompt, max_tokens=40, temperature=0.75), timeout=TEACHER_STEP_TIMEOUT)
+
+                    # --- HOTFIX INTEGRATED: Teacher Question Filtering ---
+                  
+                    # CORRECTED LOGIC: Build a comprehensive set of terms from both labels and metaphors
+                    all_graph_text = " ".join(
+                        f"{d.get('label', '')} {d.get('metaphor', '')}"
+                        for _, d in self.memory.graph_db.graph.nodes(data=True)
+                    )
+                    graph_terms = set(re.findall(r"[A-Za-z0-9]+", all_graph_text.lower()))
+
+                    if not teacher_prompt_ok(question, graph_terms):
+                        self.console.log(f"[TEACHER] Question '{question}' rejected: Lacks relevance to memory graph.")
+                        self.teacher_question = None
+                        return
+                    # --- END HOTFIX ---
+
                     self.teacher_question = str(question).strip().replace('"', '')
                     self.teacher_log.append({"step": self.step_num, "q": self.teacher_question})
                     if self.teacher_question: self.current_task_embedding = await self.get_embedding(self.teacher_question)
@@ -4077,40 +6404,67 @@ class E8Mind:
         async with self.teacher_explorer_lock:
                 q = getattr(self, "teacher_question", None)
                 if not q: return
+                
+                # --- HOTFIX INTEGRATED: Explorer Robustness ---
+                answer = "[Explorer] (error)" # Default answer on failure
                 try:
                     answer_prompt = f"You are the Explorer. Answer the Teacher's question plainly. Max 4 sentences. Be concrete.\n\nQuestion:\n{q}\n\nAnswer:"
-                    answer = str(await asyncio.wait_for(self.llm_pool.enqueue_and_wait(answer_prompt, max_tokens=150, temperature=0.8), timeout=EXPLORER_STEP_TIMEOUT)).strip()
+                    raw_answer = str(await asyncio.wait_for(self.llm_pool.enqueue_and_wait(answer_prompt, max_tokens=150, temperature=0.8), timeout=EXPLORER_STEP_TIMEOUT)).strip()
+
+                    # Ensure answer is valid and non-empty
+                    if not raw_answer or raw_answer.startswith("[LLM"):
+                        answer = "[Explorer] (no answer)"
+                    else:
+                        answer = raw_answer
+                    
+                    # Original logic proceeds with the sanitized 'answer'
                     label = "Explorer answer"
-                    if answer and not answer.startswith("[LLM"):
+                    if not answer.startswith("[Explorer]"):
                         try:
                             label_resp = await asyncio.wait_for(self.llm_pool.enqueue_and_wait(f"Summarize in 3-6 words:\n{answer}", max_tokens=12, temperature=0.2), timeout=max(3.0, EXPLORER_STEP_TIMEOUT/2.0))
                             if label_resp and not label_resp.startswith("[LLM"):
                                 label = str(label_resp).strip()
                         except Exception as e: self.console.log(f"[EXPLORER] label timeout: {e}")
-                    safe = escape(label)
+                    
+                    safe = rich_escape(label)
                     async with self.console_lock:
                         self.console.print(Panel.fit(f"[bold white]{sanitize_block(answer, 2, 240)}[/]", title=f"[bold green]EXPLORER[/] · {safe[:42]}{'…' if len(safe)>42 else ''}", border_style="green"))
-                    rating = await self.rate_concept(f"{label}: {answer}")
-                    new_node_id = await self.memory.add_entry({"type": "explorer_insight", "label": label, "metaphor": answer, "rating": rating, "step": self.step_num}, parent_ids=self._teacher_question_context_ids)
-                    await self._append_insight_log({
-                        "run_id": getattr(self, "run_id", None),
-                        "step": int(self.step_num),
-                        "type": "explorer_insight",
-                        "node_id": new_node_id,
-                        "label": label,
-                        "content": answer,
-                        "rating": float(rating),
-                        "question": q,
-                        "parent_ids": list(getattr(self, "_teacher_question_context_ids", []) or []),
-                    })
-                    self.explorer_last_answer = answer
-                    self.last_teacher_question = q
-                    self.subconscious_event_log.append({'type': 'teacher_explorer', 'step': self.step_num, 'data': {'q': q, 'a': answer}})
-                    self.drives.reward("curiosity", 0.15)
+
+                    # Only add to memory if it was a valid response
+                    if not answer.startswith("[Explorer]"):
+                        rating = await self.rate_concept(f"{label}: {answer}")
+                        new_node_id = await self.memory.add_entry({"type": "explorer_insight", "label": label, "metaphor": answer, "rating": rating, "step": self.step_num}, parent_ids=self._teacher_question_context_ids)
+                        await self._append_insight_log({
+                            "run_id": getattr(self, "run_id", None),
+                            "step": int(self.step_num),
+                            "type": "explorer_insight",
+                            "node_id": new_node_id,
+                            "label": label,
+                            "content": answer,
+                            "rating": float(rating),
+                            "question": q,
+                            "parent_ids": list(getattr(self, "_teacher_question_context_ids", []) or []),
+                        })
+                        self.explorer_last_answer = answer
+                        self.last_teacher_question = q
+                        self.subconscious_event_log.append({'type': 'teacher_explorer', 'step': self.step_num, 'data': {'q': q, 'a': answer}})
+                        self.drives.reward("curiosity", 0.15)
+
                 except Exception as e:
                     self.console.log(f"[EXPLORER] skipped (error): {e}")
+                    answer = f"[Explorer] (error: {str(e)[:100]})"
                 finally:
+                    # Log the final outcome, whatever it is
+                    self.console.log(f"[Explorer Final Outcome] {answer}")
                     self._teacher_question_context_ids, self.teacher_question = [], None
+
+    def _on_market_tick(self, symbol: str, tick: dict):
+
+        self.market_last[symbol] = tick.get("p", 0.0)
+
+    def _on_market_bar(self, symbol: str, timeframe: str, bar: Bar):
+
+        self.market_last_bar[(symbol, timeframe)] = bar
 
     async def critique_and_refine(self, thought: str, goal_desc: str) -> str:
         """
@@ -4160,7 +6514,15 @@ class E8Mind:
     async def _append_proximity_log(self, record: dict):
         try:
             rec = dict(record)
-            rec["ts"] = datetime.now(timezone.utc).isoformat()
+            try:
+                if datetime is not None and timezone is not None:
+                    rec["ts"] = datetime.now(timezone.utc).isoformat()
+                else:
+                    from datetime import datetime as _dt
+                    rec["ts"] = _dt.utcnow().isoformat()
+            except Exception:
+                from datetime import datetime as _dt
+                rec["ts"] = _dt.utcnow().isoformat()
             line = json.dumps(rec, ensure_ascii=False)
             async with self._prox_lock:
                 with open(self.proximity_log_path, "a", encoding="utf-8") as f:
@@ -4172,7 +6534,6 @@ class E8Mind:
         if self.insight_cycle_lock.locked():
             return
         async with self.insight_cycle_lock:
-            self.console.log("[Insight Cycle] Checking for cross-dimensional proximity...")
             source_dim, target_dim = random.sample(DIMENSIONAL_SHELL_SIZES, 2)
             source_shell = self.dimensional_shells[source_dim]
             if not source_shell.vectors:
@@ -4235,18 +6596,162 @@ class E8Mind:
                 f"[dim]Hypothesis:[/] {hypothesis}",
                 title="[bold magenta]PROXIMITY ALERT[/]", border_style="magenta"
             ))
+            
+    def _ensure_insight_log_state(self):
+        if not hasattr(self, "_insight_log_inited"):
+            path = get_path("logs/insights.ndjson", getattr(self, "run_id", "run"))
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            self.insight_log_path = path
+            self._insight_lock = asyncio.Lock()
+            self._insight_log_inited = True
 
-    def _on_market_tick(self, symbol: str, tick: dict):
+    async def _append_insight_log(self, record: dict):
+        self._ensure_insight_log_state()
+        try:
+            try:
+                if datetime is not None and timezone is not None:
+                    ts = datetime.now(timezone.utc).isoformat()
+                else:
+                    from datetime import datetime as _dt
+                    ts = _dt.utcnow().isoformat()
+            except Exception:
+                from datetime import datetime as _dt
+                ts = _dt.utcnow().isoformat()
+            line = json.dumps({**record, "ts": ts}, ensure_ascii=False)
+            async with self._insight_lock:
+                with open(self.insight_log_path, "a", encoding="utf-8") as f:
+                    f.write(line + "\n")
+        except Exception as e:
+            self.console.log(f"[INSIGHT-LOG] write failed: {e}")
 
-        self.market_last[symbol] = tick.get("p", 0.0)
+    async def _generate_subconscious_narrative(self):
+        all_events = self.subconscious_event_log + self.black_hole_log
+        self.subconscious_event_log.clear()
+        self.black_hole_log.clear()
+        if not all_events:
+            return
+        all_events.sort(key=lambda x: x.get('step', self.step_num))
+        await self.subconscious.generate_narrative_summary(all_events)
 
-    def _on_market_bar(self, symbol: str, timeframe: str, bar: Bar):
+    async def _generate_internal_monologue_step(self, step_num, current_node_index, prev_node_index):
+        if prev_node_index is None:
+            return
+        try:
+            delta = self.physics.roots[current_node_index] - self.physics.roots[prev_node_index]
+            themes = classify_geometry_theme(delta)
 
-        self.market_last_bar[(symbol, timeframe)] = bar
+            theme_str = themes[0] if themes else "stillness"
+            prompt = (f"You are the mind's inner voice, verbalizing a single, fleeting moment of thought. "
+                        f"Your current subconscious narrative is: \"{self.subconscious.narrative}\"\n"
+                        f"Your mood is: {self.mood.describe()}\n"
+                        f"The physical sensation of this thought was a movement of '{theme_str}'.\n\n"
+                        "Describe this single, instantaneous event in a single, short, first-person sentence.")
+            thought_sentence = await self.llm_pool.enqueue_and_wait(prompt, max_tokens=60, temperature=0.4)
+            if thought_sentence and not thought_sentence.startswith("[LLM"):
+                async with self.console_lock:
+                    self.console.print(Panel(f"[italic white]{thought_sentence}[/]", title=f"[bold #A9A9A9]Inner Monologue | Step {step_num}[/]", border_style="#A9A9A9"))
+                if random.random() < 0.1:
+                    rating = await self.rate_concept(thought_sentence)
+                    if rating > 0.6:
+                        await self.memory.add_entry({"type": "monologue_thought", "label": sanitize_line(thought_sentence, 25), "metaphor": thought_sentence,
+                                                        "rating": rating, "step": step_num})
+        except Exception as e:
+            async with self.console_lock:
+                self.console.log(f"[Monologue Error] Step {step_num} failed: {e}")
+
+    async def _generate_phase_summary(self):
+        """Generates a summary of the most recent phase of thought."""
+        try:
+            recent_nodes = [
+                d.get('label', 'untitled')
+                for _, d in self.memory.graph_db.graph.nodes(data=True)
+                if isinstance(d, dict) and not d.get("folded") and d.get('type') == 'concept'
+            ][-10:]
+
+            if len(recent_nodes) < 3:
+                return
+
+            prompt = (f"Concepts explored recently: {', '.join(recent_nodes)}. "
+                      f"Synthesize these into a one-sentence summary of this phase of thought.")
+            
+            summary = await self.llm_pool.enqueue_and_wait(prompt, max_tokens=150, temperature=0.6)
+            if not summary or summary.startswith("[LLM"):
+                return
+
+            label_prompt = f'Create a 3-4 word title for this summary: "{summary}"'
+            label = await self.llm_pool.enqueue_and_wait(label_prompt, max_tokens=15, temperature=0.5)
+            if not label or label.startswith("[LLM"):
+                return
+
+            await self.memory.add_entry({
+                "label": label.strip().replace('"', ''),
+                "type": "phase_summary",
+                "metaphor": summary,
+                "rating": 0.8,
+                "step": self.step_num
+            })
+            self.console.print(Panel(
+                f"New summary created: '{label}'",
+                title="[bold orange]PHASE[/bold orange]",
+                border_style="dark_orange"
+            ))
+        except Exception as e:
+            self.console.log(f"[bold red]Failed to generate phase summary: {e}[/bold red]")
+
+    async def _generate_meta_reflection(self):
+        """Reflects on recent internal monologues to find higher-level insights."""
+        try:
+            refl_file = self._path("reflections.txt")
+            if not os.path.exists(refl_file):
+                return
+
+            with open(refl_file, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            recent_egos = re.findall(r"--- Step \d+ ---\n(.*?)(?=\n--- Step|\Z)", content, re.DOTALL)[-5:]
+            if not recent_egos:
+                return
+
+            prompt = ("Reflect on these recent internal monologues:\n" +
+                      "\n".join(f"- {e.strip()}" for e in recent_egos) +
+                      "\n\nWhat pattern or concept emerges? Synthesize a new, higher-level insight.")
+
+            reflection = await self.llm_pool.enqueue_and_wait(prompt, temperature=0.8, max_tokens=250)
+            if not reflection or reflection.startswith("[LLM"):
+                return
+
+            label_prompt = f'Summarize this insight in a 3-5 word title: "{reflection}"'
+            label = await self.llm_pool.enqueue_and_wait(label_prompt, max_tokens=20)
+            if not label or label.startswith("[LLM"):
+                return
+
+            await self.memory.add_entry({
+                "label": label.strip().replace('"', ''),
+                "type": "meta_reflection",
+                "metaphor": reflection,
+                "rating": 0.85,
+                "step": self.step_num
+            })
+            self.mood.process_event("reflection")
+            self.console.print(Panel(
+                f"Meta-reflection '{label}' added.",
+                title="[bold white]META[/bold white]",
+                border_style="white"
+            ))
+        except Exception as e:
+            self.console.log(f"[bold red]Meta-reflection failed: {e}[/bold red]")
+
+    
+    # perform_retro_relink consolidated later; duplicate removed here.
 
     async def _run_proactive_insight_synthesis(self):
+        min_needed = int(os.getenv("E8_MIN_CONCEPTS_FOR_SYNTH", "0"))
+        current_nodes = self.memory.graph_db.graph.number_of_nodes()
+        if current_nodes < min_needed:
+            self.console.log(f"[InsightAgent] Synthesis skipped: Not enough concepts ({current_nodes}/{min_needed}).")
+            return
+       
         async with self.insight_cycle_lock:
-            self.console.log("[InsightAgent] Proactively seeking novel synthesis...")
             hot_nodes = sorted(
                 [(nid, data) for nid, data in self.memory.graph_db.graph.nodes(data=True)
                  if not data.get("folded") and data.get("type") in self.dream_engine.ALLOWED_TYPES],
@@ -4277,58 +6782,114 @@ class E8Mind:
             new_concept_text = await self.insight_agent.create_hybrid_concept(parent_a_data, parent_b_data)
             if not new_concept_text or new_concept_text.startswith("[LLM"):
                 return
+            
+            parent_a_label = parent_a_data.get('label', 'A')
+            parent_b_label = parent_b_data.get('label', 'B')
+            
+            # Use a regular expression to strip any number of "Synthesis: " prefixes from the start.
+            cleaned_a = re.sub(r'^(Synthesis:\s*)+', '', parent_a_label).strip()
+            cleaned_b = re.sub(r'^(Synthesis:\s*)+', '', parent_b_label).strip()
+            
+            # M17: coherence floor + cheap resampling
             novelty_vec = await self.get_embedding(new_concept_text)
-            novelty_score = self.novelty_scorer.calculate_novelty(novelty_vec)
-            coherence_score = await self.novelty_scorer.calculate_coherence(new_concept_text)
-            final_rating = (novelty_score * 0.6) + (coherence_score * 0.4)
-            reward = (novelty_score + coherence_score) / 2.0
-            self.insight_agent.learn_from_reward(reward)
+
+            coh = await self.novelty_scorer.calculate_coherence(new_concept_text)
+            if coh < float(os.getenv("E8_COHERENCE_FLOOR", "0.45")):
+                # Two low-T variants; pick best coherence
+                cands = [new_concept_text]
+                for _ in range(int(os.getenv("E8_RETRIES", "2"))):
+                    alt = await self.insight_agent.create_hybrid_concept(parent_a_data, parent_b_data)
+                    if alt and not alt.startswith("[LLM"):
+                        cands.append(alt)
+                scored = []
+                for t in cands:
+                    c = await self.novelty_scorer.calculate_coherence(t)
+                    scored.append((t, c))
+                new_concept_text, coh = max(scored, key=lambda x: x[1])
+                if coh < float(os.getenv("E8_COHERENCE_FLOOR", "0.45")):
+                    self.console.log(f"[bold yellow]Synthesis rejected: Coherence too low ({coh:.2f}) after retries.[/bold yellow]")
+                    return
+
+            nov = self.novelty_scorer.calculate_novelty(novelty_vec)
+
+            # M17: reward shaping
+            def _tokens(s: str) -> set: return set(re.findall(r"[A-Za-z0-9]+", (s or "").lower()))
+            def _jaccard(a: set, b: set) -> float:
+                if not a and not b: return 1.0
+                return len(a & b) / max(1, len(a | b))
+            def _perplexity_stub(s: str) -> float:
+                w = max(1, len(s.split())); avg_len = sum(len(t) for t in s.split()) / w
+                return 25.0 + 3.0 * (avg_len < 3) + 6.0 * (avg_len > 10)
+
+            tau_ppl, beta = float(os.getenv("E8_PPL_THRESH", "35.0")), 0.01
+            grammar_pen = max(0.0, _perplexity_stub(new_concept_text) - tau_ppl) * beta
+
+            pa = (parent_a_data.get("label", "") + " " + parent_a_data.get("metaphor", "")); pb = (parent_b_data.get("label", "") + " " + parent_b_data.get("metaphor", ""))
+            dup_pen = 0.1 if _jaccard(_tokens(new_concept_text), _tokens(pa + " " + pb)) > 0.8 else 0.0
+            nw = float(getattr(self, "novelty_weight", float(os.getenv("E8_REWARD_ALPHA", "0.35")))); nw = float(np.clip(nw, 0.1, 0.9)); cw = 1.0 - nw
+            reward = nw*nov + cw*coh - grammar_pen - dup_pen
+            final_rating = 0.35*nov + 0.65*coh
+
+            novelty_score, coherence_score = float(nov), float(coh)
+            self.insight_agent.learn_from_reward(float(reward), episode_data={"type": "synthesis", "parents": [parent_a_id, parent_b_id], "text": new_concept_text})
+
             new_entry = {
-                "type": "insight_synthesis", "label": sanitize_line(f"Synthesis: {parent_a_data.get('label', 'A')} + {parent_b_data.get('label', 'B')}"),
+                "type": "insight_synthesis", 
+                "label": sanitize_line(f"Synthesis: {cleaned_a} + {cleaned_b}"),
                 "metaphor": new_concept_text, "rating": final_rating, "step": self.step_num
             }
+            new_entry["coherence"] = float(coherence_score)
+
+            parent_vec_a = self.memory.main_vectors.get(parent_a_id); parent_vec_b = self.memory.main_vectors.get(parent_b_id)
+            processed_vec = self.memory.hopfield.clean_up(novelty_vec)
+            if parent_vec_a is not None and parent_vec_b is not None:
+                parentage_vec = self.memory.vsa.encode_parentage(parent_vec_a, parent_vec_b)
+                processed_vec = normalize_vector(0.8 * processed_vec + 0.2 * parentage_vec)
+            new_entry["embedding"] = processed_vec
+
+            if not self.memory.reranker.validate(processed_vec, [parent_a_id, parent_b_id], nov, coh): return
+
             new_node_id = await self.memory.add_entry(new_entry, parent_ids=[parent_a_id, parent_b_id])
+
+            try:
+                for pid in [parent_a_id, parent_b_id]:
+                    try:
+                        if hasattr(self.memory, "_allow_edge") and self.memory._allow_edge(pid, new_node_id):
+                            self.memory.graph_db.add_edge(pid, new_node_id, kind="parent", weight=1.0)
+                        else: self.memory.graph_db.add_edge(pid, new_node_id, kind="parent", weight=1.0)
+                    except Exception: pass
+                for _nid in [new_node_id, parent_a_id, parent_b_id]:
+                    try: self.memory._trim_degree(_nid, max_deg=8)
+                    except Exception: pass
+            except Exception: pass
+
             await self._append_insight_log({
-                "run_id": getattr(self, "run_id", None),
-                "step": int(self.step_num),
-                "type": "insight_synthesis",
-                "node_id": new_node_id,
-                "label": new_entry["label"],
-                "content": new_concept_text,
-                "rating": float(final_rating),
-                "novelty": float(novelty_score),
-                "coherence": float(coherence_score),
+                "run_id": getattr(self, "run_id", None), "step": int(self.step_num), "type": "insight_synthesis",
+                "node_id": new_node_id, "label": new_entry["label"], "content": new_concept_text,
+                "rating": float(final_rating), "novelty": float(novelty_score), "coherence": float(coherence_score),
                 "parent_ids": [parent_a_id, parent_b_id],
             })
             self.subconscious_event_log.append({'type': 'insight_synthesis', 'label': new_entry['label'], 'step': self.step_num})
             self.console.print(Panel(f"[bold]New Synthesis:[/bold] {new_concept_text}\n[yellow]Novelty:[/] {novelty_score:.2f} | [cyan]Coherence:[/] {coherence_score:.2f} | [green]Reward:[/] {reward:.2f}",
                                         title="[bold blue]INSIGHT SYNTHESIS[/]", border_style="blue"))
 
-            if final_rating > 0.8:
-                asyncio.create_task(self.validator.validate_insight(new_node_id))
+            min_rating = float(os.getenv('E8_VALIDATOR_MIN_RATING', '0.6'))
+            if final_rating >= min_rating: asyncio.create_task(self.validator.validate_insight(new_node_id))
 
-    def _ensure_insight_log_state(self):
-        if not hasattr(self, "_insight_log_inited"):
-            path = get_path("logs/insights.ndjson", getattr(self, "run_id", "run"))
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            self.insight_log_path = path
-            self._insight_lock = asyncio.Lock()
-            self._insight_log_inited = True
-
-    async def _append_insight_log(self, record: dict):
-        self._ensure_insight_log_state()
-        try:
-            line = json.dumps({**record, "ts": datetime.now(timezone.utc).isoformat()}, ensure_ascii=False)
-            async with self._insight_lock:
-                with open(self.insight_log_path, "a", encoding="utf-8") as f:
-                    f.write(line + "\n")
-        except Exception as e:
-            self.console.log(f"[INSIGHT-LOG] write failed: {e}")
+    
 
     def _build_telemetry_snapshot(self) -> dict:
         shells_data, shell_tensions = {}, {}
         for dim, shell in self.dimensional_shells.items():
-            orientation_value = shell.orientation.value if CLIFFORD_AVAILABLE and hasattr(shell.orientation, 'value') else None
+            ori = getattr(shell, 'orientation', None)
+            orientation_value = None
+            try:
+                if CLIFFORD_AVAILABLE and hasattr(ori, 'value'):
+                    orientation_value = getattr(ori, 'value')
+                elif isinstance(ori, (int, float)):
+                    orientation_value = float(ori)
+            except Exception:
+                orientation_value = None
             shells_data[dim] = {"orientation": orientation_value}
 
             matrix, _ = shell.get_all_vectors_as_matrix()
@@ -4348,7 +6909,118 @@ class E8Mind:
             mod = (current_step - offset) % every
             return 0 if mod == 0 else every - mod
 
+        ingestion_feed_data = []
+        validation_lab_data = []
+        recent_nodes = list(self.memory.graph_db.graph.nodes(data=True))[-50:]
+        
+        for node_id, data in recent_nodes:
+            if data.get("type") == "external_concept":
+                ingestion_feed_data.append(f"[{data.get('source', 'ext')}] {data.get('label', '...')}")
+            
+            if "validation_status" in data:
+                status = data["validation_status"]
+                v_type = status.get('type', 'unknown').replace('_', ' ').title()
+                validation_lab_data.append(f"'{data.get('label', '...')}' → {v_type}")
+
+        insight_holocron_data = [f"BH Event: Consolidated {d.get('size', 0)} concepts (Mass: {d.get('mass', 0):.2f})" for d in self.black_hole_log]
+        for _, data in recent_nodes:
+            if data.get("type") == "insight_synthesis":
+                insight_holocron_data.append(f"Synthesis: {data.get('label', '...')}")
+        
+        if not hasattr(self, '_last_node_count'):
+            self._last_node_count = 0
+        
+        all_nodes_with_data = list(self.memory.graph_db.graph.nodes(data=True))
+        new_node_count = len(all_nodes_with_data)
+        # --- This entire block replaces the original logic for new_memory_nodes_data ---
+        new_memory_nodes_data = []
+        if hasattr(self, 'new_node_id_queue'):
+            while self.new_node_id_queue:
+                node_id = self.new_node_id_queue.popleft()
+                data = self.memory.graph_db.get_node(node_id)
+                if data and 'blueprint_location_id' in data and data['blueprint_location_id'] is not None:
+                    node_info = data.copy()
+                    node_info['id'] = node_id
+                    # Ensure numpy arrays are converted for JSON serialization
+                    if 'embedding' in node_info and isinstance(node_info['embedding'], np.ndarray):
+                        node_info['embedding'] = node_info['embedding'].tolist()
+                    new_memory_nodes_data.append(node_info)
+        # --- End of replacement block ---
+        self._last_node_count = new_node_count
+        # --- BEGIN: M18.5 UI compatibility patch ---
+        # Compute shell_population per dimension
+        shell_population = {}
+        for _dim, _shell in getattr(self, "dimensional_shells", {}).items():
+            try:
+                if hasattr(_shell, "get_all_vectors_as_matrix"):
+                    _M, _ = _shell.get_all_vectors_as_matrix()
+                    _count = int(getattr(_M, "shape", [0])[0]) if _M is not None else 0
+                elif hasattr(_shell, "vectors"):
+                    _count = len(_shell.vectors) if _shell.vectors is not None else 0
+                else:
+                    _count = 0
+            except Exception:
+                _count = 0
+            shell_population[str(_dim)] = _count
+        
+        # Ensure KDTree failure counter exists
+        if not hasattr(self, "kdtree_failures"):
+            self.kdtree_failures = 0
+        
+        # psi_entropy from quantum engine probabilities (if available)
+        psi_entropy = None
+        qeng = getattr(self, "qeng", None)
+        if qeng is not None:
+            try:
+                probs = None
+                if hasattr(qeng, "_probs"):
+                    probs = qeng._probs()
+                elif hasattr(qeng, "probs"):
+                    probs = qeng.probs()
+                if probs is not None:
+                    try:
+                        arr = probs[0]
+                    except Exception:
+                        arr = probs
+                    try:
+                        import numpy as _np  # prefer numpy if available
+                        p = _np.asarray(arr, dtype=float).ravel()
+                        p = _np.clip(p, 1e-12, 1.0)
+                        psi_entropy = float(-(_np.where(p>0, p*_np.log(p), 0.0)).sum())
+                    except Exception:
+                        # pure-python fallback
+                        import math as _math
+                        _flat = []
+                        try:
+                            for _x in arr: _flat.append(float(_x))
+                        except TypeError:
+                            _flat = [float(arr)]
+                        s = 0.0
+                        for _p in _flat:
+                            _p = min(max(_p, 1e-12), 1.0)
+                            s += _p * _math.log(_p)
+                        psi_entropy = float(-s)
+            except Exception:
+                psi_entropy = None
+        
+        # Discovery metrics placeholders (use existing attributes if present)
+        novelty = getattr(self, "novelty", 0.0)
+        compression_gain = getattr(self, "compression_gain", 0.0)
+        disagreement = getattr(self, "disagreement", 0.0)
+        lam = getattr(self, "lam", 0.0)
+        # --- END: M18.5 UI compatibility patch ---
+
+
         telemetry = {
+            "shell_population": shell_population,
+            "psi_entropy": 0.0 if psi_entropy is None else float(psi_entropy),
+            "novelty": float(novelty) if isinstance(novelty, (int, float)) else 0.0,
+            "compression_gain": float(compression_gain) if isinstance(compression_gain, (int, float)) else 0.0,
+            "disagreement": float(disagreement) if isinstance(disagreement, (int, float)) else 0.0,
+            "kdtree_failures": int(getattr(self, "kdtree_failures", 0)),
+            "lam": float(lam) if isinstance(lam, (int, float)) else 0.0,
+            
+            "run_id": self.run_id,
             "step": step,
             "mood": self.mood.mood_vector,
             "black_hole_pressure": self.black_hole_pressure,
@@ -4366,6 +7038,10 @@ class E8Mind:
             "subconscious_narrative": self.subconscious.narrative,
             "insight_agent_avg_reward": insight_reward_avg,
             "autoencoder_trained": bool(self.autoencoder and self.autoencoder.is_trained),
+            "ingestion_feed": ingestion_feed_data,
+            "validation_lab": validation_lab_data,
+            "insight_holocron": insight_holocron_data,
+            "new_memory_nodes": new_memory_nodes_data,
         }
         if self.market:
             telemetry["market"] = {"symbols": self.market_symbols, "last": self.market_last}
@@ -4424,7 +7100,7 @@ class E8Mind:
                     "chunk_index": self._console_chunk_index,
                     "start_step": start_step,
                     "end_step": end_inclusive,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": (datetime.now(timezone.utc).isoformat() if (datetime is not None and timezone is not None) else __import__('datetime').datetime.utcnow().isoformat()),
                     "content": new_text
                 }
                 with open(os.path.join(self.console_export_dir, base + ".json"), "w", encoding="utf-8") as f:
@@ -4556,117 +7232,158 @@ class E8Mind:
                 autoencoder_train_buffer = autoencoder_train_buffer[batch_size:]
                 
                 try:
-                    losses = self.autoencoder.train_on_batch(torch.from_numpy(batch_np).float())
+                    _t = cast(Any, torch)
+                    losses = self.autoencoder.train_on_batch(_t.from_numpy(batch_np).float() if hasattr(_t, 'from_numpy') else _t.tensor(batch_np, dtype=_t.float32))
                     self.console.log(f"🧠 [VAE] Trained. Loss: {losses['total_loss']:.4f}, Recon: {losses['recon_loss']:.4f}, KLD: {losses['kld_loss']:.4f}")
                 except Exception as e:
                     self.console.log(f"[bold red]VAE Training Error: {e}[/bold red]")
-                    
         return autoencoder_train_buffer
 
-    async def run_cognitive_cycle(self, max_steps=99200, mode='quantum'):
-        """The main operational loop of the E8Mind, refactored for correctness and clarity."""
+    async def run_cognitive_cycle(self, max_steps=297600, mode='quantum'):
+        """
+        The main operational loop of the E8Mind, upgraded to a fully integrated
+        Plan -> Act -> Learn cycle using all sophisticated modules.
+        """
         self._ensure_console_export_state()
-        self.console.rule(f"[bold magenta]Starting Cognitive Cycle | Mode: {mode.upper()}[/bold magenta]")
+        self.console.rule(f"[bold magenta]Starting Integrated Cognitive Cycle | Mode: {mode.upper()}[/bold magenta]")
 
         # --- Initialization ---
         await self.llm_pool.start()
         await self.goal_field.initialize_goals()
+        if E8_INGEST:
+            pass  # gated by E8_INGEST
+
         for name, config in DATA_SOURCES.items():
             self.ingestion_pipeline.add_source(name, config)
-        await self.ingestion_pipeline.start()
+
+        if E8_INGEST:
+            await self.ingestion_pipeline.start()
+        
         if self.market:
-            await self.market.start()
+            if globals().get("E8_MARKET_FEED_ENABLED", False):
+                await self.market.start()
 
         self.max_steps = max_steps
         autoencoder_train_buffer, AUTOENCODER_BATCH_SIZE = [], 64
-        
+
         # --- Main Loop ---
-        with Progress("[progress.description]{task.description}", BarColumn(), "[progress.percentage]{task.percentage:>3.0f}%",
-                    "Step", TextColumn("{task.completed}/{task.total}"), TimeElapsedColumn(), console=self.console, transient=True) as progress:
-            
-            task = progress.add_task(f"Thinking ({mode})", total=max_steps)
+        with Progress(
+            SpinnerColumn(style="green"),
+            "[progress.description]{task.description}",
+            BarColumn(),
+            "[progress.percentage]{task.percentage:>3.0f}%",
+            "Step", TextColumn("{task.completed}/{task.total}"),
+            "Concepts:", TextColumn("[bold magenta]{task.fields[concept_count]}[/bold magenta]"),
+            TimeElapsedColumn(),
+            console=self.console, transient=True
+        ) as progress:
+            task = progress.add_task(f"Thinking ({mode})", total=max_steps, concept_count=0)
             for step in range(max_steps):
                 self.step_num = step
                 
                 if step == 0:
-                    await self._project_self_into_memory()
+                    if E8_SELF_PROJECT:
+                        await self._project_self_into_memory()
 
-                # 1. Update passive cognitive modules and fire scheduled events
+                # 1. UPDATE: Evolve passive modules and fire scheduled events
                 self._update_cognitive_modules(step)
                 autoencoder_train_buffer = self._train_autoencoder_if_ready(autoencoder_train_buffer, AUTOENCODER_BATCH_SIZE)
                 
-                # 2. Build the state vector for the RL agent
-                current_state = self._build_state_vector()
+                # 2. HIERARCHY: The HRL controller sets a high-level goal
+                if hasattr(self, "hrl"):
+                    self.hrl.maybe_update(step)
 
-                # 3. Select and apply an action to the dimensional shells
-                action = self.agent.select_action(current_state) if self.agent else np.zeros(self.action_dim, dtype=np.float32)
-                clamped_action = clamp_action(action, max_norm=getattr(self, '_action_clamp_norm', 0.04))
-                self.apply_manifold_action(clamped_action)
+                # 3. PERCEIVE: Build the current state vector (context)
+                current_state = self._build_state_vector()
+                if hasattr(self, "_wm_lazy_init") and self.world_model is None:
+                    self._wm_lazy_init(current_state.size)
                 
-                # 4. Evolve the quantum/classical engine
+                # 4. PLAN: Use the World Model to "imagine" the future
+                if hasattr(self, "world_model") and self.world_model.is_ready():
+                    # The agent can "dream" about the consequences of its policy
+                    self.world_model.imagine_with_policy(current_state, self.agent, horizon=8)
+
+                # 5. META-LEARN: The Contextual Bandit chooses the best set of parameters
+                arm_index = self.bandit.pull(context=current_state)
+                active_arm = self.bandit.arms[arm_index]
+                self.sigma_q = active_arm.get("diffusion_sigma", 1.2) # Dynamically tune quantum diffusion
+
+                                # 6. ACT: Society or baseline selects a low-level action
+                if getattr(self, 'society', None) is not None:
+                    action = await self.society.step(current_state, self)
+                else:
+                    action = self.agent.select_action(current_state) if self.agent else np.zeros(self.action_dim, dtype=np.float32)
+                # Blend in imagination-driven bias (non-blocking, robust to WM availability)
+                try:
+                    wm_action = None
+                    if getattr(self, 'macro_manager', None) is not None and getattr(self, 'world_model', None) is not None:
+                        wm_action = await self.macro_manager.select_action(current_state, self)
+                    if wm_action is not None:
+                        action = 0.7 * action + 0.3 * wm_action
+                except Exception:
+                    pass
+
+                clamped_action = clamp_action(action)
+                self.apply_manifold_action(clamped_action)
+
+                # 7. SIMULATE: Evolve the quantum/classical engine based on the action
                 prev_idx = self.prev_node_index or random.randrange(self.physics.roots.shape[0])
+                try:
+                    wavey_out = integrate_one_cycle(self, self.wavey_bridge)
+                    self._update_anchors_from_wavey(wavey_out)
+                except Exception:
+                    pass
+
                 self.qeng.build_hamiltonian(V=self.anchors.potential())
                 self.qeng.step_adaptive()
                 current_node_index = self.qeng.measure_hybrid(prev_idx, sigma=self.sigma_q)[0]
                 self.prev_node_index = current_node_index
-                
-                # --- CORRECTED RL LOGIC ORDER ---
-                # 5. Recalculate the state and THEN determine the reward for the transition.
+
+                # 8. LEARN: Observe the outcome and update all models
                 next_state = self._build_state_vector()
-                reward = self.potential_evaluator.calculate_potential_and_get_reward()
-                
-                # 6. Store experience and train the RL agent.
+                base_reward = self.potential_evaluator.calculate_potential_and_get_reward()
+
+                # The HRL controller shapes the final reward with intrinsic motivation
+                final_reward = self.hrl.shape_reward(current_state, next_state, base_reward) if hasattr(self, "hrl") else base_reward
+
+                # The Causal Engine learns from the transition
+                if hasattr(self, "causal"):
+                    self.causal.update_on_step(self, clamped_action, final_reward)
+
+                # The World Model observes the real outcome
+                if hasattr(self, "world_model"):
+                    self.world_model.observe(current_state, clamped_action, next_state, base_reward)
+
+                # The low-level agent learns from the shaped reward
                 if self.agent:
-                    # The order here is crucial: (s_t, a_t, s_{t+1}, r_t, done)
-                    self.agent.store(current_state, clamped_action, next_state, reward, (step == max_steps - 1))
-                    if step > 1024: # Start training after a buffer is filled
+                    self.agent.store(current_state, clamped_action, next_state, final_reward, (step == max_steps - 1))
+                    if step > 1024:
                         self.agent.update()
-                
-                # 7. Update internal trackers for the next cycle
+
+                # The Contextual Bandit learns from the base reward
+                self.bandit.update(arm_index, base_reward, current_state)
+
+                # 9. MAINTAIN: Update internal trackers for the next cycle
                 self._prev_action = clamped_action
                 self._prev_bh = self.black_hole_pressure
 
-                # 8. Handle logging and telemetry
+                await self._sse_push_telemetry()
                 await self._sse_push_telemetry()
                 if (step + 1) % CONSOLE_EXPORT_EVERY_STEPS == 0:
                     self._export_console_chunk(step)
-                
-                progress.update(task, advance=1)
+
+                concept_count = self.memory.graph_db.graph.number_of_nodes()
+                import typing as _typing
+                progress.update(_typing.cast(_typing.Any, task), advance=1, concept_count=concept_count)
                 await asyncio.sleep(0.01)
 
         # --- Shutdown ---
         self.console.log("\nCognitive cycle complete.")
         self._export_console_chunk(self.step_num, final=True)
-
     def _path(self, rel: str) -> str:
         return get_path(rel, self.run_id)
 
-    async def get_embedding(self, text: str) -> np.ndarray:
-        if IS_EMBED_PLACEHOLDER:
-            import zlib
-            seed = zlib.adler32(text.encode("utf-8")) & 0xFFFFFFFF
-            rng = np.random.default_rng(seed)
-            v_native = rng.standard_normal(self.embed_in_dim).astype(np.float32)
-            v_native = self.semantics.post_embed(v_native)
-            return self.embed_adapter(v_native)
-
-        text = self.semantics.pre_embed(text)
-        raw_vec = None
-        try:
-            raw_vec = await asyncio.wait_for(self.llm_client.embedding(text, model=self.embedding_model), timeout=EMBEDDING_TIMEOUT_SEC)
-        except asyncio.TimeoutError:
-            self.console.log("[yellow]Embedding timeout. Using fallback vector.[/yellow]")
-        except Exception as e:
-            self.console.log(f"[yellow]Embedding error: {e}. Using fallback vector.[/yellow]")
-
-        if raw_vec is None:
-            import zlib
-            seed = zlib.adler32(text.encode("utf-8")) & 0xFFFFFFFF
-            rng = np.random.default_rng(seed)
-            raw_vec = rng.standard_normal(self.embed_in_dim).astype(np.float32)
-
-        raw_vec = self.semantics.post_embed(raw_vec)
-        return self.embed_adapter(np.asarray(raw_vec, dtype=np.float32))
+    # get_embedding defined later; avoid duplicate definition
 
     def _norm_text(self, s: str) -> str:
         s = (s or "").lower().strip()
@@ -4701,6 +7418,8 @@ class E8Mind:
         self._recent_texts.append(text)
         self._recent_norms.append(n)
 
+    # Replace the existing _async_call_llm_internal method with this robust version.
+    # In E8Mind
     async def _async_call_llm_internal(self, prompt: str, **kwargs) -> str:
         """
         Calls the LLM with full context, persona, and domain hints.
@@ -4708,34 +7427,36 @@ class E8Mind:
         """
         # --- 1. Construct the Full Prompt ---
         try:
+            # FIX: Access attributes directly via `self`, not `self.mind`
             persona = self.semantics.persona_prefix(self.mood.mood_vector)
         except Exception:
+            # FIX: Access attributes directly via `self`
             persona = self.mood.get_llm_persona_prefix()
 
+        # FIX: Access attributes directly via `self`
         domain_hint = f"Domain: {getattr(self.domain_tint, 'last_hint', self.semantic_domain)}."
 
         _prompt_key = kwargs.pop('_prompt_key', 'ask')
         _prompt_vars = kwargs.pop('_prompt_vars', None) or {'question': prompt}
         
+        # FIX: Access attribute directly via `self`
         full_prompt = self.prompts.render(
-            _prompt_key, 
-            persona=persona, 
-            domain_hint=domain_hint, 
+            _prompt_key,
+            persona=persona,
+            domain_hint=domain_hint,
             **_prompt_vars
         )
 
         # --- 2. Prepare and Execute LLM Calls ---
         primary_task = None
         local_task = None
-        
-        # Ensure kwargs have standard Python types
+
         llm_kwargs = {
             'model': self.client_model,
             'max_tokens': int(kwargs.get('max_tokens', 256)),
             'temperature': float(kwargs.get('temperature', 0.7)),
         }
 
-        # Primary LLM Call
         try:
             messages = [{"role": "user", "content": full_prompt}]
             primary_task = asyncio.wait_for(
@@ -4745,14 +7466,13 @@ class E8Mind:
         except Exception as e:
             self.console.log(f"[LLM] Primary client call setup failed: {e}")
 
-        # Local LLM Fallback Call (if enabled)
         if self._anti_repeat_enabled and self.local_llm_client:
             try:
                 local_kwargs = {
                     'max_tokens': llm_kwargs['max_tokens'] // 2,
                     'temperature': min(1.0, llm_kwargs['temperature'] + 0.15)
                 }
-                local_messages = [{"role": "user", "content": prompt}] # Use simpler prompt
+                local_messages = [{"role": "user", "content": prompt}]
                 local_task = asyncio.wait_for(
                     self.local_llm_client.chat(messages=local_messages, **local_kwargs),
                     timeout=LLM_CALL_TIMEOUT_SEC
@@ -4761,40 +7481,64 @@ class E8Mind:
                 self.console.log(f"[LLM] Local client call setup failed: {e}")
 
         # --- 3. Await and Collect Responses ---
-        results = await asyncio.gather(primary_task, local_task, return_exceptions=True)
-        primary_text = results[0] if not isinstance(results[0], BaseException) else f"[LLM ERROR] {results[0]}"
-        local_text = results[1] if local_task and not isinstance(results[1], BaseException) else None
+        tasks_to_gather = [task for task in (primary_task, local_task) if task]
+        if not tasks_to_gather:
+            return "[LLM ERROR] No tasks could be created."
+
+        results = await asyncio.gather(*tasks_to_gather, return_exceptions=True)
+
+        primary_text = results[0] if primary_task and not isinstance(results[0], BaseException) else f"[LLM ERROR] Primary: {results[0]}"
+
+        local_text = None
+        if local_task:
+            result_index = 1 if primary_task else 0
+            # FIX: Add a bounds check to prevent IndexError if a task failed to be created
+            if len(results) > result_index and not isinstance(results[result_index], BaseException):
+                local_text = results[result_index]
 
         # --- 4. Select the Best Candidate to Avoid Repetition ---
         candidates = []
-        if isinstance(primary_text, str) and primary_text.strip() and not primary_text.startswith("[LLM"):
+        if isinstance(primary_text, str) and not primary_text.startswith("[LLM"):
             candidates.append(primary_text.strip())
-        if isinstance(local_text, str) and local_text.strip() and not local_text.startswith("[LLM"):
+        if isinstance(local_text, str) and not local_text.startswith("[LLM"):
             candidates.append(local_text.strip())
 
         if not candidates:
             return primary_text or "[LLM ERROR] No valid response from any provider."
 
-        # Helper function to score candidates against recent outputs
-        def get_repetition_score(text: str) -> float:
-            norm_text = self._norm_text(text)
-            if not norm_text: return 1.0
-            
-            # Use a simpler text similarity check for efficiency
-            for recent_norm in self._recent_norms:
-                if norm_text == recent_norm:
-                    return 1.0 # Exact match is highest penalty
-            
-            # Fallback to ngram similarity for non-exact matches
-            return self._repeat_score(text)
-
-        best_candidate = min(candidates, key=get_repetition_score)
-        
+        best_candidate = min(candidates, key=self._repeat_score)
         self._remember_output(best_candidate)
         return best_candidate
 
+    async def get_embedding(self, text: str) -> np.ndarray:
+        if self.is_embed_placeholder:
+            import zlib
+            seed = zlib.adler32(text.encode("utf-8")) & 0xFFFFFFFF
+            rng = np.random.default_rng(seed)
+            v_native = rng.standard_normal(self.embed_in_dim).astype(np.float32)
+            v_native = self.semantics.post_embed(v_native)
+            return self.embed_adapter(v_native)
+
+        text = self.semantics.pre_embed(text)
+        raw_vec = None
+        try:
+            raw_vec = await asyncio.wait_for(self.llm_client.embedding(text, model=self.embedding_model), timeout=EMBEDDING_TIMEOUT_SEC)
+        except asyncio.TimeoutError:
+            self.console.log("[yellow]Embedding timeout. Using fallback vector.[/yellow]")
+        except Exception as e:
+            self.console.log(f"[yellow]Embedding error: {e}. Using fallback vector.[/yellow]")
+
+        if raw_vec is None:
+            import zlib
+            seed = zlib.adler32(text.encode("utf-8")) & 0xFFFFFFFF
+            rng = np.random.default_rng(seed)
+            raw_vec = rng.standard_normal(self.embed_in_dim).astype(np.float32)
+
+        raw_vec = self.semantics.post_embed(raw_vec)
+        return self.embed_adapter(np.asarray(raw_vec, dtype=np.float32))
+
     async def rate_concept(self, concept_text: str) -> float:
-        if IS_EMBED_PLACEHOLDER:
+        if self.is_embed_placeholder:
             return 0.6
         prompt = f'Rate the novelty and coherence of this idea on a scale from 0.0 to 1.0. Response must be only the number.\nIdea: "{concept_text}"'
         try:
@@ -4804,80 +7548,6 @@ class E8Mind:
             return np.clip(v / 100.0 if v > 1.0 else v, 0.0, 1.0)
         except Exception:
             return 0.5
-
-    async def _generate_subconscious_narrative(self):
-        all_events = self.subconscious_event_log + self.black_hole_log
-        self.subconscious_event_log.clear()
-        self.black_hole_log.clear()
-        if not all_events:
-            return
-        all_events.sort(key=lambda x: x.get('step', self.step_num))
-        await self.subconscious.generate_narrative_summary(all_events)
-
-    async def _generate_internal_monologue_step(self, step_num, current_node_index, prev_node_index):
-        if prev_node_index is None:
-            return
-        try:
-            delta = self.physics.roots[current_node_index] - self.physics.roots[prev_node_index]
-            themes = classify_geometry_theme(delta)
-
-            theme_str = themes[0] if themes else "stillness"
-            prompt = (f"You are the mind's inner voice, verbalizing a single, fleeting moment of thought. "
-                        f"Your current subconscious narrative is: \"{self.subconscious.narrative}\"\n"
-                        f"Your mood is: {self.mood.describe()}\n"
-                        f"The physical sensation of this thought was a movement of '{theme_str}'.\n\n"
-                        "Describe this single, instantaneous event in a single, short, first-person sentence.")
-            thought_sentence = await self.llm_pool.enqueue_and_wait(prompt, max_tokens=60, temperature=0.4)
-            if thought_sentence and not thought_sentence.startswith("[LLM"):
-                async with self.console_lock:
-                    self.console.print(Panel(f"[italic white]{thought_sentence}[/]", title=f"[bold #A9A9A9]Inner Monologue | Step {step_num}[/]", border_style="#A9A9A9"))
-                if random.random() < 0.1:
-                    rating = await self.rate_concept(thought_sentence)
-                    if rating > 0.6:
-                        await self.memory.add_entry({"type": "monologue_thought", "label": sanitize_line(thought_sentence, 25), "metaphor": thought_sentence,
-                                                        "rating": rating, "step": step_num})
-        except Exception as e:
-            async with self.console_lock:
-                self.console.log(f"[Monologue Error] Step {step_num} failed: {e}")
-
-    async def _generate_phase_summary(self):
-        self.console.print(Panel.fit("Generating phase summary...", title="[bold orange]PHASE[/bold orange]", border_style="dark_orange"))
-        recent_nodes = [d.get('label', 'untitled') for _, d in self.memory.graph_db.graph.nodes(data=True) if isinstance(d, dict) and not d.get("folded") and d.get('type') == 'concept'][-10:]
-        if len(recent_nodes) < 3:
-            return
-        prompt = (f"Concepts explored recently: {', '.join(recent_nodes)}. Synthesize these into a one-sentence summary of this phase of thought.")
-        try:
-            summary = await self.llm_pool.enqueue_and_wait(prompt, max_tokens=150, temperature=0.6)
-            if not summary or summary.startswith("[LLM"): return
-            label = await self.llm_pool.enqueue_and_wait(f'Create a 3-4 word title for this summary: "{summary}"', max_tokens=15, temperature=0.5)
-            if not label or label.startswith("[LLM"): return
-            await self.memory.add_entry({"label": label.strip().replace('"', ''), "type": "phase_summary", "metaphor": summary, "rating": 0.8, "step": self.step_num})
-            self.console.print(Panel(f"New summary created: '{label}'", title="[bold orange]PHASE[/bold orange]", border_style="dark_orange"))
-        except Exception as e:
-            self.console.log(f"[bold red]Failed to generate phase summary: {e}[/bold red]")
-
-    async def _generate_meta_reflection(self):
-        self.console.print(Panel.fit("Generating meta-reflection...", title="[bold white]META[/bold white]", border_style="white"))
-        refl_file = self._path("reflections.txt")
-        if not os.path.exists(refl_file):
-            return
-        with open(refl_file, "r", encoding="utf-8") as f:
-            content = f.read()
-        recent_egos = re.findall(r"--- Step \d+ ---\n(.*?)(?=\n--- Step|\Z)", content, re.DOTALL)[-5:]
-        if not recent_egos:
-            return
-        prompt = ("Reflect on these recent internal monologues:\n" + "\n".join(f"- {e.strip()}" for e in recent_egos) +
-                    "\n\nWhat pattern or concept emerges? Synthesize a new, higher-level insight.")
-        try:
-            reflection = await self.llm_pool.enqueue_and_wait(prompt, temperature=0.8, max_tokens=250)
-            if not reflection or reflection.startswith("[LLM"): return
-            label = await self.llm_pool.enqueue_and_wait(f'Summarize this insight in a 3-5 word title: "{reflection}"', max_tokens=20)
-            if not label or label.startswith("[LLM"): return
-            await self.memory.add_entry({"label": label.strip().replace('"', ''), "type": "meta_reflection", "metaphor": reflection, "rating": 0.85, "step": self.step_num})
-            self.mood.process_event("reflection")
-            self.console.print(Panel(f"Meta-reflection '{label}' added.", title="[bold white]META[/bold white]", border_style="white"))
-        except Exception as e:
-            self.console.log(f"[bold red]Meta-reflection failed: {e}[/bold red]")
 
     def _update_black_hole_pressure(self):
         hot_nodes = [nid for nid, d in self.memory.graph_db.graph.nodes(data=True) if d.get('temperature', 0) > 1.5]
@@ -4889,37 +7559,43 @@ class E8Mind:
         saturation_factor = 0.8 * np.log1p(num_nodes / 50.0) if num_nodes > 0 else 0.0
         self.black_hole_pressure = np.clip(max_density * saturation_factor, 0.0, 1.0)
         is_ready = (self.step_num >= self._bh_cooldown_until) and (not self._bh_inflight)
-        if is_ready and self.black_hole_pressure > BH_PRESSURE_THRESHOLD:
+        if is_ready and self.black_hole_pressure >= BH_PRESSURE_THRESHOLD:
             self._bh_inflight = True
             self._bh_cooldown_until = self.step_num + BLACK_HOLE_COOLDOWN_STEPS
             self.console.log(f"[bold red]Black hole pressure threshold exceeded ({self.black_hole_pressure:.3f}). Initiating collapse.[/bold red]")
             asyncio.create_task(self._blackhole_cycle(self.step_num))
 
-    async def _blackhole_cycle(self, step_num: int) -> Optional[EmergenceSeed]:
+    async def _blackhole_cycle(self, step_num: int):
         self._bh_inflight = True
         try:
             center_id, pressure = self.memory.find_event_horizon()
             if not center_id:
-                self.console.log("[BH Cycle] Aborted: No event horizon.")
+                self.console.log("[BH Cycle] Aborted: No event horizon found.")
                 return None
 
             cluster = self.memory.collect_cluster(center_id)
             need = max(2, CONSOLIDATE_MIN)
 
+            # CORRECTED PADDING LOGIC
             if not cluster or len(cluster) < need:
+                self.console.log(f"[BH Cycle] Cluster for '{center_id}' too small ({len(cluster)} < {need}). Attempting local padding...")
                 base = set(cluster) if cluster else {center_id}
-                cvec = self.memory.main_vectors.get(center_id)
-                if cvec is not None:
-                    for nid, _ in self.memory.find_similar_in_main_storage(cvec, k=need * 2):
-                        if nid not in base and nid in self.memory.main_vectors:
+                
+                # Try to pad using only semantically similar (local) nodes
+                center_vec = self.memory.main_vectors.get(center_id)
+                if center_vec is not None:
+                    similar_nodes = self.memory.find_similar_in_main_storage(center_vec, k=need * 3)
+                    for nid, _ in similar_nodes:
+                        if nid not in base and self.memory.main_vectors.get(nid) is not None:
                             base.add(nid)
-                            if len(base) >= need:
-                                break
+                        if len(base) >= need:
+                            break
+                
                 cluster = list(base)
-
-            if not cluster or len(cluster) < need:
-                self.console.log(f"[BH Cycle] Aborted: Cluster for '{center_id}' too small ({len(cluster)} < {need}).")
-                return None
+                # If still too small after local padding, abort the cycle.
+                if len(cluster) < need:
+                    self.console.log(f"[BH Cycle] Aborted: Cluster too small ({len(cluster)}) even after local padding.")
+                    return None
 
             remnant_data, remnant_vec, mass = await self.memory.synthesize_remnant(cluster, label_hint=f"EmergenceSeed@{step_num}")
 
@@ -4951,8 +7627,15 @@ class E8Mind:
             z8 = np.zeros(8)
             if TORCH_AVAILABLE and self.autoencoder and self.autoencoder.is_trained:
                 with torch.no_grad():
-                    z8_tensor = self.autoencoder.project_to_dim(torch.from_numpy(remnant_vec).float().unsqueeze(0), 8)
-                    if z8_tensor is not None: z8 = z8_tensor.numpy().squeeze()
+                    _t = cast(Any, torch)
+                    remnant_t = (_t.from_numpy(remnant_vec).float().unsqueeze(0) if hasattr(_t, 'from_numpy')
+                                 else _t.tensor(remnant_vec[None, :], dtype=_t.float32))
+                    z8_tensor = self.autoencoder.project_to_dim(remnant_t, 8)
+                    if z8_tensor is not None:
+                        try:
+                            z8 = z8_tensor.numpy().squeeze()  # torch tensor path
+                        except Exception:
+                            z8 = np.asarray(z8_tensor).squeeze()
 
             seed = EmergenceSeed(remnant_id=remnant_id, embedding_vector=remnant_vec, projected_vector=z8, mass=mass, absorbed_ids=cluster, step_created=step_num)
             self.console.print(Panel(f"Emergence Seed created at step {step_num} (mass={mass:.2f}) — [bold red]BLACK HOLE EVENT[/bold red]", border_style="red", expand=False))
@@ -4985,22 +7668,131 @@ class E8Mind:
         for nid, w in top:
             try:
                 self.memory.graph_db.add_edge(new_node_id, nid, kind="retrotag", weight=w)
-            except Exception: pass
+            except Exception:
+                pass
 
             node = G.nodes.get(nid)
             if node:
                 node["temperature"] = float(node.get("temperature", 0.5) + 0.05 * w)
         self.console.log(f"[retro] linked {len(top)} prior nodes to {new_node_id}")
 
-class NumpyEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-        if isinstance(obj, np.integer):
-            return int(obj)
-        if isinstance(obj, np.floating):
-            return float(obj)
-        return super().default(obj)
+
+    # --- Wavey Integration: Engine Interface Hooks ---
+    def get_focus_vector(self) -> np.ndarray:
+        """Return a (EMBED_DIM,) focus vector for Wavey seeding.
+        Strategy: weighted sum of GoalField embeddings (if initialized),
+        blended with the mean of recent LTM vectors as context."""
+        try:
+            parts = []
+            weights = []
+            if getattr(self, "goal_field", None) and getattr(self.goal_field, "is_initialized", False):
+                for name, g in self.goal_field.goals.items():
+                    emb = g.get("embedding")
+                    act = float(g.get("activation", 0.0))
+                    if isinstance(emb, np.ndarray) and emb.size == int(1536):
+                        parts.append(emb); weights.append(max(act, 1e-6))
+            if getattr(self, "memory", None) and getattr(self.memory, "_main_storage_matrix", None) is not None:
+                M = self.memory._main_storage_matrix
+                if isinstance(M, np.ndarray) and M.size > 0:
+                    parts.append(M.mean(axis=0)); weights.append(0.25)
+            if parts:
+                W = np.asarray(weights, dtype=np.float32); W = W / (W.sum() + 1e-12)
+                v = np.sum([w*p for w, p in zip(W, parts)], axis=0).astype(np.float32)
+                n = np.linalg.norm(v) + 1e-12
+                return v / n
+        except Exception:
+            pass
+        return np.zeros(int(1536), dtype=np.float32)
+
+    def get_memory_matrix(self):
+        """Return (matrix (N,D), labels) for Wavey attention mapping."""
+        try:
+            M = getattr(self.memory, "_main_storage_matrix", None)
+            ids = getattr(self.memory, "_main_storage_ids", None)
+            if isinstance(M, np.ndarray) and M.size > 0 and isinstance(ids, list) and len(ids) == M.shape[0]:
+                return M.astype(np.float32), ids
+        except Exception:
+            pass
+        return np.empty((0, int(1536)), dtype=np.float32), []
+
+    def apply_hamiltonian_bias(self, bias: np.ndarray) -> None:
+        """Store last bias; it will be folded into anchors each step."""
+        try:
+            if isinstance(bias, np.ndarray) and bias.size > 0:
+                self._wavey_bias_last = bias.astype(np.float32).copy()
+        except Exception:
+            self._wavey_bias_last = None
+
+    def apply_attention_weights(self, weights: np.ndarray, labels=None) -> None:
+        """Nudge memory temperatures using Wavey attention (top-k)."""
+        try:
+            if not isinstance(weights, np.ndarray) or weights.ndim != 1: return
+            if labels is None:
+                labels = getattr(self.memory, "_main_storage_ids", [])
+            k = min(8, weights.shape[0])
+            if k == 0: return
+            idxs = np.argsort(-weights)[:k]
+            for i in idxs:
+                nid = labels[i] if i < len(labels) else None
+                if nid:
+                    self.memory.spike_temperature(nid, amount=float(weights[i]) * 0.5 + 0.05)
+        except Exception:
+            pass
+
+    def _update_anchors_from_wavey(self, wavey_out: dict):
+        """Translate Wavey potentials + bias into 8D anchors and set self.anchors."""
+        try:
+            anchor_list = []
+            pots = wavey_out.get("potentials") or []
+            for pot in pots:
+                try:
+                    center = np.asarray(getattr(pot, "center", None), dtype=np.float32)
+                except Exception:
+                    center = None
+                depth = float(getattr(pot, "depth", 0.0) or 0.0)
+                if center is None or center.size == 0 or depth <= 0:
+                    continue
+                # CORRECTED: Use the TinyCompressor for encoding
+                v8 = self.holo.encode(center)
+                n = np.linalg.norm(v8) + 1e-12
+                v8 = (v8 / n).astype(np.float32)
+                anchor_list.append((v8, depth))
+            if isinstance(self._wavey_bias_last, np.ndarray) and self._wavey_bias_last.size > 0:
+                # CORRECTED: Use the TinyCompressor for encoding
+                v8b = self.holo.encode(self._wavey_bias_last)
+                nb = np.linalg.norm(v8b) + 1e-12
+                v8b = (v8b / nb).astype(np.float32)
+                w = float(np.linalg.norm(self._wavey_bias_last)) * 0.15
+                if w > 0: anchor_list.append((v8b, w))
+            if getattr(self, "goal_field", None) and getattr(self.goal_field, "is_initialized", False):
+                for name, g in self.goal_field.goals.items():
+                    emb = g.get("embedding")
+                    act = float(g.get("activation", 0.0))
+                    if isinstance(emb, np.ndarray) and emb.size > 0 and act > 0:
+                        # CORRECTED: Use the TinyCompressor for encoding
+                        v8g = self.holo.encode(emb)
+                        v8g = (v8g / (np.linalg.norm(v8g)+1e-12)).astype(np.float32)
+                        anchor_list.append((v8g, 0.12 * act))
+            self.anchors.set(anchor_list)
+        except Exception as e:
+            try:
+                self.console.log(f"[Wavey] Anchor update error: {e}")
+            except Exception:
+                pass
+
+# NumpyEncoder already defined earlier; avoid duplicate class definition here.
+
+# --- Web Handlers ---
+
+async def shutdown_sse(app):
+    clients = app.get('sse_clients')
+    if not clients:
+        return
+    for q in list(clients):
+        try:
+            q.put_nowait(None)
+        except Exception:
+            pass
 
 async def shutdown_market_feed(app):
     mind = app.get('mind')
@@ -5033,22 +7825,17 @@ async def handle_stream_telemetry(request):
     resp = web.StreamResponse(status=200, reason='OK', headers=headers)
     await resp.prepare(request)
     try:
-
         await resp.write(b":ok\n\n")
         while True:
             data = await q.get()
             if data is None:
                 break
-
             chunk = f"event: telemetry\ndata: {data}\n\n".encode('utf-8')
             await resp.write(chunk)
-
     except (asyncio.CancelledError, ConnectionResetError, BrokenPipeError):
-
         pass
     finally:
         app['sse_clients'].discard(q)
-
         with contextlib.suppress(Exception):
             await resp.write_eof()
     return resp
@@ -5067,17 +7854,23 @@ async def handle_get_qeng_ablation(request):
     res = qeng.measure_ablation(prev_idx=prev_idx, sigma=sigma, window=window, trials=trials)
     return web.json_response(res)
 
-async def handle_get_qeng_probabilities(request):
+    
+
+async def handle_get_state(request):
     mind = request.app['mind']
-    qeng = getattr(mind, "qeng", None)
-    if qeng is None:
-        return web.json_response({"error": "quantum engine not initialized"}, status=400)
-
-    # The qeng._probs() method returns probabilities for the entire batch.
-    # We'll return the probabilities for the first instance in the batch.
-    probabilities = qeng._probs()[0].tolist() 
-
-    return web.json_response({"probabilities": probabilities})
+    try:
+        snap = mind._build_telemetry_snapshot()
+    except Exception:
+        snap = {}
+    # select key bits
+    state = {
+        'step': getattr(mind, 'step_num', None),
+    'mood': (getattr(getattr(mind, 'mood', None), 'mood_vector', None) if getattr(mind, 'mood', None) else None),
+        'insight_reward': getattr(mind, 'last_insight_reward', None),
+        'goals': getattr(mind, 'active_goals', []),
+        'telemetry': snap
+    }
+    return web.json_response(state)
 
 async def handle_get_telemetry(request):
     mind = request.app['mind']
@@ -5116,13 +7909,149 @@ async def handle_trigger_dream(request):
     asyncio.create_task(mind.dream_engine.run_dream_sequence())
     return web.json_response({"status": "Dream sequence initiated"})
 
+# --- Fixed/Global Web Handlers ---
+async def handle_memory_search(request):
+    mind = request.app['mind']
+    q = request.rel_url.query.get('q', '').strip()
+    if not q:
+        return web.json_response({'error': 'missing q'}, status=400)
+    try:
+        vec = await mind.get_embedding(q)
+    except Exception:
+        import zlib as _zlib
+        seed = _zlib.adler32(q.encode('utf-8')) & 0xFFFFFFFF
+        rng = np.random.default_rng(seed)
+        vec = rng.standard_normal(mind.embed_in_dim).astype(np.float32)
+        vec = mind.embed_adapter(vec)
+    sims = mind.memory.find_similar_in_main_storage(vec, k=5)
+    results = []
+    for nid, dist in sims:
+        node = mind.memory.graph_db.get_node(nid) or {}
+        results.append({'id': nid, 'label': node.get('label'), 'distance': float(dist)})
+    return web.json_response({'q': q, 'results': results})
+
+async def handle_get_qeng_probabilities(request):  # redeclare as final handler
+    mind = request.app['mind']
+    qeng = getattr(mind, 'qeng', None)
+    if qeng is None:
+        return web.json_response({"error": "quantum engine not initialized"}, status=400)
+    try:
+        P = qeng._probs()
+        if isinstance(P, np.ndarray):
+            probs = P[0].tolist() if P.ndim == 2 else P.tolist()
+        else:
+            probs = list(P)
+        return web.json_response({"probs": probs})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+async def handle_get_metrics_live(request):
+    import collections
+    mind = request.app['mind']
+    metrics_file = get_path("metrics.ndjson", mind.run_id)
+    if not os.path.exists(metrics_file):
+        return web.json_response({"error": "Metrics file not found."}, status=404)
+    try:
+        lines = []
+        with open(metrics_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                lines.append(line)
+        tail = lines[-300:]
+        counters = collections.defaultdict(int)
+        gauges = {}
+        timings = collections.defaultdict(list)
+        for ln in tail:
+            try:
+                rec = json.loads(ln)
+                t = rec.get('type')
+                name = rec.get('name')
+                if not name:
+                    continue
+                if t == 'counter':
+                    counters[name] += int(rec.get('value', 0))
+                elif t == 'gauge':
+                    gauges[name] = rec.get('value')
+                elif t == 'timing':
+                    timings[name].append(float(rec.get('duration_ms', 0.0)))
+            except Exception:
+                continue
+        timing_means = {k: (sum(v)/len(v) if v else 0.0) for k, v in timings.items()}
+        return web.json_response({
+            'counters': dict(counters),
+            'gauges': gauges,
+            'timing_means': timing_means,
+        })
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500)
+
+async def handle_get_metrics_summary(request):
+    mind = request.app['mind']
+    metrics_file = get_path('metrics.ndjson', mind.run_id)
+    summary = {
+        'counters': defaultdict(int),
+        'gauges': {},
+        'timings': defaultdict(list),
+    }
+    if not os.path.exists(metrics_file):
+        return web.json_response({'error': 'Metrics file not found.'}, status=404)
+    try:
+        with open(metrics_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                try:
+                    entry = json.loads(line)
+                    metric_type = entry.get('type')
+                    name = entry.get('name')
+                    if not name:
+                        continue
+                    if metric_type == 'counter':
+                        summary['counters'][name] += entry.get('value', 1)
+                    elif metric_type == 'gauge':
+                        summary['gauges'][name] = entry.get('value', 0.0)
+                    elif metric_type == 'timing':
+                        summary['timings'][name].append(entry.get('duration_ms', 0.0))
+                except json.JSONDecodeError:
+                    continue
+        timing_stats = {}
+        for name, values in summary['timings'].items():
+            if values:
+                timing_stats[name] = {
+                    'count': len(values),
+                    'avg_ms': float(np.mean(values)),
+                    'p95_ms': float(np.percentile(values, 95)),
+                    'max_ms': float(np.max(values)),
+                }
+        summary['timings'] = timing_stats
+        summary['counters'] = dict(summary['counters'])
+        return web.json_response(summary)
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500)
+
+async def handle_post_quantizer(request):
+    mind = request.app['mind']
+    try:
+        data = await request.json()
+        quantizer_type = data.get('type')
+        if quantizer_type in ['e8', 'cubic', 'random', 'none']:
+            mind._quantizer_override = quantizer_type
+            console.log(f'🕹️ Quantizer override set to: {quantizer_type}')
+            return web.json_response({'status': 'ok', 'message': f'Quantizer set to {quantizer_type}'})
+        return web.json_response({'error': 'Invalid quantizer type. Must be one of: e8, cubic, random, none'}, status=400)
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=500)
+
+async def handle_post_snapshot(request):
+    mind = request.app['mind']
+    console.log('📸 Manual snapshot triggered via API.')
+    asyncio.create_task(mind.memory.snapshot())
+    return web.json_response({'status': 'ok', 'message': 'Snapshot creation initiated.'})
+
 def _collect_config_from_user():
     print("Choose LLM provider:\n1. OpenAI\n2. Ollama (local)\n3. Gemini API")
     provider_choice = input("Enter choice (1, 2, or 3) [1]: ") or "1"
     cfg = {"provider_choice": provider_choice}
     if provider_choice == "1":
         cfg["openai_api_key"] = (input("OpenAI API Key: ") or "").strip()
-        cfg["openai_model_name"] = (input("OpenAI model [gpt-4-turbo-preview]: ") or "gpt-4-turbo-preview").strip()
+        cfg["openai_model_name"] = (input("OpenAI model [gpt-5-mini-preview]: ") or "gpt-5-mini-preview").strip()
     elif provider_choice == "2":
         cfg["ollama_model_name"] = (input("Ollama model [llama3]: ") or "llama3").strip()
     elif provider_choice == "3":
@@ -5130,20 +8059,31 @@ def _collect_config_from_user():
         cfg["gemini_model_name"] = (input("Gemini model [gemini-1.5-flash]: ") or "gemini-1.5-flash").strip()
     else:
         print("Invalid choice. Running with LLM stub.")
-    if provider_choice == "3":
-        use_local = (input("Augment with a local tiny-LLM via Ollama? (y/N): ") or "n").strip().lower() == "y"
-        cfg["use_local_mix"] = bool(use_local)
-        if use_local:
-            cfg["local_model_name"] = (input("Local Ollama model [phi3:mini-4k]: ") or "phi3:mini-4k").strip()
-
+    use_local = (input("Augment with a local tiny-LLM via Ollama? (y/N): ") or "n").strip().lower() == "y"
+    cfg["use_local_mix"] = "true" if bool(use_local) else "false"
+    if use_local:
+        cfg["local_model_name"] = (input("Local Ollama model [phi3:mini-4k]: ") or "phi3:mini-4k").strip()
     return cfg
 
-async def main():
-    run_id = get_run_id()
-    global llm_client, model_name, embedding_model, IS_EMBED_PLACEHOLDER, LLM_PROVIDER
-    provider_native_embed_dim = 1536
-    IS_EMBED_PLACEHOLDER = False
+# --- GLOBAL CONFIGURATION VARIABLES ---
+llm_client = None
+model_name = "stub"
+embedding_model = "stub"
+IS_EMBED_PLACEHOLDER = True
+LLM_PROVIDER = "stub"
+provider_native_embed_dim = 1536
 
+
+async def main():
+    """Main function to initialize and run the E8Mind server."""
+    global llm_client, model_name, embedding_model, IS_EMBED_PLACEHOLDER, LLM_PROVIDER, provider_native_embed_dim
+
+    run_id = get_run_id()
+
+    try:
+        seed_all(GLOBAL_SEED)
+    except Exception:
+        pass
     if os.getenv("E8_PROVIDER", "").strip().lower() in ("", "ask"):
         cfg = _collect_config_from_user()
         pc = str(cfg.get("provider_choice", "")).strip()
@@ -5151,32 +8091,40 @@ async def main():
             LLM_PROVIDER = "openai"
             api_key = cfg.get("openai_api_key") or os.getenv("OPENAI_API_KEY")
             if not api_key: raise ValueError("OPENAI_API_KEY not set.")
-            llm_client, model_name, embedding_model = AsyncOpenAIClient(api_key, console), cfg.get("openai_model_name") or "gpt-4-turbo-preview", "text-embedding-3-small"
+            llm_client, model_name, embedding_model = AsyncOpenAIClient(api_key, console), cfg.get("openai_model_name") or DEFAULT_OPENAI_CHAT_MODEL, "text-embedding-3-small"
+            IS_EMBED_PLACEHOLDER = False
         elif pc == "2":
             LLM_PROVIDER, model_name = "ollama", cfg.get("ollama_model_name") or os.getenv("OLLAMA_MODEL", "llama3")
             llm_client, embedding_model = OllamaClient(model_name, console), "nomic-embed-text"
+            IS_EMBED_PLACEHOLDER = False
         elif pc == "3":
             LLM_PROVIDER = "gemini"
             api_key = cfg.get("gemini_api_key") or os.getenv("GEMINI_API_KEY")
             if not api_key: raise ValueError("GEMINI_API_KEY not set.")
             model_name = cfg.get("gemini_model_name") or "gemini-1.5-flash"
             llm_client, embedding_model = GeminiClient(api_key, model_name, console), "models/embedding-001"
-        else: LLM_PROVIDER, IS_EMBED_PLACEHOLDER = "stub", True
+            IS_EMBED_PLACEHOLDER = False
+        else:
+            LLM_PROVIDER, IS_EMBED_PLACEHOLDER = "stub", True
     else:
         LLM_PROVIDER = os.getenv("E8_PROVIDER", "stub").lower()
         if LLM_PROVIDER == "openai":
             api_key = os.getenv("OPENAI_API_KEY");
             if not api_key: raise ValueError("OPENAI_API_KEY not set.")
-            llm_client, model_name, embedding_model = AsyncOpenAIClient(api_key, console), os.getenv("OPENAI_MODEL", "gpt-4-turbo-preview"), "text-embedding-3-small"
+            llm_client, model_name, embedding_model = AsyncOpenAIClient(api_key, console), DEFAULT_OPENAI_CHAT_MODEL, "text-embedding-3-small"
+            IS_EMBED_PLACEHOLDER = False
         elif LLM_PROVIDER == "ollama":
             model_name = os.getenv("OLLAMA_MODEL", "llama3")
             llm_client, embedding_model = OllamaClient(model_name, console), "nomic-embed-text"
+            IS_EMBED_PLACEHOLDER = False
         elif LLM_PROVIDER == "gemini":
             api_key = os.getenv("GEMINI_API_KEY")
             if not api_key: raise ValueError("GEMINI_API_KEY not set.")
             model_name = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
             llm_client, embedding_model = GeminiClient(api_key, model_name, console), "models/embedding-001"
-        else: LLM_PROVIDER, IS_EMBED_PLACEHOLDER = "stub", True
+            IS_EMBED_PLACEHOLDER = False
+        else:
+            LLM_PROVIDER, IS_EMBED_PLACEHOLDER = "stub", True
 
     if IS_EMBED_PLACEHOLDER:
         class StubClient:
@@ -5186,18 +8134,25 @@ async def main():
             async def batch_embedding(self, texts, *a, **k): return [np.random.randn(provider_native_embed_dim) for _ in texts]
         llm_client, model_name, embedding_model = StubClient(console), "stub", "stub"
 
-    console.log("[INIT] Probing embedding dimension from provider...")
-    _test_vec = await llm_client.embedding("adapter_probe")
+    _test_vec = None
+    try:
+        if llm_client is not None and hasattr(llm_client, "embedding"):
+            _test_vec = await llm_client.embedding("adapter_probe")
+    except Exception as _e:
+        console.log(f"[INIT] embedding probe failed: {_e}. Falling back to random.")
+    if _test_vec is None:
+        _test_vec = np.random.randn(provider_native_embed_dim)
     if isinstance(_test_vec, dict) and "embedding" in _test_vec: _test_vec = _test_vec["embedding"]
     if isinstance(_test_vec, list) and _test_vec and isinstance(_test_vec[0], (list, np.ndarray)): _test_vec = _test_vec[0]
     embed_in_dim = int(len(_test_vec))
     if embed_in_dim > 1: provider_native_embed_dim = embed_in_dim
     console.log(f"[INIT] Detected provider embedding dimension: {provider_native_embed_dim}")
 
+    profile_name = os.getenv("MIND_PROFILE", "default")
+    sem, _ = load_profile(profile_name)
+    probe_native = np.zeros(provider_native_embed_dim, dtype=np.float32)
+    
     try:
-        profile_name = os.getenv("MIND_PROFILE", "default")
-        sem, _ = load_profile(profile_name)
-        probe_native = np.zeros(provider_native_embed_dim, dtype=np.float32)
         probe_post = sem.post_embed(probe_native)
         adapter_in_dim = int(np.asarray(probe_post, dtype=np.float32).size)
         console.log(f"[INIT] post_embed output dim: {adapter_in_dim} (provider {provider_native_embed_dim})")
@@ -5209,14 +8164,23 @@ async def main():
     console.log(f"[INIT] Universal Embedding Adapter created: {adapter_in_dim} -> {EMBED_DIM}")
 
     mind = E8Mind(
-        semantic_domain_val=SEMANTIC_DOMAIN, run_id=run_id,
-        llm_client_instance=llm_client, client_model=model_name,
+        semantic_domain_val=SEMANTIC_DOMAIN,
+        run_id=run_id,
+        llm_client_instance=llm_client,
+        client_model=model_name,
         embedding_model_name=embedding_model,
         embed_adapter=embed_adapter,
         embed_in_dim=provider_native_embed_dim,
-        console=console
+        console=console,
+        is_embed_placeholder=IS_EMBED_PLACEHOLDER
     )
 
+    # inserted: seed domain concept if requested
+    try:
+        await mind.seed_domain_if_empty()
+    except Exception as _e:
+        console.log(f"[seed] seed_domain_if_empty error: {_e}")
+    
     try:
         cfg = locals().get("cfg", {})
         if cfg.get("use_local_mix") and ollama is not None:
@@ -5228,22 +8192,43 @@ async def main():
             console.log("[LLM MIX] Local tiny-LLM disabled or not available.")
     except Exception as e:
         console.log(f"[LLM MIX] Failed to init local tiny-LLM: {e}")
-
+    # Require aiohttp for the HTTP server
+    if web is None:
+        console.log("[bold red]aiohttp is not installed. Please `pip install aiohttp` to run the server API.[/bold red]")
+        return
     app = web.Application()
     app['mind'] = mind
     app['sse_clients'] = set()
     mind.sse_clients = app['sse_clients']
+    app.on_shutdown.append(shutdown_sse)
     app.on_shutdown.append(shutdown_market_feed)
-    cors = aiohttp_cors.setup(app, defaults={"*": aiohttp_cors.ResourceOptions(allow_credentials=True, expose_headers="*", allow_headers="*")})
+    # Setup CORS if available; otherwise use a no-op shim
+    if aiohttp_cors is not None:
+        cors = aiohttp_cors.setup(app, defaults={"*": aiohttp_cors.ResourceOptions(allow_credentials=True, expose_headers="*", allow_headers="*")})
+    else:
+        class _NoCors:
+            def add(self, *a, **k):
+                return None
+        cors = _NoCors()
+
     app.router.add_get("/api/graph", handle_get_graph)
+    app.router.add_get("/api/memory/search", handle_memory_search)
+    app.router.add_get("/api/state", handle_get_state)
     app.router.add_get("/api/telemetry", handle_get_telemetry)
     app.router.add_get("/api/telemetry/stream", handle_stream_telemetry)
     app.router.add_get("/api/blueprint", handle_get_blueprint)
+    # Frontend expects this alias as well
+    app.router.add_get("/api/quasicrystal_blueprint", handle_get_blueprint)
     app.router.add_post("/api/concept", handle_add_concept)
     app.router.add_post("/api/action/dream", handle_trigger_dream)
     app.router.add_get("/api/qeng/telemetry", handle_get_qeng_telemetry)
     app.router.add_get("/api/qeng/ablation", handle_get_qeng_ablation)
     app.router.add_get("/api/qeng/probabilities", handle_get_qeng_probabilities)
+
+    app.router.add_get("/metrics/summary", handle_get_metrics_summary)
+    app.router.add_get("/metrics/live", handle_get_metrics_live)
+    app.router.add_post("/quantizer", handle_post_quantizer)
+    app.router.add_post("/snapshot", handle_post_snapshot)
 
     static_path = os.path.join(BASE_DIR, 'static')
     if os.path.exists(static_path): app.router.add_static('/', static_path, show_index=True, default_filename='index.html')
@@ -5266,98 +8251,19 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        console.log("\n[bold cyan]Shutting down E8 Mind...[/bold cyan]")
+        console.log("\n[bold yellow]Keyboard interrupt received. Shutting down.[/bold yellow]")
     except Exception as e:
         console.log(f"[bold red]CRITICAL ERROR in main: {e}[/bold red]")
         console.print_exception()
 
-class LatentCEMPlanner:
-    """Plans angles using linear latent: z_{t+1} = K z_t + B a_t. Only angle entries are optimized."""
-    def __init__(self, action_layout, action_dim, angle_scale, pop=64, elites=8, iters=3, horizon=5, sigma=0.06, seed=1337):
-        self.lay = action_layout
-        self.action_dim = action_dim
-        self.angle_idx = [L["angle_idx"] for L in self.lay]
-        self.pop, self.elites, self.iters, self.horizon = pop, elites, iters, horizon
-        self.sigma = float(sigma)
-        self.rng = np.random.default_rng(seed)
-        self.B = None
-        self.angle_scale = float(angle_scale)
-        self.hist_z, self.hist_bh = deque(maxlen=256), deque(maxlen=256)
-        self.w = None
-
-    def _fit_bh_head(self):
-        if len(self.hist_z) < 16:
-            return
-        Z = np.stack(self.hist_z).astype(np.float32)
-        y = np.array(self.hist_bh, dtype=np.float32).reshape(-1,1)
-        lam = 1e-2
-        A = Z.T @ Z + lam*np.eye(Z.shape[1], dtype=np.float32)
-        b = Z.T @ y
-        try:
-            self.w = (np.linalg.solve(A, b)).reshape(-1)
-        except Exception:
-            self.w = None
-
-    def observe(self, z, bh):
-        try:
-            self.hist_z.append(np.array(z, dtype=np.float32))
-            self.hist_bh.append(float(bh))
-            if (len(self.hist_z) % 16) == 0:
-                self._fit_bh_head()
-        except Exception:
-            pass
-
-    def _predict_bh(self, z):
-        if self.w is None:
-            return float(np.linalg.norm(z))
-        return float(np.dot(self.w, z))
-
-    def plan(self, z0, actor_action, K, max_action):
-        mu = actor_action[self.angle_idx].copy()
-        std = np.ones_like(mu) * self.sigma
-        if self.B is None:
-            self.B = np.random.randn(z0.size, self.action_dim).astype(np.float32) * 0.02
-        pop = self.pop
-        scores = np.zeros((pop,), dtype=np.float32)
-        Aseq = np.zeros((pop, self.horizon, mu.size), dtype=np.float32)
-        for it in range(self.iters):
-            for p in range(pop):
-                Aseq[p] = self.rng.normal(mu, std)
-                Aseq[p] = np.clip(Aseq[p], -max_action, max_action)
-                z = z0.copy()
-                score = 0.0
-                for t in range(self.horizon):
-                    a_full = actor_action.copy()
-                    a_full[self.angle_idx] = Aseq[p, t]
-                    z = (K @ z) + (self.B @ a_full)
-                    score += - self._predict_bh(z)
-                scores[p] = score
-            elite_idx = np.argsort(scores)[-self.elites:]
-            elite = Aseq[elite_idx]
-            mu = elite.mean(axis=0)
-            std = elite.std(axis=0) + 1e-6
-        best_first = mu[0]
-        return best_first
-
-def _safety_from_mood(mood_vec: dict):
+def _deprecated_cognitive_cycle(self):
     try:
-        e = float(mood_vec.get("entropy", 0.5))
-        i = float(mood_vec.get("intensity", 0.5))
-        c = float(mood_vec.get("coherence", 0.5))
+        if hasattr(self, "memory") and hasattr(self.memory, "all_embeddings_matrix"):
+            mats = self.memory.all_embeddings_matrix() or []
+            import numpy as _np
+            if isinstance(mats, list):
+                mats = _np.asarray(mats, dtype=_np.float32)
+            if getattr(self, "holo", None) is not None and mats is not None and mats.size >= self.holo.out_dim:
+                self.holo.train_on_memory(mats)
     except Exception:
-        e, i, c = 0.5, 0.5, 0.5
-    if (i >= 0.55 and e >= 0.55 and c <= 0.55):
-        bucket = "storm"
-    elif (c >= 0.62 and e <= 0.55):
-        bucket = "flow"
-    elif (e <= 0.48 and i <= 0.50):
-        bucket = "calm"
-    else:
-        bucket = "turbulent"
-    if bucket in ("storm", "turbulent"):
-        clamp, critics, horizon = 0.030, 4, 5
-    elif bucket == "flow":
-        clamp, critics, horizon = 0.060, 2, 12
-    else:
-        clamp, critics, horizon = 0.040, 2, 8
-    return {"bucket": bucket, "clamp": clamp, "critics": critics, "horizon": horizon}
+        pass
