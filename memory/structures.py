@@ -116,8 +116,12 @@ class NoveltyScorer:
                             if isinstance(item, (list, tuple)) and len(item) >= 2:
                                 # (id, vec, ...)
                                 vec = item[1]
+                                if vec is None:
+                                    continue
                                 neighbors.append(np.asarray(vec, dtype=np.float32).reshape(-1))
                             elif isinstance(item, (list, tuple)) and len(item) == 1:
+                                if item[0] is None:
+                                    continue
                                 neighbors.append(np.asarray(item[0], dtype=np.float32).reshape(-1))
                             elif isinstance(item, np.ndarray):
                                 neighbors.append(item.reshape(-1))
@@ -193,7 +197,10 @@ class NoveltyScorer:
 
     # Backwards-compatible alias for older code
     def score(self, vector: np.ndarray, neighbor_vectors: Sequence[np.ndarray]) -> float:
-        return self.calculate_novelty(vector, memory_manager=None, k=1) if neighbor_vectors is None else self._score_with_neighbors(vector, neighbor_vectors)
+        # If no neighbors provided, return maximum novelty fallback
+        if neighbor_vectors is None or len(neighbor_vectors) == 0:
+            return 2.0
+        return self._score_with_neighbors(vector, neighbor_vectors)
 
     def _score_with_neighbors(self, vector: np.ndarray, neighbor_vectors: Sequence[np.ndarray]) -> float:
         v = np.asarray(vector, dtype=np.float32).reshape(-1)
@@ -251,13 +258,16 @@ class HopfieldModern:
         if vals.ndim == 1:
             vals = vals.reshape(1, -1)
         n, d = vals.shape
+        if ratings_arr.shape[0] != n:
+            # resize or pad/truncate ratings to match node count
+            ratings_arr = np.resize(ratings_arr, (n,))
 
         top_k = max(1, min(int(top_k), n))
         order = np.argsort(-ratings_arr)[:top_k]
         selected = vals[order]  # (K, d)
         # Normalize selected and place as columns in P (d, K)
-        selected_n = np.stack([_l2_normalize_vec(v) for v in selected], axis=1)
-        # selected_n currently (d, K) after stacking columns
+        selected_n = np.stack([_l2_normalize_vec(v) for v in selected], axis=0).T
+        # selected_n is (d, K)
         self._P = np.asarray(selected_n, dtype=np.float32)
 
     def clean_up(self, vector: np.ndarray, steps: Optional[int] = None, tau: float = 0.1) -> np.ndarray:
@@ -351,12 +361,12 @@ class KanervaSDM:
         v = np.asarray(vec, dtype=np.float32).reshape(-1)
         # Try external autoencoder module
         try:
-            if _autoencoder_module is not None and hasattr(_autoencoder_module, "project_to_dim"):
-                # some projectors may be instance methods; call defensively
-                proj = getattr(_autoencoder_module, "project_to_dim")
-                res = proj(v, 8) if callable(proj) else None
-                if res is not None:
-                    return _l2_normalize_vec(np.asarray(res, dtype=np.float32))
+            # Prefer deterministic projector from neural.autoencoder if available
+            if _autoencoder_module is not None and hasattr(_autoencoder_module, "SubspaceProjector"):
+                Projector = getattr(_autoencoder_module, "SubspaceProjector")
+                proj = Projector(seed=self.seed)
+                res = proj.project_to_dim(v, target_dim=8, normalize=True)
+                return _l2_normalize_vec(np.asarray(res, dtype=np.float32))
         except Exception:
             # fallback to local projection
             pass
@@ -364,6 +374,12 @@ class KanervaSDM:
         # Fallback random projection
         self._ensure_init()
         R = self._fallback_R
+        if R is None:
+            # Defensive: ensure initialized; if still None, return zero vector
+            self._ensure_init()
+            R = self._fallback_R
+            if R is None:
+                return _l2_normalize_vec(np.zeros((8,), dtype=np.float32))
         a = (R @ v).astype(np.float32)
         return _l2_normalize_vec(a)
 
@@ -601,14 +617,21 @@ class MicroReranker:
                     if isinstance(nb, (list, tuple)):
                         # try to infer vector and metadata
                         if len(nb) >= 2:
-                            nb_vec = np.asarray(nb[1], dtype=np.float32)
+                            raw_vec = nb[1]
+                            if raw_vec is None:
+                                continue
+                            nb_vec = np.asarray(raw_vec, dtype=np.float32)
                         if len(nb) >= 3:
                             # third element may be metadata/dict containing rating
                             meta = nb[2]
                             if isinstance(meta, dict) and "rating" in meta:
-                                try:
-                                    nb_rating = float(meta.get("rating", None))
-                                except Exception:
+                                val = meta.get("rating", None)
+                                if isinstance(val, (int, float, np.floating, str)):
+                                    try:
+                                        nb_rating = float(val)
+                                    except Exception:
+                                        nb_rating = None
+                                else:
                                     nb_rating = None
                     elif isinstance(nb, np.ndarray):
                         nb_vec = nb

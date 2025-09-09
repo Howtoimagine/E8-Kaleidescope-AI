@@ -18,29 +18,29 @@ class FinanceSemantics:
         n = np.linalg.norm(v)
         return v if n == 0 else (v / n)
     
-def rerank(self, candidates: List[Tuple[str, float]]) -> List[Tuple[str, float]]:
-    """
-    Boost items containing risk / crash terms. Simple keyword scoring.
-    Keeps interface identical: input [(text, score)] -> output re-ordered list.
-    """
-    if not candidates:
-        return candidates
-    keywords = [
-        "drawdown","crash","selloff","liquidity","margin","stress","cds","credit spread",
-        "funding","basis","inversion","breadth","skew","kurtosis","volatility","vix","correlation"
-    ]
-    def boost(item):
-        text, score = item
-        t = text.lower()
-        bonus = 0.0
-        for kw in keywords:
-            if kw in t:
-                bonus += 0.15
-        bonus = min(bonus, 0.60)
-        return (text, score + bonus)
-    boosted = [boost(it) for it in candidates]
-    boosted.sort(key=lambda x: x[1], reverse=True)
-    return boosted
+    def rerank(self, candidates: List[Tuple[str, float]]) -> List[Tuple[str, float]]:
+        """
+        Boost items containing risk / crash terms. Simple keyword scoring.
+        Keeps interface identical: input [(text, score)] -> output re-ordered list.
+        """
+        if not candidates:
+            return candidates
+        keywords = [
+            "drawdown","crash","selloff","liquidity","margin","stress","cds","credit spread",
+            "funding","basis","inversion","breadth","skew","kurtosis","volatility","vix","correlation"
+        ]
+        def boost(item):
+            text, score = item
+            t = text.lower()
+            bonus = 0.0
+            for kw in keywords:
+                if kw in t:
+                    bonus += 0.15
+            bonus = min(bonus, 0.60)
+            return (text, score + bonus)
+        boosted = [boost(it) for it in candidates]
+        boosted.sort(key=lambda x: x[1], reverse=True)
+        return boosted
 
 
 PLUGIN = FinanceSemantics()

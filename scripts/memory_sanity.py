@@ -24,7 +24,7 @@ def main():
 
     v = vecs[0]
     try:
-        cleaned = m.hopfield.clean_up(v, steps=3, tau=0.1)
+        cleaned = m.hopfield.clean(v, steps=3, tau=0.1)
         print("hopfield_cleaned_norm=", np.linalg.norm(cleaned))
     except Exception as e:
         print("hopfield_clean_err", e)

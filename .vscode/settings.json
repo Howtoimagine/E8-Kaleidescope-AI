@@ -1,0 +1,5 @@
+{
+    // Option C: Broadest setting—allow Cline to access outside the workspace
+    // Note: Setting keys can vary by Cline version. This common key should work in most builds.
+    "cline.restrictToWorkspace": false
+}

@@ -10,7 +10,7 @@ class AdaptiveSemantics:
     """
     name = "adaptive_ingest"
     base_domain = (
-        "knowledge synthesis, pattern recognition, emergent intelligence"
+        "Om Padme Mani Om"
     )
 
     def persona_prefix(self, mood_vector: Mapping[str, float]) -> str:
@@ -20,8 +20,7 @@ class AdaptiveSemantics:
         """
         # --- Default Persona ---
         base_persona = (
-            "You are a learning system. Your function is to analyze, "
-            "structure, and synthesize information into a coherent knowledge model."
+            ""
         )
 
         # --- Dynamic Persona Selection based on Mood ---
