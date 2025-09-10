@@ -12,6 +12,39 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+# M16.1: Shell-Aware Cognitive Architecture & Quantum Dynamics
+# Milestone 16.1 represents a significant architectural leap from M15, graduating from a foundational RL agent to a fully integrated, shell-aware cognitive architecture. This release introduces a hybrid quantum/classical cognitive loop governed by an RL control head, operating on a memory substrate structured into multiple dimensional shells. Key innovations include a Variational Autoencoder (VAE) for inter-shell projection, Clifford Algebra rotors for geometrically consistent actions, a holographic boundary encoder for compact memory representation, and a sophisticated asynchronous cognitive scheduler.
+#
+# Key Upgrades from M15
+# Core Architectural & Memory Upgrades 🧠
+# The fundamental structure of the mind's memory and control systems has been overhauled.
+#
+# Dimensional Shells & VAE Projector: The monolithic memory model of M15 is replaced by a set of DimensionalShells, each representing a distinct geometric manifold (e.g., 4D, 6D, 8D). A torch-based Variational Autoencoder (VAE) is introduced and trained online to serve as a universal translator, enabling the projection of concepts between these shells. This allows for cross-dimensional queries and gives meaning the ability to "refract" across different levels of geometric abstraction.
+#
+# Clifford Rotor Actions: M16.1 replaces simple vector manipulations with geometrically principled actions based on Clifford Algebra. The apply_manifold_action function now constructs bivectors from the RL agent's output, exponentiates them into rotors, and applies these rotors to the multivectors within each shell, preserving the geometric integrity of the memory state during transformations. M15 lacked this sophisticated action mechanism.
+#
+# Proximity Engine with KD-Trees: High-speed retrieval is upgraded with the ProximityEngine, which maintains a dedicated KD-Tree for fast Approximate Nearest Neighbor (ANN) search within each dimensional shell. This is a significant performance and capability improvement over the simpler search methods in M15.
+#
+# Holographic Boundary Encoder: A new memory mechanism, the HoloEncoder, is introduced. It constructs a compact, holographic representation of bulk content on a 2D boundary fabric by generating an orthonormal basis via QR decomposition on a "shadow set" of nearby boundary indices. This provides a locality-aware side-channel for memory recall.
+#
+# Quantum Dynamics & Cognitive Control 🌀
+# The cognitive evolution and decision-making processes are now more complex and dynamic.
+#
+# Hybrid Quantum/Classical Dynamics: M16.1 introduces a QuantumEngine that evolves the system's state according to a Hamiltonian H=L_norm+V, where L_norm is the normalized graph Laplacian. The engine features an adaptive time-step controller governed by the total variation of the probability mass, optional non-linear feedback, and post-step dephasing for regularization. This hybrid quantum/classical step for selecting the next active node is a core innovation not present in M15.
+#
+# Shell-Aware Attention: The RL agent's state vector is fundamentally enriched. A new ShellAttention mechanism computes tension-weighted summaries of the most active dimensional shells, producing a compact attention vector. This allows the agent to "feel" which geometric subspaces are most salient, a capability M15 did not possess.
+#
+# Refined Cognitive Loop: The main run_cognitive_cycle has been tightened. M16.1 corrects the RL update order to ensure the reward signal is computed after the action has been applied and the quantum engine has evolved the state, leading to a more accurate and stable learning signal.
+#
+# System & Operational Enhancements ⚙️
+# The overall system is more robust and observable.
+#
+# Asynchronous Cognitive Scheduler: M16.1 introduces a CognitiveScheduler that launches high-level cognitive functions—like the Teacher/Explorer Q&A loop, dream sequences, and narrative updates—as non-blocking asyncio tasks. This decouples slower, language-based cognition from the high-frequency RL and physics loop, improving performance and responsiveness over M15's more synchronous model.
+#
+# HTTP+SSE Telemetry API: While M15 had basic logging, M16.1 ships with a comprehensive aiohttp server that exposes a REST API and a Server-Sent Events (SSE) stream for live telemetry. Endpoints are available for the graph state, E8 blueprint, and a live push of the mind's full state (mood, goals, quantum engine stats, etc.) to a web front-end.
+#
+# Background Ingestion Pipeline: An automated DataIngestionPipeline is added to run in the background, polling external data sources like arXiv feeds and local files, and ingesting new information as concepts into memory.
+
 import sys as _sys, asyncio
 if _sys.platform.startswith("win"):
     try:
