@@ -1,0 +1,170 @@
+def seed_all(seed: int):
+    import random as _random
+    import numpy as _np
+    _random.seed(seed)
+    try:
+        _np.random.seed(seed)
+    except Exception:
+        pass
+    try:
+        import torch as _torch
+        _torch.manual_seed(seed)
+        if _torch.cuda.is_available():
+            _torch.cuda.manual_seed_all(seed)
+    except Exception:
+        pass
+
+import traceback
+
+def run_hypothesis_validation(insight: dict) -> dict:
+    """
+    Validates a generated insight and returns a dict with:
+      - type: classification of the insight
+      - test_plan: {method, confidence, next_step}
+    """
+    text = (insight.get("text") or insight.get("label") or str(insight))[:400]
+    # naive classification
+    if any(k in text.lower() for k in ["simulate", "model", "predict"]):
+        method = "simulate"
+        confidence = 0.65
+        next_step = "Run internal simulation and compare deltas."
+    elif any(k in text.lower() for k in ["pattern", "cluster", "trend"]):
+        method = "observe pattern"
+        confidence = 0.6
+        next_step = "Observe graph neighborhoods and telemetry trends."
+    elif any(k in text.lower() for k in ["compare", "versus", "vs "]):
+        method = "compare"
+        confidence = 0.55
+        next_step = "Compare to nearest neighbors and past analogs."
+    else:
+        method = "interview"
+        confidence = 0.5
+        next_step = "Ask one clarifying question via Teacher."
+    return {
+        "type": "hypothesis",
+        "test_plan": {"method": method, "confidence": confidence, "next_step": next_step}
+    }
+
+import os, sys, math, json, time, random, re, logging, tempfile, io, glob, hashlib, contextlib, traceback, threading, faulthandler, zlib, heapq
+from typing import Any, Dict, List, Optional, Tuple, Union, Iterable, TYPE_CHECKING, cast
+from collections import deque, defaultdict
+import inspect
+from dataclasses import dataclass
+
+import numpy as np
+try:
+    import websockets  # type: ignore[import-not-found]
+except Exception:
+    websockets = None  # type: ignore
+
+# Rich library imports with fallbacks
+try:
+    from rich.console import Console as RichConsole
+    from rich.panel import Panel as RichPanel  
+    from rich.progress import Progress as RichProgress, SpinnerColumn as RichSpinnerColumn, BarColumn as RichBarColumn, TextColumn as RichTextColumn, TimeElapsedColumn as RichTimeElapsedColumn
+    from rich.markup import escape as _rich_escape
+    RICH_AVAILABLE = True
+    SpinnerColumn = RichSpinnerColumn
+    BarColumn = RichBarColumn
+    TextColumn = RichTextColumn
+    TimeElapsedColumn = RichTimeElapsedColumn
+except ImportError:
+    RichConsole = None  # type: ignore[assignment]
+    RichPanel = None   # type: ignore[assignment]
+    RichProgress = None  # type: ignore[assignment]
+    SpinnerColumn = None  # type: ignore[assignment]
+    BarColumn = None  # type: ignore[assignment]
+    TextColumn = None  # type: ignore[assignment]
+    TimeElapsedColumn = None  # type: ignore[assignment]
+    _rich_escape = None  # type: ignore[assignment]
+    RICH_AVAILABLE = False
+
+# Time utilities (safe imports; used across telemetry and run IDs)
+try:
+    from datetime import datetime, timezone
+except Exception:
+    datetime = None  # type: ignore
+    timezone = None  # type: ignore
+
+# Combinatorics helper for E8 root generation
+try:
+    from itertools import combinations
+except Exception:
+    combinations = None  # type: ignore
+
+# Optional GA backend (Clifford)
+try:
+    import clifford  # type: ignore
+    CLIFFORD_AVAILABLE = True
+except Exception:
+    clifford = None  # type: ignore
+    CLIFFORD_AVAILABLE = False
+
+# Optional LLM backends that may not be installed
+try:
+    import ollama  # type: ignore
+except Exception:
+    ollama = None  # type: ignore
+try:
+    import google.generativeai as genai  # type: ignore
+except Exception:
+    genai = None  # type: ignore
+
+if TYPE_CHECKING:
+    # Alias to satisfy annotations referring to 'E8Mind' during type checking
+    from typing import Any as _Any
+    E8Mind = _Any  # type: ignore[assignment]
+else:
+    # Runtime alias for forward-ref annotations if E8Mind isn't defined yet
+    try:
+        E8Mind  # type: ignore[name-defined]
+    except Exception:  # NameError in most cases
+        from typing import Any as _Any
+        E8Mind = _Any  # type: ignore[assignment]
+
+def load_profile(name):
+    # Ensure fallback classes exist, even if original fallback block wasn't imported yet
+    try:
+        _FallbackSem  # type: ignore[name-defined]
+        _FallbackPrompts  # type: ignore[name-defined]
+    except Exception:
+        class _FallbackPrompts:  # minimal prompt pack
+            def render(self, key, **vars):
+                q = vars.get("question") or vars.get("topic") or vars.get("text") or ""
+                persona = vars.get("persona", "")
+                domain_hint = vars.get("domain_hint", "")
+                return f"{persona}\n\n{domain_hint}\n\n{q}"
+        class _FallbackSem:
+            name = "default"
+            base_domain = SEMANTIC_DOMAIN
+            def persona_prefix(self, mood):
+                intensity = (mood or {}).get('intensity', 0.5)
+                entropy = (mood or {}).get('entropy', 0.5)
+                coherence = (mood or {}).get('coherence', 0.5)
+                if entropy > 0.7 and intensity > 0.6:
+                    return "You are feeling chaotic, fragmented, and electric."
+                elif coherence > 0.75:
+                    return "You are feeling exceptionally clear, logical, and focused."
+                elif intensity < 0.3:
+                    return "You are feeling calm, quiet, and introspective."
+                else:
+                    return "You are in a balanced and considered state of mind."
+            def pre_embed(self, t):  # light domain tag + identity
+                base = getattr(self, "base_domain", None)
+                if base and isinstance(t, str): return f"{base}: {t}"
+                return t
+            def post_embed(self, v):  # unit-norm
+                try:
+                    import numpy as _np
+                    n = float(_np.linalg.norm(v))
+                    return v / n if n > 1e-9 else v
+                except Exception:
+                    return v
+            def rerank(self, c):  # stability-friendly no-op
+                return c
+
+    # Flag handling
+    if (not E8_PROFILE_ENABLED) or (E8_PROFILE_MODE in ("none","off","disable","disabled")):
+        try:
+            console.log("[profiles] Profiles disabled by flags; using fallback semantics.")
+        except Exception:
