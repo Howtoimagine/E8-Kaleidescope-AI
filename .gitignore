@@ -205,3 +205,22 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# E8Mind specific exclusions
+# Virtual environment (should never be in version control)
+venv/
+env/
+.env
+
+# Large runtime snapshots and temporary files
+runtime/*/snapshot_*.json
+runtime/*/tmp*
+runtime/*/*.tmp
+
+# Large data files (over 50MB)
+*.json.large
+**/snapshot_step_*.json
+
+# Python package caches
+*.whl
+.cache/
