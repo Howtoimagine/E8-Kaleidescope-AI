@@ -5,7 +5,8 @@ faiss-cpu
 google-generativeai
 matplotlib
 networkx
-numpy
+numpy<2.1  # clifford 1.4 works with numpy <2.1; Python 3.13 wheels may pull 2.0.x, acceptable
+# pyganja optional (not required, version pin removed due to unavailable wheel for py3.13)
 ollama
 openai
 rich
@@ -17,3 +18,4 @@ PyYAML
 typing-extensions
 fastapi
 uvicorn[standard]
+pytest

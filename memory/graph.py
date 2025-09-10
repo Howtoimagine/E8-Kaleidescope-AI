@@ -83,3 +83,14 @@ class GraphDB:
                 print(f"[GraphDB] increment_edge_weight failed: {e}")
             except Exception: 
                 pass
+
+    def export(self) -> Dict[str, Any]:
+        """Return a serializable form of the graph (edges='links' to suppress future warnings)."""
+        if nx is None:
+            return {"nodes": [], "links": []}
+        try:
+            # For consistency we keep default; global export suppression handled elsewhere
+            return dict(json_graph.node_link_data(self.graph))
+        except Exception as e:
+            print(f"[GraphDB] export failed: {e}")
+            return {"nodes": [], "links": []}

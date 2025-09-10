@@ -50,12 +50,28 @@ class MemoryManager:
     TODO: Port full logic from the monolith.
     """
 
-    def __init__(self, embed_dim: int = 1536, seed: int = 42):
+    def __init__(self, mind_instance: Optional[Any] = None, embed_dim: int = 1536, seed: int = 42):
+        """Create a MemoryManager.
+
+        Backward compatibility:
+        The monolith originally constructed as MemoryManager(mind_instance, embed_dim=...).
+        The modular skeleton initially only accepted embed_dim; this caused a TypeError
+        when legacy code path expected the old signature. We now support both forms:
+
+        - MemoryManager(mind_instance, embed_dim=1536)
+        - MemoryManager(embed_dim=1536)  (mind_instance defaults to None)
+
+        The mind instance (if provided) is stored as self.mind for any future
+        cross-component calls that rely on accessing broader system context.
+        """
+        self.mind = mind_instance  # may be None
         self.embed_dim = int(embed_dim)
         self.seed = int(seed)
-
         # Core subsystems
         self.graph = GraphDB()
+        # Backward compatibility alias: monolith references memory.graph_db
+        # so expose graph_db with same object to avoid AttributeError.
+        self.graph_db = self.graph  # type: ignore[attr-defined]
         self.novelty = NoveltyScorer(embed_dim=self.embed_dim, seed=self.seed)
         self.hopfield = HopfieldModern()
         self.sdm = KanervaSDM(dim=self.embed_dim, seed=self.seed)
