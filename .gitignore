@@ -220,6 +220,7 @@ runtime/*/*.tmp
 # Large data files (over 50MB)
 *.json.large
 **/snapshot_step_*.json
+runtime/run_20250904_080337/
 
 # Python package caches
 *.whl
