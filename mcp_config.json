@@ -1,0 +1,17 @@
+{
+  "globalClineRules": {
+    "useAllAvailableMcpToolsWhenNeeded": true,
+    "autoDiscoverMcpTools": true
+  },
+  "mcpServers": {
+    "bugfix-swarm": {
+      "command": "python",
+      "args": [
+        "C:/Users/helio/Desktop/e8_mind_project/start_bugfix_swarm_mcp.py"
+      ],
+      "env": {
+        "SWARMS_API_KEY": "sk-93b1584df6eded33e9d41afde78a28e68b67ec0eb3512d75193fdc48842fe235"
+      }
+    }
+  }
+}
