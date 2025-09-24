@@ -1,7 +1,7 @@
 # 🌌 Kaleidoscope: An E8 Lattice Cognitive Memory System
 
 
-<i![K banner](https://github.com/user-attachments/assets/b61234fd-f52b-4ab8-b571-814c051da600)
+![K banner](https://github.com/user-attachments/assets/b61234fd-f52b-4ab8-b571-814c051da600)
 
 Kaleidoscope is a **proto domain-agnostic discovery engine** and the first use of the **E8 lattice** in the world for machine learning and AI cognition. It is a 🧠 **recursive cognitive engine** that models the mind as a physical system, implementing a form of **Emergent Cosmology**. Instead of storing memory in flat embeddings, it uses the E8 lattice—a highly symmetric 8-dimensional structure—as a data structure and encoding template for cognitive information.
 
