@@ -5,7 +5,8 @@ Copy the following into a new file called `README.md` in your repository:
 ````markdown
 # 🌌 Kaleidoscope: An E8 Lattice Cognitive Memory System
 
-<img width="300" height="293" alt="QSN-Vertex-Types-Samples-3-e1467927748157-300x293" src="https://github.com/user-attachments/assets/cf60c5fb-aab8-4e70-912e-b84f296ca3d4" />
+
+<img width="1024" height="1024" alt="18E384B6-1883-4107-8072-AFB566C38D26" src="https://github.com/user-attachments/assets/63dd0e88-cd5b-44fa-946b-7baa257a1026" />
 
 Kaleidoscope is a **proto domain-agnostic discovery engine** and the first use of the **E8 lattice** in the world for machine learning and AI cognition. It is a 🧠 **recursive cognitive engine** that models the mind as a physical system, implementing a form of **Emergent Cosmology**. Instead of storing memory in flat embeddings, it uses the E8 lattice—a highly symmetric 8-dimensional structure—as a data structure and encoding template for cognitive information.
 
