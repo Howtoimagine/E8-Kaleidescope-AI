@@ -4,9 +4,6 @@
 ![K banner](https://github.com/user-attachments/assets/b61234fd-f52b-4ab8-b571-814c051da600)
 
 
-https://github.com/user-attachments/assets/e7e94697-f175-4c12-a3a3-57c584f55225
-
-
 Kaleidoscope is a **proto domain-agnostic discovery engine** and the first use of the **E8 lattice** in the world for machine learning and AI cognition. It is a 🧠 **recursive cognitive engine** that models the mind as a physical system, implementing a form of **Emergent Cosmology**. Instead of storing memory in flat embeddings, it uses the E8 lattice a highly symmetric 8-dimensional structure as a data structure and encoding template for cognitive information.
 
 Memories are stored on concentric shells within a **Hyperdimensional Field Mantle**, a continuous spacetime fluid where concepts evolve according to physical laws. Their interactions are shaped by simulated spacetime curvature, and retrieval is a **geodesic ray-tracing** process, gated by attention light-cones and refracted across horizon boundaries. The system's evolution is governed by a holographic **Emergence Law** derived from E8 symmetry, which dictates the timed release of information. The result is not just recall—it's **metaphysical emergence.**
