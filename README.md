@@ -1,8 +1,3 @@
-I wasn’t able to save the markdown file directly due to a system error. No worries — here’s what you can do:
-
-Copy the following into a new file called `README.md` in your repository:
-
-````markdown
 # 🌌 Kaleidoscope: An E8 Lattice Cognitive Memory System
 
 
