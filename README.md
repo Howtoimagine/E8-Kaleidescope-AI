@@ -19,50 +19,51 @@ Memories are stored on concentric shells within a **Hyperdimensional Field Mantl
 - 🧪 **Systematic Physics Validation**: A built-in validator enforces physical constraints like mass-energy conservation and spectral stability, proving correctness through dimensionless invariants.
 - 
 🧠 Memory Systems Combined in Kaleidoscope
-Kanerva Sparse Distributed Memory (SDM)
+
+**Kanerva Sparse Distributed Memory (SDM)**
 
 Idea: address high-dimensional space with distributed overlaps.
 
 In Kaleidoscope: E8 lattice shells act like SDM “addresses,” so any new vector activates a sparse cloud of neighbors across shells. This is the backbone for distributed recall.
 
-Vector Symbolic Architectures (VSA / Holographic Reduced Representations)
+**Vector Symbolic Architectures (VSA / Holographic Reduced Representations)**
 
 Idea: use high-dimensional superpositions and binding for compositional recall.
 
 In Kaleidoscope: embeddings are projected and compacted into multi-shell structures, then holographic fidelity checks preserve compositional structure. This gives the “holographic meaning” flavor.
 
-Quasicrystal Memory / E8 Lattice Projection
+**Quasicrystal Memory / E8 Lattice Projection**
 
 Idea: organize points in non-periodic but highly ordered structures for dense packing.
 
 In Kaleidoscope: the E8 lattice projection + shells provide geometric anchors for embedding space, which makes retrieval structurally aware rather than purely nearest-neighbor.
 
-Hopfield-like Attractor Memory
+**Hopfield-like Attractor Memory**
 
 Idea: converge to stable patterns via energy minimization.
 
 In Kaleidoscope: the curvature field + Laplacian energy terms act like attractors, ensuring similar inputs fall into shared basins.
 
-Event-based Consolidation (Black-hole / White-hole dynamics)
+**Event-based Consolidation (Black-hole / White-hole dynamics)**
 
 Idea: compress multiple experiences into a more compact memory representation.
 
 In Kaleidoscope: black-hole pressure triggers merges (consolidation), while white-hole seeding redistributes distilled signals back into the memory graph.
 
-Temporal Wave Memory (Everywhen Wave)
+**Temporal Wave Memory (Everywhen Wave)**
 
 Idea: smooth sequences across time, like echo state networks or temporal convolutions.
 
 In Kaleidoscope: the wave propagator adds temporal coherence to embeddings, so retrievals feel consistent across cycles.
 
-Bandit-driven Novelty Selection
+**Bandit-driven Novelty Selection**
 
 Idea: treat consolidation vs exploration as a multi-armed bandit problem.
 
 In Kaleidoscope: a bandit policy decides which nodes to keep, merge, or drop — balancing stability with novelty.
 
-Variational Autoencoder (Compression Memory)
-
+**Variational Autoencoder (Compression Memory)
+**
 Idea: compress high-dimensional signals into latent codes while preserving structure.
 
 In Kaleidoscope: the VAE maps embeddings into compact latent shells (8,16,32,64…), enabling long-term storage with fidelity checks.
