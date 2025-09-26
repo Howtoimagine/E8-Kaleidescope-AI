@@ -59,3 +59,7 @@ Thumbs.db
 
 # Runtime data (exclude entire runtime directory to avoid large files)
 runtime/
+
+# Large data files
+*.ndjson
+metrics.ndjson
