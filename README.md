@@ -16,6 +16,7 @@ Memories are stored on concentric shells within a **Hyperdimensional Field Mantl
   - **Mood-shaped Retrieval**: Cognitive state bends memory access like gravity curves light, gated by attention light-cones.
   - **Teacher, Explorer, Subconscious**: Agents guide the mind recursively across symbolic terrain.
   - **Systematic Physics Validation**: A built-in validator enforces physical constraints like mass-energy conservation and spectral stability, proving correctness through dimensionless invariants.
+<img width="1930" height="761" alt="Screen Shot 2025-09-26 at 05 01 18 562 PM" src="https://github.com/user-attachments/assets/fec6c7da-b1fb-4fcf-8c84-98bcdd31008e" />
 
 Memory Systems Combined in Kaleidoscope
 
