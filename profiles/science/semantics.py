@@ -36,10 +36,24 @@ class DynamicScienceSemantics:
         # The E8Mind instance will be attached later via attach_mind()
         self.mind = None
 
+    @staticmethod
+    def _normalize_text(text: str) -> str:
+        t = (text or "").replace("\u00AD", "")
+        t = unicodedata.normalize("NFKC", t)
+        return re.sub(r"\s+", " ", t).strip()
+
     def attach_mind(self, mind_instance):
         """Attaches the main E8Mind instance to this semantics object."""
         self.mind = mind_instance
-        print("[Semantics] DynamicScienceSemantics is now attached to the E8Mind instance.")
+        message = "[Semantics] DynamicScienceSemantics attached to E8Mind."
+        console = getattr(mind_instance, "console", None)
+        try:
+            if console and hasattr(console, "log"):
+                console.log(message)
+            else:
+                print(message)
+        except Exception:
+            print(message)
 
     def persona_prefix(self, mood_vector: Mapping[str, float]) -> str:
         """🧠 Generates a dynamic persona based on the mind's current mood."""
@@ -59,6 +73,14 @@ class DynamicScienceSemantics:
         else:
             return "You are in a balanced state of mind. Your response should be clear and considered, weighing multiple perspectives."
 
+    def pre_text(self, text: str) -> str:
+        """Basic text normalization for upstream pipelines."""
+        return self._normalize_text(text)
+
+    def post_text(self, text: str) -> str:
+        """Lightly trim post-generated text."""
+        return (text or "").strip()
+
     def pre_embed(self, text: str) -> str:
         """🎯 Adds a goal-aware hint to the text before it's embedded."""
         hint = ""
@@ -71,14 +93,14 @@ class DynamicScienceSemantics:
                     "stability": "Focus on core identity, reinforcement, and self-models.",
                     "curiosity": "Focus on causality, first principles, and asking 'why'."
                 }
-                hint = f" | Goal hint: {goal_hints.get(top_goal_name, '')}"
+                goal_hint = goal_hints.get(top_goal_name)
+                if goal_hint:
+                    hint = f" | Goal hint: {goal_hint}"
             except (IndexError, TypeError):
                 pass
-        
+
         # Normalize text
-        t = (text or "").replace("\u00AD", "")
-        t = unicodedata.normalize("NFKC", t)
-        t = re.sub(r"\s+", " ", t).strip()
+        t = self._normalize_text(text)
         return f"{t}{hint}"
 
     def post_embed(self, vec, host=None, dim=None) -> np.ndarray:
@@ -116,34 +138,54 @@ class DynamicScienceSemantics:
 
     def _rerank_for_relevance(self, candidates: List[Tuple[str, float]]) -> List[Tuple[str, float]]:
         """Default rerank: boost candidates similar to the current goal vector."""
-        goal_vec = self.mind.goal_field.goals[self.mind.goal_field.get_top_goals(k=1)[0][0]]['embedding']
-        
+        if not self.mind or not getattr(self.mind, "goal_field", None):
+            return candidates
+
+        top_goal_name, _ = self.mind.goal_field.get_top_goals(k=1)[0]
+        goal_info = self.mind.goal_field.goals.get(top_goal_name)
+        goal_vec = None if not goal_info else goal_info.get('embedding')
+        if goal_vec is None:
+            return candidates
+
+        label_to_node = getattr(self.mind.memory, "label_to_node_id", {}) if getattr(self.mind, "memory", None) else {}
+        vector_store = getattr(self.mind.memory, "main_vectors", {}) if getattr(self.mind, "memory", None) else {}
+
         scored = []
         for text, base_score in candidates:
-            text_vec = self.mind.memory.main_vectors.get(self.mind.memory.label_to_node_id.get(text))
+            node_id = label_to_node.get(text)
+            text_vec = vector_store.get(node_id) if node_id is not None else None
             if text_vec is None:
-                # Fallback for concepts not yet in memory
-                text_vec = np.random.rand(len(goal_vec))
-                
+                scored.append((text, base_score))
+                continue
+
             similarity = _cosine_similarity(text_vec, goal_vec)
             # Boost score based on relevance to the goal
             final_score = base_score + (similarity * 0.2)
             scored.append((text, final_score))
-            
+
         return sorted(scored, key=lambda x: x[1], reverse=True)
 
     def _rerank_for_novelty(self, candidates: List[Tuple[str, float]]) -> List[Tuple[str, float]]:
         """Boosts candidates that are semantically different from existing memories."""
+        memory = getattr(self.mind, "memory", None) if self.mind else None
+        if not memory or not candidates:
+            return candidates
+
+        label_to_node = getattr(memory, "label_to_node_id", {}) or {}
+        vector_store = getattr(memory, "main_vectors", {}) or {}
+        find_similar = getattr(memory, "find_similar_in_main_storage", None)
+
         scored = []
         for text, base_score in candidates:
-            text_vec = self.mind.memory.main_vectors.get(self.mind.memory.label_to_node_id.get(text))
+            node_id = label_to_node.get(text)
+            text_vec = vector_store.get(node_id) if node_id is not None else None
             if text_vec is None:
                 scored.append((text, base_score))
                 continue
 
             # Find distance to nearest neighbor in memory
-            similar_nodes = self.mind.memory.find_similar_in_main_storage(text_vec, k=1)
-            if similar_nodes:
+            similar_nodes = find_similar(text_vec, k=1) if callable(find_similar) else None
+            if isinstance(similar_nodes, (list, tuple)) and similar_nodes:
                 distance_to_nearest = similar_nodes[0][1]
                 # Novelty bonus is proportional to the distance (max bonus of 0.3)
                 novelty_bonus = min(0.3, distance_to_nearest * 0.5)

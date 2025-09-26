@@ -7,6 +7,9 @@ including emergent seeds, task management, market data, and memory structures.
 
 import os
 import time
+import logging
+import collections
+import threading
 import numpy as np
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
@@ -86,33 +89,164 @@ class DecodeState:
 
 
 class UniversalEmbeddingAdapter:
-    """
-    Adapts embeddings from one dimension to another using a learned transformation matrix.
-    """
-    def __init__(self, in_dim: int, out_dim: int):
-        self.in_dim = in_dim
-        self.out_dim = out_dim
-        
-        if in_dim == out_dim:
-            self.W = np.eye(in_dim, dtype=np.float32)
-        else:
-            rng = np.random.default_rng(GLOBAL_SEED)
-            self.W = rng.standard_normal((in_dim, out_dim)).astype(np.float32)
-            self.W /= np.linalg.norm(self.W, axis=0, keepdims=True)
+    """Dimension-agnostic adapter with whitening and online calibration."""
+
+    def __init__(
+        self,
+        in_dim: int,
+        out_dim: int,
+        *,
+        calibration_capacity: int = 256,
+        min_pairs_to_fit: int = 8,
+        ridge_lambda: float = 1e-3,
+        blend: float = 0.5,
+        cooldown_seconds: float = 3.0,
+        logger: Optional[logging.Logger] = None,
+    ):
+        self.in_dim = int(in_dim)
+        self.out_dim = int(out_dim)
+        self._rng = np.random.default_rng(GLOBAL_SEED)
+        self._norm_epsilon = 1e-6
+        self._logger = logger or logging.getLogger("UniversalEmbeddingAdapter")
+
+        self.W = self._init_projection_matrix()
+
+        # Running normalization stats
+        self._input_mean = np.zeros(self.in_dim, dtype=np.float32)
+        self._input_m2 = np.zeros(self.in_dim, dtype=np.float32)
+        self._input_count = 0
+
+        self._calibration_pairs = collections.deque(maxlen=max(8, int(calibration_capacity)))
+        self._min_pairs_to_fit = max(4, int(min_pairs_to_fit))
+        self._ridge_lambda = float(ridge_lambda)
+        self._blend = float(np.clip(blend, 0.0, 1.0))
+        self._cooldown_seconds = max(0.0, float(cooldown_seconds))
+        self._last_fit_ts = 0.0
+        self._fit_count = 0
+        self._stats = {"pairs_registered": 0}
+
+        self._lock = threading.RLock()
+
+    def _init_projection_matrix(self) -> np.ndarray:
+        if self.in_dim == self.out_dim:
+            return np.eye(self.in_dim, dtype=np.float32)
+
+        mat = self._rng.standard_normal((self.in_dim, self.out_dim)).astype(np.float32)
+        try:
+            if self.in_dim >= self.out_dim:
+                q, _ = np.linalg.qr(mat)
+                mat = q[:, :self.out_dim]
+        except Exception:
+            pass
+
+        col_norms = np.linalg.norm(mat, axis=0, keepdims=True)
+        mat = np.divide(mat, np.maximum(col_norms, self._norm_epsilon), out=mat)
+        return mat.astype(np.float32)
+
+    def _prepare_input(self, vector: np.ndarray) -> np.ndarray:
+        arr = np.asarray(vector, dtype=np.float32).reshape(-1)
+        if arr.shape[0] != self.in_dim:
+            padded = np.zeros(self.in_dim, dtype=np.float32)
+            size = min(arr.shape[0], self.in_dim)
+            padded[:size] = arr[:size]
+            arr = padded
+        return arr
+
+    def _prepare_target(self, vector: np.ndarray) -> np.ndarray:
+        arr = np.asarray(vector, dtype=np.float32).reshape(-1)
+        if arr.shape[0] != self.out_dim:
+            padded = np.zeros(self.out_dim, dtype=np.float32)
+            size = min(arr.shape[0], self.out_dim)
+            padded[:size] = arr[:size]
+            arr = padded
+        return arr
+
+    def _normalize_input(self, vector: np.ndarray) -> np.ndarray:
+        if self._input_count < 10:
+            return vector
+        variance = self._input_m2 / max(self._input_count - 1, 1.0)
+        std = np.sqrt(np.maximum(variance, self._norm_epsilon))
+        return (vector - self._input_mean) / std
+
+    def _update_input_stats(self, vector: np.ndarray) -> None:
+        self._input_count += 1
+        delta = vector - self._input_mean
+        self._input_mean += delta / float(self._input_count)
+        delta2 = vector - self._input_mean
+        self._input_m2 += delta * delta2
 
     def __call__(self, vector: np.ndarray) -> np.ndarray:
-        """Transform a vector from input dimension to output dimension."""
-        if not isinstance(vector, np.ndarray):
-            vector = np.array(vector, dtype=np.float32)
-        
-        if vector.shape[0] != self.in_dim:
-            # Pad or truncate if there's a mismatch
-            padded_vec = np.zeros(self.in_dim, dtype=np.float32)
-            size_to_copy = min(vector.shape[0], self.in_dim)
-            padded_vec[:size_to_copy] = vector[:size_to_copy]
-            vector = padded_vec
-        
-        return vector @ self.W
+        src = self._prepare_input(vector)
+        normalized = self._normalize_input(src)
+        with self._lock:
+            W = self.W.copy()
+        projected = normalized @ W
+        norm = float(np.linalg.norm(projected))
+        if norm > self._norm_epsilon:
+            projected = projected / norm
+        self._update_input_stats(src)
+        return projected.astype(np.float32)
+
+    def register_alignment_pair(self, source_vec: np.ndarray, target_vec: np.ndarray, weight: float = 1.0) -> None:
+        src = self._prepare_input(source_vec)
+        tgt = self._prepare_target(target_vec)
+        w = float(max(weight, 1e-6))
+
+        with self._lock:
+            self._calibration_pairs.append((src, tgt, w))
+            self._stats["pairs_registered"] += 1
+            now = time.monotonic()
+            if len(self._calibration_pairs) >= self._min_pairs_to_fit and (now - self._last_fit_ts) >= self._cooldown_seconds:
+                self._recompute_projection(now)
+
+    def _recompute_projection(self, timestamp: Optional[float] = None) -> bool:
+        pairs = list(self._calibration_pairs)
+        if not pairs:
+            return False
+
+        sources = np.stack([self._normalize_input(p[0]) for p in pairs], dtype=np.float32)
+        targets = np.stack([self._normalize_target(p[1]) for p in pairs], dtype=np.float32)
+        weights = np.sqrt(np.array([p[2] for p in pairs], dtype=np.float32))
+
+        sources *= weights[:, None]
+        targets *= weights[:, None]
+
+        try:
+            W_fit, *_ = np.linalg.lstsq(sources, targets, rcond=self._ridge_lambda)
+        except Exception as exc:
+            self._log(f"calibration failed: {exc}")
+            return False
+
+        if not np.all(np.isfinite(W_fit)):
+            self._log("calibration produced non-finite weights; rejecting update")
+            return False
+
+        W_fit = W_fit.astype(np.float32)
+        if self._blend > 0.0:
+            self.W = (1.0 - self._blend) * self.W + self._blend * W_fit
+        else:
+            self.W = W_fit
+
+        col_norms = np.linalg.norm(self.W, axis=0, keepdims=True)
+        self.W = np.divide(self.W, np.maximum(col_norms, self._norm_epsilon), out=self.W)
+
+        self._last_fit_ts = timestamp if timestamp is not None else time.monotonic()
+        self._fit_count += 1
+        self._log(f"recalibrated on {len(pairs)} pairs (fit #{self._fit_count})")
+        return True
+
+    def _normalize_target(self, vector: np.ndarray) -> np.ndarray:
+        norm = float(np.linalg.norm(vector))
+        if norm > self._norm_epsilon:
+            return vector / norm
+        return vector
+
+    def _log(self, message: str) -> None:
+        try:
+            if self._logger is not None:
+                self._logger.debug(f"[UniversalAdapter] {message}")
+        except Exception:
+            pass
 
 
 class KDTree:
@@ -129,7 +263,7 @@ class KDTree:
             # normalize for cosine similarity via dot
             norms = np.linalg.norm(X, axis=1, keepdims=True) + 1e-12
             Xn = X / norms
-            self._faiss_index.add(Xn)
+            self._faiss_index.add(Xn)  # type: ignore[attr-defined]
             self.n = X.shape[0]
             self._is_fallback = False
             self._impl = None
@@ -164,7 +298,7 @@ class KDTree:
                 qfaiss = qn.astype(np.float32)
                 if qfaiss.ndim == 1:
                     qfaiss = qfaiss.reshape(1, -1)
-                D, I = self._faiss_index.search(qfaiss, int(k))
+                D, I = self._faiss_index.search(qfaiss, int(k))  # type: ignore[attr-defined]
             except Exception:
                 # Fallback: no results
                 D = np.ones((q_2d.shape[0], int(k)), dtype=np.float32)
@@ -173,7 +307,7 @@ class KDTree:
             d = 1.0 - D
             i = I
         elif not self._is_fallback and hasattr(self._impl, 'query'):
-            d, i = self._impl.query(q_2d, k=k)
+            d, i = self._impl.query(q_2d, k=k)  # type: ignore[call-arg]
             d = np.asarray(d, dtype=np.float32)
             i = np.asarray(i, dtype=np.int64)
         else:

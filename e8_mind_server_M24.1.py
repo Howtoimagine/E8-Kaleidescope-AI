@@ -1563,7 +1563,7 @@ E8_DISABLE_VALIDATOR_WRITEBACK = os.getenv("E8_DISABLE_VALIDATOR_WRITEBACK", "0"
 E8_DISABLE_BH_TELEMETRY = os.getenv("E8_DISABLE_BH_TELEMETRY", "0") == "0"
 E8_DISABLE_KDTREE_GAUGE = os.getenv("E8_DISABLE_KDTREE_GAUGE", "0") == "0"
 E8_DISABLE_SNAPSHOT_ROTATION = os.getenv("E8_DISABLE_SNAPSHOT_ROTATION", "0") == "0"
-E8_HIDE_DIMMED_LOGS = os.getenv("E8_HIDE_DIMMED_LOGS", "0") == "1"  # Toggle to completely hide dimmed console.log() output
+E8_HIDE_DIMMED_LOGS = os.getenv("E8_HIDE_DIMMED_LOGS", "1") == "1"  # Toggle to completely hide dimmed console.log() output
 
 # Training and filtering constants
 SENTINEL_LOGPROB_THRESHOLD = -90.0  # Values <= this are considered invalid sentinel values
@@ -1673,7 +1673,7 @@ DATA_SOURCES: Dict[str, Any] = {
             "(all:neurology+OR+all:brain+OR+all:consciousness+OR+all:cognition)"
             "&sortBy=submittedDate&sortOrder=descending&max_results=10"
         ),
-        "schedule_minutes": 30,
+        "schedule_minutes": 20,
     },
 
     # Biophysics of Neural Systems
@@ -1685,7 +1685,7 @@ DATA_SOURCES: Dict[str, Any] = {
             "(all:neural+OR+all:neuron+OR+all:synaptic+OR+all:brain+OR+all:biophysics)"
             "&sortBy=submittedDate&sortOrder=descending&max_results=10"
         ),
-        "schedule_minutes": 45,
+        "schedule_minutes": 30,
     },
 
     # Consciousness Studies (from multiple disciplines)
@@ -1697,7 +1697,7 @@ DATA_SOURCES: Dict[str, Any] = {
             "(all:consciousness+OR+all:%22global+workspace%22+OR+all:%22integrated+information+theory%22)"
             "&sortBy=submittedDate&sortOrder=descending&max_results=10"
         ),
-        "schedule_minutes": 60,
+        "schedule_minutes": 20,
     },
 
     # Psychology, Ego, and Identity in AI and Cognitive Science
@@ -1709,7 +1709,7 @@ DATA_SOURCES: Dict[str, Any] = {
             "(all:psychology+OR+all:ego+OR+all:identity+OR+all:%22self-awareness%22+OR+all:%22theory+of+mind%22)"
             "&sortBy=submittedDate&sortOrder=descending&max_results=10"
         ),
-        "schedule_minutes": 60,
+        "schedule_minutes": 30,
     },
 
     # --- PubMed for Broader Medical and Psychological Research ---
@@ -1722,7 +1722,7 @@ DATA_SOURCES: Dict[str, Any] = {
             "db=pubmed&retmode=json&retmax=2&sort=date&"
             "term=(neurology[MeSH+Major+Topic])+AND+(brain[Title/Abstract])"
         ),
-        "schedule_minutes": 45,
+        "schedule_minutes": 20,
     },
 
     # Consciousness Research in Medical Literature
@@ -1733,7 +1733,7 @@ DATA_SOURCES: Dict[str, Any] = {
             "db=pubmed&retmode=json&retmax=2&sort=date&"
             "term=(consciousness[MeSH+Major+Topic])+OR+(consciousness[Title/Abstract])"
         ),
-        "schedule_minutes": 60,
+        "schedule_minutes": 30,
     },
 
     # Psychology of Self, Ego, and Identity
@@ -1744,7 +1744,7 @@ DATA_SOURCES: Dict[str, Any] = {
             "db=pubmed&retmode=json&retmax=2&sort=date&"
             "term=((psychology[MeSH+Major+Topic])+AND+(ego[Title/Abstract]+OR+identity[Title/Abstract]+OR+self[Title/Abstract]))"
         ),
-        "schedule_minutes": 60,
+        "schedule_minutes": 20,
     },
     
     # --- Connecting Fields & Local Ingestion ---
@@ -1758,7 +1758,7 @@ DATA_SOURCES: Dict[str, Any] = {
             "(all:%22cognitive+architecture%22+OR+all:%22brain+modeling%22+OR+all:%22neural+computation%22)"
             "&sortBy=submittedDate&sortOrder=descending&max_results=10"
         ),
-        "schedule_minutes": 45,
+        "schedule_minutes": 30,
     },
 
     # Local docs / ingestion
@@ -3111,7 +3111,7 @@ def build_alert_entry(
         "distance": float(distance) if isinstance(distance, (int, float)) else None,
         "tier": (tier or "").lower() if isinstance(tier, str) else tier,
         "score": float(score) if isinstance(score, (int, float)) else None,
-        "hypothesis": _short(hypothesis or "", 160),
+    "hypothesis": _short(hypothesis or "", 2400),
         "bulk_src": list(bulk_src) if bulk_src is not None else None,
         "bulk_tgt": list(bulk_tgt) if bulk_tgt is not None else None,
         "extra": dict(extra) if isinstance(extra, dict) else {},
@@ -3201,7 +3201,16 @@ def render_ray_alert(entry: Dict[str, Any], *, console: Optional[Any] = None) ->
             pass
 
         if entry.get("hypothesis"):
-            lines.append(f"[bold white]Coupling:[/] [italic]{entry['hypothesis']}[/]")
+            hyp_text = str(entry.get("hypothesis") or "")
+            try:
+                import textwrap as _textwrap
+                wrapped = _textwrap.wrap(hyp_text, width=110)
+            except Exception:
+                wrapped = [hyp_text] if hyp_text else []
+            if wrapped:
+                lines.append(f"[bold white]Coupling:[/] [italic]{wrapped[0]}[/]")
+                for cont_line in wrapped[1:]:
+                    lines.append(f"    [italic]{cont_line}[/]")
 
         try:
             # Use Rich Panel if available
@@ -10282,17 +10291,107 @@ class InsightAgent:
                 'content': content if isinstance(content, str) else "",
                 'rating': float(rating) if np.isfinite(rating) else 0.0,
                 'source': source,
-                'timestamp': time.time()
+                'timestamp': time.time(),
+                'uncertainty': 0.5,  # Default uncertainty, will be updated by validation
+                'tags': self._extract_semantic_tags(content) if content else []
             }
             if metadata:
                 entry['metadata'] = metadata
             self.recent_insights.append(entry)
+            
+            # Validator hook: Auto-validate high-scoring insights
+            try:
+                if rating > 0.8 and hasattr(self, 'novelty_scorer') and self.novelty_scorer:
+                    mind = getattr(self.novelty_scorer, 'memory_manager', None)
+                    mind = getattr(mind, 'mind', None) if mind else None
+                    if mind and hasattr(mind, 'validator'):
+                        # Schedule validation asynchronously to avoid blocking
+                        import asyncio
+                        try:
+                            # Try to get the current event loop
+                            loop = asyncio.get_running_loop()
+                            # Create memory entry and schedule validation
+                            asyncio.create_task(self._schedule_insight_validation(mind, entry))
+                        except RuntimeError:
+                            # No event loop, skip validation
+                            self.console.log(f"[InsightAgent] High-score insight ({rating:.3f}) recorded but validation skipped (no event loop)")
+                        except Exception as sched_err:
+                            self.console.log(f"[InsightAgent] Validation scheduling failed: {sched_err}")
+            except Exception as hook_err:
+                # Don't fail the whole recording process if validation fails
+                try:
+                    self.console.log(f"[InsightAgent] Validator hook failed: {hook_err}")
+                except Exception:
+                    pass
+                    
         except Exception:
             try:
                 # Last resort: keep structure consistent even if rating conversion fails
                 self.recent_insights.append({'content': str(content), 'rating': 0.0, 'source': source})
             except Exception:
                 pass
+
+    def _extract_semantic_tags(self, content: str) -> List[str]:
+        """Extract semantic tags from insight content for clustering and prioritization."""
+        if not content or not isinstance(content, str):
+            return []
+        
+        # Define keyword patterns for different domains
+        tag_patterns = {
+            'quantum': ['quantum', 'entanglement', 'superposition', 'decoherence', 'eigenstate', 'hamiltonian'],
+            'physics': ['energy', 'momentum', 'force', 'field', 'particle', 'wave', 'relativity'],
+            'complexity': ['complex', 'emergence', 'nonlinear', 'chaos', 'attractor', 'bifurcation'],
+            'information': ['information', 'entropy', 'bit', 'encoding', 'compression', 'channel'],
+            'mathematical': ['matrix', 'vector', 'algebra', 'calculus', 'topology', 'geometry'],
+            'cognitive': ['learning', 'memory', 'attention', 'consciousness', 'perception'],
+            'computational': ['algorithm', 'computation', 'simulation', 'optimization', 'recursive'],
+            'predictive': ['predict', 'forecast', 'model', 'pattern', 'correlation', 'regression'],
+            'experimental': ['experiment', 'test', 'validate', 'measure', 'observe', 'empirical'],
+            'theoretical': ['theory', 'hypothesis', 'conjecture', 'proof', 'axiom', 'proposition']
+        }
+        
+        content_lower = content.lower()
+        detected_tags = []
+        
+        for tag_name, keywords in tag_patterns.items():
+            if any(keyword in content_lower for keyword in keywords):
+                detected_tags.append(tag_name)
+        
+        # Add gamma-related tag if mentioned (as per user's example)
+        if 'gamma' in content_lower:
+            detected_tags.append('gamma')
+            
+        # Add error-related tag
+        if any(word in content_lower for word in ['error', 'mistake', 'wrong', 'incorrect', 'fail']):
+            detected_tags.append('error_analysis')
+            
+        return detected_tags[:5]  # Limit to 5 tags
+
+    async def _schedule_insight_validation(self, mind, insight_entry: Dict[str, Any]):
+        """Schedule validation for a high-scoring insight."""
+        try:
+            # Create a memory entry for this insight
+            memory_entry = {
+                "type": "insight",
+                "label": insight_entry['content'][:50] + "..." if len(insight_entry['content']) > 50 else insight_entry['content'],
+                "metaphor": insight_entry['content'],
+                "rating": insight_entry['rating'],
+                "source": "insight_agent",
+                "step": getattr(mind, 'step_num', 0),
+                "uncertainty": insight_entry.get('uncertainty', 0.5),
+                "tags": insight_entry.get('tags', [])
+            }
+            
+            # Add to memory and get node ID
+            node_id = await mind.memory.add_entry(memory_entry)
+            
+            if node_id and hasattr(mind, 'validator'):
+                # Schedule validation
+                await mind.validator.validate_insight(node_id)
+                self.console.log(f"[InsightAgent] Validated high-score insight: {insight_entry['rating']:.3f}")
+            
+        except Exception as e:
+            self.console.log(f"[InsightAgent] Insight validation failed: {e}")
 
     def learn_from_reward(self, reward: float, episode_data: Optional[Dict] = None):
         self.reward_history.append(reward)
@@ -17498,6 +17597,12 @@ class HypothesisValidator:
         latency_ms = int((time.time() - started) * 1000)
         validation_obj['latency_ms'] = latency_ms
 
+        # Update uncertainty based on validation outcome (confidence learning)
+        try:
+            self._update_uncertainty_from_validation(insight_node_id, verdict, validation_obj['confidence'])
+        except Exception as e:
+            self.mind.console.log(f"[Validator] Uncertainty update failed: {e}")
+
         # Emit concise console panel
         try:
             summary_line = (
@@ -17718,6 +17823,19 @@ class HypothesisValidator:
 
     async def _validate_with_new_prompt(self, insight_text: str, prompt_vars: Dict[str, Any]) -> Dict[str, Any]:
         """Use the new validator prompt from prompts.yaml to validate an insight."""
+        # Use undimmed console for key validation messages
+        validation_console = self.undimmed_console if self.undimmed_console else self.mind.console
+        try:
+            hypothesis_preview = insight_text[:120] + "..." if len(insight_text) > 120 else insight_text
+            node_id = prompt_vars.get("node_id", "unknown")
+            label = self.mind.memory.graph_db.get_node(node_id).get('label', '') if node_id != "unknown" else ""
+            validation_console.print(f"\n[bold magenta]🔬 VALIDATING HYPOTHESIS[/]: [cyan]{label[:64]}[/]")
+            validation_console.print(f"[dim]   Hypothesis:[/] {hypothesis_preview}")
+            validation_console.print(f"[dim]   Node:[/] {node_id[:12]}...")
+        except Exception:
+            # Fallback to original logging
+            validation_console.log(f"[Validator] ⇒ validating '{prompt_vars.get('node_id', 'unknown')}'…")
+
         try:
             prompts = getattr(self.mind, 'prompts', {})
             # Handle both dictionary-like objects and YamlPromptPack objects
@@ -17732,7 +17850,23 @@ class HypothesisValidator:
                 raise ValueError("Validator prompts not found")
             
             sys_prompt = validator_prompts.get('system', '')
-            user_prompt = validator_prompts.get('user', '').format(**prompt_vars)
+
+            # Escape curly braces in prompt variables to keep literal braces in formatted output
+            safe_prompt_vars: Dict[str, Any] = {}
+            for key, value in (prompt_vars or {}).items():
+                if isinstance(value, str):
+                    safe_prompt_vars[key] = value.replace('{', '{{').replace('}', '}}')
+                else:
+                    safe_prompt_vars[key] = value
+
+            user_template = validator_prompts.get('user', '')
+            try:
+                user_prompt = user_template.format(**safe_prompt_vars)
+            except KeyError as fmt_err:
+                missing_key = getattr(fmt_err, 'args', ['?'])[0]
+                raise ValueError(f"Validator prompt missing variable: {missing_key}") from fmt_err
+            except Exception as fmt_err:
+                raise ValueError(f"Validator prompt formatting failed: {fmt_err}") from fmt_err
             
             # Add validator persona if available
             if hasattr(self.mind, 'semantics') and hasattr(self.mind.semantics, 'validator_persona'):
@@ -17852,6 +17986,233 @@ class HypothesisValidator:
                     pass
         except Exception as e:
             self.mind.console.log(f"[Validator] Failed to write validation to node {node_id}: {e}")
+
+    def _update_uncertainty_from_validation(self, node_id: str, verdict: str, confidence: float):
+        """Update uncertainty based on validation outcome (confidence learning)."""
+        try:
+            node = self.mind.memory.graph_db.get_node(node_id)
+            if not node:
+                return
+
+            # Get current uncertainty or default to 0.5
+            current_uncertainty = node.get('uncertainty', 0.5)
+            
+            # Learning rate for uncertainty updates
+            learning_rate = 0.1
+            
+            # Update uncertainty based on validation outcome
+            if verdict == 'pass':
+                # Successful validation reduces uncertainty
+                new_uncertainty = current_uncertainty * (1.0 - learning_rate * confidence)
+            elif verdict == 'fail':
+                # Failed validation increases uncertainty
+                new_uncertainty = current_uncertainty + learning_rate * (1.0 - current_uncertainty) * confidence
+            else:  # unknown/inconclusive
+                # Slight increase in uncertainty for inconclusive results
+                new_uncertainty = current_uncertainty + learning_rate * 0.1
+            
+            # Clamp to valid range
+            new_uncertainty = max(0.01, min(0.99, new_uncertainty))
+            
+            # Update node
+            node['uncertainty'] = float(new_uncertainty)
+            node['uncertainty_updated_at'] = time.time()
+            
+            # Log significant changes
+            if abs(new_uncertainty - current_uncertainty) > 0.05:
+                self.mind.console.log(
+                    f"[Validator] Uncertainty updated for {node_id[:12]}: "
+                    f"{current_uncertainty:.3f} → {new_uncertainty:.3f} (verdict: {verdict})"
+                )
+            
+        except Exception as e:
+            self.mind.console.log(f"[Validator] Uncertainty update error: {e}")
+
+class InsightActionScheduler:
+    """Handles scheduling and execution of actions proposed by insights."""
+    
+    def __init__(self, console):
+        self.console = console
+        self.pending_actions = []
+        self.executed_actions = []
+        self.action_patterns = {
+            'simulate': self._handle_simulation_action,
+            'measure': self._handle_measurement_action,
+            'test': self._handle_test_action,
+            'analyze': self._handle_analysis_action,
+            'experiment': self._handle_experiment_action,
+            'validate': self._handle_validation_action,
+            'compute': self._handle_computation_action,
+            'run': self._handle_execution_action
+        }
+    
+    async def schedule_action(self, action_text: str, source_node_id: str, context: str, mind):
+        """Schedule an action for execution."""
+        try:
+            action_entry = {
+                'id': f"action_{int(time.time() * 1000)}_{hash(action_text) % 10000}",
+                'text': action_text,
+                'source_node_id': source_node_id,
+                'context': context,
+                'scheduled_at': time.time(),
+                'status': 'pending',
+                'priority': self._calculate_priority(action_text),
+                'action_type': self._classify_action(action_text)
+            }
+            
+            self.pending_actions.append(action_entry)
+            
+            # Execute immediately for high-priority actions
+            if action_entry['priority'] > 0.8:
+                await self._execute_action(action_entry, mind)
+            else:
+                # Log for future execution
+                self.console.log(f"[ActionScheduler] Queued {action_entry['action_type']}: {action_text[:60]}...")
+                
+        except Exception as e:
+            self.console.log(f"[ActionScheduler] Scheduling error: {e}")
+    
+    def _calculate_priority(self, action_text: str) -> float:
+        """Calculate action priority based on keywords and complexity."""
+        text_lower = action_text.lower()
+        
+        # High priority keywords
+        high_priority = ['validate', 'test', 'verify', 'check', 'measure']
+        medium_priority = ['simulate', 'analyze', 'compute', 'calculate']
+        low_priority = ['explore', 'consider', 'examine', 'review']
+        
+        if any(word in text_lower for word in high_priority):
+            return 0.9
+        elif any(word in text_lower for word in medium_priority):
+            return 0.6
+        elif any(word in text_lower for word in low_priority):
+            return 0.3
+        else:
+            return 0.4
+    
+    def _classify_action(self, action_text: str) -> str:
+        """Classify action type based on keywords."""
+        text_lower = action_text.lower()
+        
+        for pattern, handler in self.action_patterns.items():
+            if pattern in text_lower:
+                return pattern
+        
+        return 'generic'
+    
+    async def _execute_action(self, action_entry: Dict[str, Any], mind):
+        """Execute a scheduled action."""
+        try:
+            action_type = action_entry['action_type']
+            action_text = action_entry['text']
+            
+            self.console.log(f"[ActionScheduler] Executing {action_type}: {action_text[:60]}...")
+            
+            # Get handler for this action type
+            handler = self.action_patterns.get(action_type, self._handle_generic_action)
+            
+            # Execute the action
+            result = await handler(action_entry, mind)
+            
+            # Update action status
+            action_entry['status'] = 'completed' if result else 'failed'
+            action_entry['executed_at'] = time.time()
+            action_entry['result'] = result
+            
+            # Move to executed actions
+            self.executed_actions.append(action_entry)
+            if action_entry in self.pending_actions:
+                self.pending_actions.remove(action_entry)
+            
+            # Log result
+            if result:
+                self.console.log(f"[ActionScheduler] ✓ {action_type} completed: {result[:100] if isinstance(result, str) else 'Success'}")
+            else:
+                self.console.log(f"[ActionScheduler] ✗ {action_type} failed")
+                
+        except Exception as e:
+            action_entry['status'] = 'error'
+            action_entry['error'] = str(e)
+            self.console.log(f"[ActionScheduler] Action execution error: {e}")
+    
+    async def _handle_simulation_action(self, action: Dict[str, Any], mind) -> str:
+        """Handle simulation actions."""
+        try:
+            # Create a simple simulation record
+            result = f"Simulation queued: {action['text'][:50]}... (Step: {getattr(mind, 'step_num', 0)})"
+            
+            # Log to metrics if available
+            try:
+                metrics_log("action.simulation", {
+                    "action_text": action['text'][:100],
+                    "source_node": action['source_node_id'],
+                    "step": getattr(mind, 'step_num', 0)
+                })
+            except Exception:
+                pass
+            
+            return result
+        except Exception as e:
+            return f"Simulation failed: {e}"
+    
+    async def _handle_measurement_action(self, action: Dict[str, Any], mind) -> str:
+        """Handle measurement actions."""
+        try:
+            # Create measurement record
+            result = f"Measurement scheduled: {action['text'][:50]}..."
+            
+            # If memory system is available, try to get related data
+            if hasattr(mind, 'memory') and mind.memory:
+                node_data = mind.memory.graph_db.get_node(action['source_node_id'])
+                if node_data:
+                    rating = node_data.get('rating', 0.0)
+                    result += f" (Source rating: {rating:.3f})"
+            
+            return result
+        except Exception as e:
+            return f"Measurement failed: {e}"
+    
+    async def _handle_test_action(self, action: Dict[str, Any], mind) -> str:
+        """Handle test/validation actions."""
+        try:
+            # Schedule validation if validator is available
+            if hasattr(mind, 'validator') and mind.validator:
+                try:
+                    # If this relates to a specific node, validate it
+                    source_node = action.get('source_node_id')
+                    if source_node:
+                        asyncio.create_task(mind.validator.validate_insight(source_node))
+                        return f"Validation test queued for node {source_node[:12]}"
+                except Exception:
+                    pass
+            
+            return f"Test action logged: {action['text'][:50]}..."
+        except Exception as e:
+            return f"Test failed: {e}"
+    
+    async def _handle_analysis_action(self, action: Dict[str, Any], mind) -> str:
+        """Handle analysis actions."""
+        return f"Analysis logged: {action['text'][:50]}..."
+    
+    async def _handle_experiment_action(self, action: Dict[str, Any], mind) -> str:
+        """Handle experiment actions."""
+        return f"Experiment logged: {action['text'][:50]}..."
+    
+    async def _handle_validation_action(self, action: Dict[str, Any], mind) -> str:
+        """Handle validation actions."""
+        return await self._handle_test_action(action, mind)
+    
+    async def _handle_computation_action(self, action: Dict[str, Any], mind) -> str:
+        """Handle computation actions."""
+        return f"Computation logged: {action['text'][:50]}..."
+    
+    async def _handle_execution_action(self, action: Dict[str, Any], mind) -> str:
+        """Handle execution actions."""
+        return f"Execution logged: {action['text'][:50]}..."
+    
+    async def _handle_generic_action(self, action: Dict[str, Any], mind) -> str:
+        """Handle generic actions."""
+        return f"Action logged: {action['text'][:50]}..."
 
 class DataIngestionPipeline:
     """Continuously ingest external data and convert to memory concepts."""
@@ -21867,15 +22228,20 @@ class E8Mind:
                 'field_pressure_proxy': 0.0
             }
 
+        # Cache application configuration for downstream checks
+        try:
+            self.app_config = AppConfig.from_env()
+        except Exception:
+            self.app_config = AppConfig()
+
         # Validator initialization
         self.validator = None
         try:
-            # Assuming HypothesisValidator is defined in this file or accessible directly
-            from e8_mind_server_M24 import HypothesisValidator # Adjust import path if HypothesisValidator is in a different module
+            # HypothesisValidator is defined in this module
             self.validator = HypothesisValidator(self)
             # Log comprehensive validator configuration
-            config = AppConfig.from_env()
-            self.console.log(f"[VALIDATOR] Initialized (writeback={AppConfig.VALIDATOR_WRITEBACK_ENABLED})")
+            config = self.app_config
+            self.console.log(f"[VALIDATOR] Initialized (writeback={config.VALIDATOR_WRITEBACK_ENABLED})")
             self.console.log(f"[VALIDATOR] Auto-validate insights: {config.auto_validate_insights}")
             self.console.log(f"[VALIDATOR] Minimum rating threshold: {config.validator_min_rating}")
         except Exception as e:
@@ -22033,14 +22399,34 @@ class E8Mind:
                 print(f"[VALIDATOR] {node_id} crashed: {e}")
 
     def _maybe_validate_new_insight(self, node_id: str, kind: str, rating: float | None):
-        if not self.validator or not AppConfig.VALIDATOR_WRITEBACK_ENABLED:
+        from core.config import AppConfig as config
+        if not config.VALIDATOR_WRITEBACK_ENABLED:
             return
         # Only validate insights of the correct types
-        insight_types_to_validate = {"insight_synthesis", "explorer_insight", "meta_reflection"}
+        insight_types_to_validate = {"insight_synthesis", "explorer_insight", "meta_reflection", "Explorer answer"}
         if kind not in insight_types_to_validate:
             return
         # Only validate interesting insights - use centralized config
-        config = AppConfig.from_env()
+        min_rating = 0.0 # config.validator_min_rating
+        if rating is not None and rating < min_rating:
+            return
+        # Fire and forget (async) if coroutine; otherwise run inline or via a thread
+        if not self.validator:
+            return
+
+        config = getattr(self, "app_config", None)
+        if config is None:
+            config = AppConfig.from_env()
+            self.app_config = config
+
+        if not config.VALIDATOR_WRITEBACK_ENABLED:
+            return
+        # Only validate insights of the correct types
+        # Accept both canonical and UI-facing labels (case-sensitive here)
+        insight_types_to_validate = {"insight_synthesis", "explorer_insight", "meta_reflection", "Explorer answer"}
+        if kind not in insight_types_to_validate:
+            return
+        # Only validate interesting insights - use centralized config
         min_rating = config.validator_min_rating
         if rating is not None and rating < min_rating:
             return
@@ -22076,6 +22462,35 @@ class E8Mind:
                     self.console.log(f"[Horizon] init failed: {e}")
             except Exception:
                 pass
+
+    async def _schedule_insight_actions(self, node_id: str, actions: List[str], context: str = ""):
+        """Schedule and execute actions proposed by insights."""
+        if not actions:
+            return
+            
+        try:
+            # Initialize action scheduler if it doesn't exist
+            if not hasattr(self, '_action_scheduler'):
+                self._action_scheduler = InsightActionScheduler(self.console)
+            
+            # Process each action
+            for action in actions[:3]:  # Limit to 3 actions per insight
+                action_text = str(action).strip()
+                if len(action_text) < 5:  # Skip very short actions
+                    continue
+                    
+                # Schedule the action
+                await self._action_scheduler.schedule_action(
+                    action_text=action_text,
+                    source_node_id=node_id,
+                    context=context,
+                    mind=self
+                )
+                
+            self.console.log(f"[ActionScheduler] Scheduled {len(actions)} actions from insight: {context[:50]}")
+            
+        except Exception as e:
+            self.console.log(f"[ActionScheduler] Failed to schedule actions: {e}")
 
     def register_proximity_alert(self, distance: float):
         try:
@@ -24035,7 +24450,11 @@ class E8Mind:
         """
         try:
             # Use unified forward-named flag with back-compat handled in AppConfig
-            if not AppConfig.VALIDATOR_WRITEBACK_ENABLED:
+            cfg = getattr(self, "app_config", None)
+            if cfg is None:
+                cfg = AppConfig.from_env()
+                self.app_config = cfg
+            if not cfg.VALIDATOR_WRITEBACK_ENABLED:
                 return
                 
             G = self.memory.graph_db.graph
@@ -25116,6 +25535,13 @@ class E8Mind:
 
                     new_node_id = await self.memory.add_entry(meta_payload, parent_ids=parent_ids)
 
+                    # Action follow-through: Schedule actions from explorer insights
+                    if explorer_meta and explorer_meta.get('actions'):
+                        try:
+                            await self._schedule_insight_actions(new_node_id, explorer_meta['actions'], safe_label)
+                        except Exception as action_err:
+                            self.console.log(f"[EXPLORER] Action scheduling failed: {action_err}")
+
                     # Enhanced hypothesis logging for visibility
                     try:
                         self.console.print(f"\n[bold yellow]💡 HYPOTHESIS GENERATED[/]: [cyan]{safe_label}[/]")
@@ -25523,11 +25949,11 @@ class E8Mind:
                         "Sentence:"
                     )
                     resp = await asyncio.wait_for(
-                        self.llm_pool.enqueue_and_wait(prompt, max_tokens=60, temperature=0.6),
+                        self.llm_pool.enqueue_and_wait(prompt, max_tokens=600, temperature=0.6),
                         timeout=HYPOTHESIS_TIMEOUT
                     )
                     if isinstance(resp, str) and not resp.startswith("[LLM"):
-                        hypothesis = sanitize_line(resp, 180)
+                        hypothesis = sanitize_line(resp, 2400)
                 except Exception:
                     pass
                 if not hypothesis:
@@ -29468,9 +29894,9 @@ async def main():
 
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', 7870)
+    site = web.TCPSite(runner, '0.0.0.0', 7871)
     await site.start()
-    console.log(f"[bold green]E8 Mind Server running at http://localhost:7870[/bold green]")
+    console.log(f"[bold green]E8 Mind Server running at http://localhost:7871[/bold green]")
     console.log(f"Run ID: {run_id}")
 
     max_steps_env = os.getenv("E8_MAX_STEPS", "")
