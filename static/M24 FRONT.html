@@ -1018,15 +1018,31 @@ VAE β     : —</pre>
         }
 
         const API_BASE_URL = new URLSearchParams(location.search).get('api') || (location.origin && location.origin.startsWith('http') ? location.origin : 'http://localhost:7870');
-        const API = {
-            telemetryStream: `${API_BASE_URL}/api/telemetry/stream`,
+        const resolveApi = (relativePath) => {
+            const normalizedPath = String(relativePath || '').replace(/^\/+/, '');
+            try {
+                const base = API_BASE_URL.endsWith('/') ? API_BASE_URL : `${API_BASE_URL}/`;
+                return new URL(normalizedPath, base).toString();
+            } catch (error) {
+                const base = API_BASE_URL.replace(/\/+$/, '');
+                return `${base}/${normalizedPath}`;
+            }
         };
-        const TELEMETRY_CANDIDATES = [
-            `${API_BASE_URL}/api/telemetry/stream`,
-            `${API_BASE_URL}/api/telemetry`,
-            `${API_BASE_URL}/telemetry/stream`,
-            `${API_BASE_URL}/telemetry`
-        ];
+        const buildWsUrl = (relativePath) => {
+            const url = new URL(resolveApi(relativePath));
+            url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+            return url.toString();
+        };
+        const API = {
+            telemetryStream: resolveApi('api/telemetry/stream'),
+            telemetrySnapshot: resolveApi('api/telemetry'),
+        };
+        const TELEMETRY_CANDIDATES = Array.from(new Set([
+            API.telemetryStream,
+            API.telemetrySnapshot,
+            resolveApi('telemetry/stream'),
+            resolveApi('telemetry'),
+        ]));
         let telemetryTry = 0;
 
         const TEACHER_CYCLE_LENGTH = 25;
@@ -1185,6 +1201,29 @@ VAE β     : —</pre>
                 this.root.add(this.edgeGroup);
                 this.root.add(this.streamlineGroup);
                 this.latticePoints = [];
+                this.baseLatticePoints = [];
+                this.pointTargets = [];
+                this.pointDisplacements = [];
+                this.pointVelocities = [];
+                this.edgeSegments = [];
+                this.neighborCache = [];
+                this.blueprintIndexById = new Map();
+                this.blueprintMeta = [];
+                this.pointGeometry = null;
+                this.pointPositionsAttr = null;
+                this.pointColorsAttr = null;
+                this.edgeGeometry = null;
+                this.edgePositionsAttr = null;
+                this.deformationNeedsUpdate = false;
+                this.pendingFlowRefreshAt = null;
+                this.maxDisplacement = 4.0;
+                this.deformationSettings = {
+                    stiffness: 6.5,
+                    damping: 2.5,
+                    targetFade: 0.6
+                };
+                this.tmpVec = new THREE.Vector3();
+                this.tmpVec2 = new THREE.Vector3();
                 this.flowParticles = [];
                 this.projectionMatrix = this.createProjectionMatrix();
                 this.flowSpeed = 1.4;
@@ -1268,8 +1307,46 @@ VAE β     : —</pre>
 
             setBlueprintLattice(points) {
                 if (!Array.isArray(points) || !points.length) return;
-                this.latticePoints = points.map(p => p.clone ? p.clone() : new THREE.Vector3(p[0] || 0, p[1] || 0, p[2] || 0));
+
+                // Normalize input into vector list while capturing optional metadata
+                const vectorList = [];
+                this.blueprintIndexById.clear();
+                this.blueprintMeta = [];
+
+                const makeVector = (p) => {
+                    if (!p) return new THREE.Vector3();
+                    if (p.isVector3 || p.clone) return p.clone();
+                    if (p.position && (p.position.isVector3 || p.position.clone)) return p.position.clone();
+                    if (p.render && (p.render.isVector3 || p.render.clone)) return p.render.clone();
+                    if (Array.isArray(p)) {
+                        return new THREE.Vector3(Number(p[0]) || 0, Number(p[1]) || 0, Number(p[2]) || 0);
+                    }
+                    const x = Number(p.render_x ?? p.x ?? p[0] ?? 0) || 0;
+                    const y = Number(p.render_y ?? p.y ?? p[1] ?? 0) || 0;
+                    const z = Number(p.render_z ?? p.z ?? p[2] ?? 0) || 0;
+                    return new THREE.Vector3(x, y, z);
+                };
+
+                points.forEach((entry, idx) => {
+                    const vec = makeVector(entry);
+                    vectorList.push(vec);
+                    const blueprintId = entry && Object.prototype.hasOwnProperty.call(entry, 'id') ? entry.id : idx;
+                    this.blueprintIndexById.set(Number.isFinite(blueprintId) ? Number(blueprintId) : String(blueprintId), idx);
+                    this.blueprintMeta.push({ id: blueprintId, vector: vec.clone() });
+                });
+
+                // Normalize and initialize deformation state
+                this.latticePoints = vectorList.map(v => v.clone());
                 this.normalizePoints(this.latticePoints);
+                this.baseLatticePoints = this.latticePoints.map(v => v.clone());
+                this.pointTargets = this.latticePoints.map(() => new THREE.Vector3());
+                this.pointDisplacements = this.latticePoints.map(() => new THREE.Vector3());
+                this.pointVelocities = this.latticePoints.map(() => new THREE.Vector3());
+
+                this.edgeSegments = this.computeEdgeSegments();
+                this.neighborCache = this.buildNeighborCache(this.edgeSegments);
+                this.deformationNeedsUpdate = false;
+
                 this.buildLatticeGeometry();
                 this.initializeFlowField(true);
             }
@@ -1282,19 +1359,24 @@ VAE β     : —</pre>
                             const projected = this.projectTo3D(root);
                             return new THREE.Vector3(projected[0], projected[1], projected[2]);
                         });
-                        this.normalizePoints(this.latticePoints);
                     } catch (err) {
                         console.warn('FluidVisualizer: E8 lattice generation failed', err);
                         this.latticePoints = [];
                     }
                 }
-                this.buildLatticeGeometry();
-                this.initializeFlowField(true);
+                if (!this.latticePoints.length) return;
+                const clones = this.latticePoints.map(p => p.clone ? p.clone() : new THREE.Vector3(p[0] || 0, p[1] || 0, p[2] || 0));
+                this.setBlueprintLattice(clones);
             }
 
             buildLatticeGeometry() {
                 this.clearGroup(this.pointGroup);
                 this.clearGroup(this.edgeGroup);
+                this.pointGeometry = null;
+                this.pointPositionsAttr = null;
+                this.pointColorsAttr = null;
+                this.edgeGeometry = null;
+                this.edgePositionsAttr = null;
                 if (!this.latticePoints.length) return;
 
                 // Create colorful lattice points based on metrics
@@ -1312,8 +1394,10 @@ VAE β     : —</pre>
                 });
 
                 const pointGeo = new THREE.BufferGeometry();
-                pointGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-                pointGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+                const positionAttr = new THREE.BufferAttribute(positions, 3);
+                const colorAttr = new THREE.BufferAttribute(colors, 3);
+                pointGeo.setAttribute('position', positionAttr);
+                pointGeo.setAttribute('color', colorAttr);
 
                 const pointMat = new THREE.PointsMaterial({
                     size: 0.08,  // Slightly larger for better visibility
@@ -1323,17 +1407,40 @@ VAE β     : —</pre>
                     vertexColors: true  // Enable per-vertex colors
                 });
                 this.pointGroup.add(new THREE.Points(pointGeo, pointMat));
+                this.pointGeometry = pointGeo;
+                this.pointPositionsAttr = positionAttr;
+                this.pointColorsAttr = colorAttr;
 
-                const edgePositions = this.computeEdgePositions();
-                if (edgePositions.length) {
+                if (!Array.isArray(this.edgeSegments) || !this.edgeSegments.length) {
+                    this.edgeSegments = this.computeEdgeSegments();
+                    this.neighborCache = this.buildNeighborCache(this.edgeSegments);
+                }
+
+                if (this.edgeSegments.length) {
+                    const edgePositions = new Float32Array(this.edgeSegments.length * 6);
+                    this.edgeSegments.forEach(([aIndex, bIndex], segmentIdx) => {
+                        const a = this.latticePoints[aIndex];
+                        const b = this.latticePoints[bIndex];
+                        const offset = segmentIdx * 6;
+                        edgePositions[offset] = a.x;
+                        edgePositions[offset + 1] = a.y;
+                        edgePositions[offset + 2] = a.z;
+                        edgePositions[offset + 3] = b.x;
+                        edgePositions[offset + 4] = b.y;
+                        edgePositions[offset + 5] = b.z;
+                    });
+
                     const edgeGeo = new THREE.BufferGeometry();
-                    edgeGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(edgePositions), 3));
+                    const edgeAttr = new THREE.BufferAttribute(edgePositions, 3);
+                    edgeGeo.setAttribute('position', edgeAttr);
                     const edgeMat = new THREE.LineBasicMaterial({
                         color: this.latticeColor,
                         transparent: true,
                         opacity: 0.15
                     });
                     this.edgeGroup.add(new THREE.LineSegments(edgeGeo, edgeMat));
+                    this.edgeGeometry = edgeGeo;
+                    this.edgePositionsAttr = edgeAttr;
                 }
             }
 
@@ -1410,8 +1517,26 @@ VAE β     : —</pre>
 
             computeEdgePositions() {
                 if (!this.latticePoints.length) return [];
-                const data = [];
+                const segments = Array.isArray(this.edgeSegments) && this.edgeSegments.length ? this.edgeSegments : this.computeEdgeSegments();
+                const data = new Float32Array(segments.length * 6);
+                segments.forEach(([aIndex, bIndex], idx) => {
+                    const a = this.latticePoints[aIndex];
+                    const b = this.latticePoints[bIndex];
+                    const offset = idx * 6;
+                    data[offset] = a.x;
+                    data[offset + 1] = a.y;
+                    data[offset + 2] = a.z;
+                    data[offset + 3] = b.x;
+                    data[offset + 4] = b.y;
+                    data[offset + 5] = b.z;
+                });
+                return data;
+            }
+
+            computeEdgeSegments() {
+                if (!this.latticePoints.length) return [];
                 const seen = new Set();
+                const segments = [];
                 const maxNeighbors = Math.min(6, this.latticePoints.length - 1);
                 for (let i = 0; i < this.latticePoints.length; i++) {
                     const neighbors = this.findNearestIndices(i, maxNeighbors);
@@ -1419,12 +1544,163 @@ VAE β     : —</pre>
                         const key = i < j ? `${i}-${j}` : `${j}-${i}`;
                         if (seen.has(key)) continue;
                         seen.add(key);
-                        const a = this.latticePoints[i];
-                        const b = this.latticePoints[j];
-                        data.push(a.x, a.y, a.z, b.x, b.y, b.z);
+                        segments.push([i, j]);
                     }
                 }
-                return data;
+                return segments;
+            }
+
+            buildNeighborCache(segments) {
+                const length = this.latticePoints.length;
+                const cache = Array.from({ length }, () => []);
+                if (!Array.isArray(segments) || !segments.length) return cache;
+                segments.forEach(([a, b]) => {
+                    if (typeof a !== 'number' || typeof b !== 'number') return;
+                    const baseA = this.baseLatticePoints[a] || this.latticePoints[a];
+                    const baseB = this.baseLatticePoints[b] || this.latticePoints[b];
+                    const dist = baseA && baseB ? baseA.distanceTo(baseB) : this.latticePoints[a].distanceTo(this.latticePoints[b]);
+                    cache[a].push({ index: b, dist });
+                    cache[b].push({ index: a, dist });
+                });
+                return cache;
+            }
+
+            updateGeometryBuffers() {
+                if (this.pointPositionsAttr) {
+                    const posArray = this.pointPositionsAttr.array;
+                    this.latticePoints.forEach((p, i) => p.toArray(posArray, i * 3));
+                    this.pointPositionsAttr.needsUpdate = true;
+                }
+                if (this.edgePositionsAttr && Array.isArray(this.edgeSegments) && this.edgeSegments.length) {
+                    const edgeArray = this.edgePositionsAttr.array;
+                    this.edgeSegments.forEach(([aIndex, bIndex], idx) => {
+                        const a = this.latticePoints[aIndex];
+                        const b = this.latticePoints[bIndex];
+                        const offset = idx * 6;
+                        edgeArray[offset] = a.x;
+                        edgeArray[offset + 1] = a.y;
+                        edgeArray[offset + 2] = a.z;
+                        edgeArray[offset + 3] = b.x;
+                        edgeArray[offset + 4] = b.y;
+                        edgeArray[offset + 5] = b.z;
+                    });
+                    this.edgePositionsAttr.needsUpdate = true;
+                }
+            }
+
+            injectNeighborRipple(index, offset, weight = 1.0) {
+                if (!Array.isArray(this.neighborCache) || !this.neighborCache.length) return;
+                const neighbors = this.neighborCache[index];
+                if (!neighbors || !neighbors.length) return;
+                const base = this.baseLatticePoints[index] || this.latticePoints[index];
+                neighbors.forEach(neighbor => {
+                    const neighborIndex = neighbor.index ?? neighbor;
+                    if (typeof neighborIndex !== 'number') return;
+                    const target = this.pointTargets[neighborIndex];
+                    if (!target) return;
+                    const neighborBase = this.baseLatticePoints[neighborIndex] || this.latticePoints[neighborIndex];
+                    const dist = neighbor.dist ?? (base && neighborBase ? base.distanceTo(neighborBase) : 1.0);
+                    const falloff = Math.exp(-Math.max(dist, 0.05) * 0.7) * (0.5 + 0.5 * weight);
+                    target.addScaledVector(offset, falloff);
+                    if (target.lengthSq() > this.maxDisplacement * this.maxDisplacement) {
+                        target.setLength(this.maxDisplacement);
+                    }
+                });
+            }
+
+            applyMemoryField(memoryNodes = [], context = {}) {
+                if (!Array.isArray(memoryNodes) || !memoryNodes.length) return;
+                if (!this.latticePoints.length) return;
+
+                let applied = false;
+                const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+
+                memoryNodes.forEach(node => {
+                    if (!node) return;
+                    const blueprintIdRaw = node.blueprint_location_id ?? node.blueprint_location ?? node.blueprint_index ?? node.blueprint_slot;
+                    if (blueprintIdRaw === undefined || blueprintIdRaw === null) return;
+                    const numericId = Number(blueprintIdRaw);
+                    const mapKey = this.blueprintIndexById.has(numericId) ? numericId : String(blueprintIdRaw);
+                    const latticeIndex = this.blueprintIndexById.get(mapKey);
+                    if (latticeIndex === undefined) return;
+
+                    const coords = safeCoords3D(node);
+                    this.tmpVec.set(
+                        Number(coords?.[0] ?? 0),
+                        Number(coords?.[1] ?? 0),
+                        Number(coords?.[2] ?? 0)
+                    );
+                    if (this.tmpVec.lengthSq() < 1e-5) {
+                        const seed = Math.sin((latticeIndex + 1) * 12.9898);
+                        this.tmpVec.set(
+                            Math.sin(seed * 43758.5453),
+                            Math.cos(seed * 9631.517),
+                            Math.sin(seed * 27437.27 + 1.3)
+                        );
+                    }
+                    this.tmpVec.normalize();
+
+                    const rating = clamp01(typeof node.rating === 'number' ? node.rating :
+                        (typeof node.quantum_potential === 'number' ? node.quantum_potential :
+                            (typeof node.reward === 'number' ? node.reward : 0.5)));
+                    const magnitude = Math.min(this.maxDisplacement, 0.9 + rating * 2.0);
+                    const offset = this.tmpVec2.copy(this.tmpVec).multiplyScalar(magnitude);
+
+                    const target = this.pointTargets[latticeIndex];
+                    if (target) {
+                        target.add(offset);
+                        if (target.lengthSq() > this.maxDisplacement * this.maxDisplacement) {
+                            target.setLength(this.maxDisplacement);
+                        }
+                    }
+                    this.injectNeighborRipple(latticeIndex, offset, rating);
+                    applied = true;
+                });
+
+                if (applied) {
+                    this.deformationNeedsUpdate = true;
+                    this.pendingFlowRefreshAt = now + 220;
+                }
+            }
+
+            animateLatticeDeformation(delta) {
+                if (!this.latticePoints.length) return;
+                const dt = Math.min(Math.max(delta, 0.001), 0.06);
+                const { stiffness, damping, targetFade } = this.deformationSettings;
+                let moved = false;
+
+                for (let i = 0; i < this.latticePoints.length; i++) {
+                    const displacement = this.pointDisplacements[i];
+                    const target = this.pointTargets[i];
+                    const velocity = this.pointVelocities[i];
+                    if (!displacement || !target || !velocity) continue;
+
+                    this.tmpVec.copy(target).sub(displacement);
+                    if (this.tmpVec.lengthSq() < 1e-6 && velocity.lengthSq() < 1e-6) {
+                        if (target.lengthSq() > 1e-6) {
+                            target.multiplyScalar(Math.max(0, 1 - targetFade * dt));
+                        }
+                        continue;
+                    }
+
+                    velocity.addScaledVector(this.tmpVec, stiffness * dt);
+                    const drag = Math.exp(-damping * dt);
+                    velocity.multiplyScalar(drag);
+                    displacement.addScaledVector(velocity, dt);
+
+                    const dispLenSq = displacement.lengthSq();
+                    if (dispLenSq > this.maxDisplacement * this.maxDisplacement) {
+                        displacement.setLength(this.maxDisplacement);
+                    }
+                    if (dispLenSq > 1e-8) moved = true;
+
+                    target.multiplyScalar(Math.max(0, 1 - targetFade * dt));
+                    this.latticePoints[i].copy(this.baseLatticePoints[i]).add(displacement);
+                }
+
+                if (moved) {
+                    this.updateGeometryBuffers();
+                }
             }
 
             findNearestIndices(index, count) {
@@ -1541,6 +1817,14 @@ VAE β     : —</pre>
 
             update(delta) {
                 if (!this.root) return;
+                this.animateLatticeDeformation(delta);
+                if (this.pendingFlowRefreshAt) {
+                    const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+                    if (now >= this.pendingFlowRefreshAt) {
+                        this.initializeFlowField(true);
+                        this.pendingFlowRefreshAt = null;
+                    }
+                }
                 this.time = (this.time || 0) + delta;
                 const lerp = Math.min(1, delta * 2.4);
                 this.flowSpeed += (this.flowSpeedTarget - this.flowSpeed) * lerp;
@@ -1682,6 +1966,14 @@ VAE β     : —</pre>
                     } else if (child.material && child.material.dispose) {
                         child.material.dispose();
                     }
+                }
+                if (group === this.pointGroup) {
+                    this.pointGeometry = null;
+                    this.pointPositionsAttr = null;
+                    this.pointColorsAttr = null;
+                } else if (group === this.edgeGroup) {
+                    this.edgeGeometry = null;
+                    this.edgePositionsAttr = null;
                 }
             }
         }
@@ -2282,11 +2574,25 @@ VAE β     : —</pre>
                 const arr = await res.json();
                 console.log('[api] Blueprint loaded successfully, processing lattice points');
 
-                latticePoints = (arr || []).map(p => new THREE.Vector3(
-                    Number(p.render_x ?? p.x ?? 0),
-                    Number(p.render_y ?? p.y ?? 0),
-                    Number(p.render_z ?? p.z ?? 0)
-                ));
+                const blueprintMeta = (arr || []).map((p, idx) => {
+                    const renderVec = new THREE.Vector3(
+                        Number(p.render_x ?? p.x ?? 0) || 0,
+                        Number(p.render_y ?? p.y ?? 0) || 0,
+                        Number(p.render_z ?? p.z ?? 0) || 0
+                    );
+                    const baseVec = new THREE.Vector3(
+                        Number(p.x ?? p.render_x ?? 0) || 0,
+                        Number(p.y ?? p.render_y ?? 0) || 0,
+                        Number(p.z ?? p.render_z ?? 0) || 0
+                    );
+                    return {
+                        id: Object.prototype.hasOwnProperty.call(p, 'id') ? p.id : idx,
+                        position: renderVec,
+                        base: baseVec
+                    };
+                });
+
+                latticePoints = blueprintMeta.map(meta => meta.position.clone());
 
                 console.log(`[api] Processed ${latticePoints.length} lattice points`);
             } catch (e) {
@@ -2296,7 +2602,7 @@ VAE β     : —</pre>
             }
             try {
                 if (fluidVisualizer) {
-                    fluidVisualizer.setBlueprintLattice(latticePoints);
+                    fluidVisualizer.setBlueprintLattice(blueprintMeta);
                     return latticePoints;
                 }
                 if (!latticeGroup) {
@@ -3722,6 +4028,13 @@ VAE β     : ${fmt(p.beta)}`;
                         console.warn('[telemetry] Insight enqueue failed:', insightError);
                     }
                 }
+                if (fluidVisualizer && Array.isArray(telemetry.new_memory_nodes) && telemetry.new_memory_nodes.length) {
+                    try {
+                        fluidVisualizer.applyMemoryField(telemetry.new_memory_nodes, telemetry);
+                    } catch (warpError) {
+                        console.warn('[telemetry] Lattice warp update failed:', warpError);
+                    }
+                }
             } catch (error) {
                 console.error('[telemetry] Error processing insights data:', error);
             }
@@ -4011,6 +4324,29 @@ VAE β     : ${fmt(p.beta)}`;
         }
         window.addEventListener('resize', handleResize);
 
+        async function fetchTelemetrySnapshot(endpoint = API.telemetrySnapshot, timeoutMs = 10000) {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+            try {
+                const response = await fetch(endpoint, {
+                    signal: controller.signal,
+                    cache: 'no-store',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Cache-Control': 'no-cache'
+                    }
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                processTelemetry(data);
+                return { ok: true };
+            } catch (error) {
+                return { ok: false, error };
+            } finally {
+                clearTimeout(timeoutId);
+            }
+        }
+
         function startPolling(url, intervalMs) {
             console.log(`[polling] Starting polling at ${url} every ${intervalMs}ms`);
 
@@ -4018,33 +4354,19 @@ VAE β     : ${fmt(p.beta)}`;
             const maxFailures = 10;
 
             const poll = async () => {
-                try {
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+                const { ok, error } = await fetchTelemetrySnapshot(url);
 
-                    const response = await fetch(url, {
-                        signal: controller.signal,
-                        cache: 'no-store'
-                    });
+                if (ok) {
+                    consecutiveFailures = 0; // Reset failure counter on success
+                    DOM.status.textContent = `Polling connection active (${new Date().toLocaleTimeString()})`;
+                    DOM.runTag.style.color = 'var(--warn)';
+                    DOM.runTag.textContent = 'POLLING';
 
-                    clearTimeout(timeoutId);
-
-                    if (response.ok) {
-                        const data = await response.json();
-                        processTelemetry(data);
-
-                        consecutiveFailures = 0; // Reset failure counter on success
-                        DOM.status.textContent = `Polling connection active (${new Date().toLocaleTimeString()})`;
-                        DOM.runTag.style.color = 'var(--warn)';
-                        DOM.runTag.textContent = 'POLLING';
-
-                        console.log('[polling] Successfully fetched telemetry data');
-                    } else {
-                        throw new Error(`HTTP ${response.status}`);
-                    }
-                } catch (err) {
+                    console.log('[polling] Successfully fetched telemetry data');
+                } else {
                     consecutiveFailures++;
-                    console.warn(`[polling] Request failed (${consecutiveFailures}/${maxFailures}):`, err.message);
+                    const message = error && error.message ? error.message : error;
+                    console.warn(`[polling] Request failed (${consecutiveFailures}/${maxFailures}):`, message);
 
                     DOM.status.textContent = `Polling failed (${consecutiveFailures}/${maxFailures}). Retrying...`;
                     DOM.runTag.style.color = 'var(--bad)';
@@ -4102,9 +4424,9 @@ VAE β     : ${fmt(p.beta)}`;
 
                 // Try WebSocket endpoints first for lower-latency bi-directional updates.
                 const wsCandidates = [
-                    API_BASE_URL.replace(/^http/, 'ws') + '/api/telemetry/ws',
-                    API_BASE_URL.replace(/^http/, 'ws') + '/ws/telemetry',
-                    API_BASE_URL.replace(/^http/, 'ws') + '/ws',
+                    buildWsUrl('api/telemetry/ws'),
+                    buildWsUrl('ws/telemetry'),
+                    buildWsUrl('ws'),
                 ];
 
                 DOM.status.textContent = `Connecting to telemetry...`;
@@ -4317,9 +4639,8 @@ VAE β     : ${fmt(p.beta)}`;
                 isConnecting = false;
 
                 // Fallback to polling on critical error
-                const pollUrl = API_BASE_URL + '/api/telemetry';
                 console.log('[connection] Using polling fallback due to connection setup error');
-                startPolling(pollUrl, 2000);
+                startPolling(API.telemetrySnapshot, 2000);
             }
         }
 
@@ -4536,6 +4857,9 @@ VAE β     : ${fmt(p.beta)}`;
 
             // Start animation loop
             animate();
+
+            // Prime UI with latest telemetry before establishing live stream
+            fetchTelemetrySnapshot();
 
             // Connect to data stream
             setTimeout(connectTelemetryStream, 500);

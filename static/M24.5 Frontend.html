@@ -1,0 +1,1054 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>E8 Mind-Crystal (Live HUD) — M18 (Patched for M24)</title>
+    <style>
+        :root {
+            --bg: #0b0f17;
+            --fg: #d9e1ff;
+            --muted: #a7b0d6;
+            --glow: #7aa2ff;
+            --glass: rgba(16, 22, 33, 0.65);
+            --glass-2: rgba(16, 22, 33, 0.35);
+            --accent: #8ef1ff;
+            --accent-2: #c792ea;
+            --ok: #6ee7b7;
+            --warn: #fde047;
+            --bad: #fb7185;
+            --border-color: rgba(255, 255, 255, 0.06);
+        }
+
+        html[data-theme="light"] {
+            --bg: #f0f2f7;
+            --fg: #1c1e26;
+            --muted: #5a647e;
+            --glow: #0052d6;
+            --glass: rgba(255, 255, 255, 0.6);
+            --glass-2: rgba(255, 255, 255, 0.3);
+            --accent: #0097b3;
+            --accent-2: #9e28d4;
+            --ok: #069668;
+            --warn: #d97706;
+            --bad: #e11d48;
+            --border-color: rgba(0, 0, 0, 0.1);
+        }
+
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+            background: var(--bg);
+            color: var(--fg);
+            font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+            overflow: hidden;
+        }
+
+        .ui-overlay {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            display: grid;
+            grid-template-columns: 380px 1fr 400px;
+            grid-template-rows: 60px 1fr 40px;
+            grid-template-areas: "header header header" "left main right" "footer footer footer";
+            gap: 16px;
+            padding: 16px;
+        }
+
+        .panel {
+            backdrop-filter: blur(12px);
+            background: var(--glass);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+            pointer-events: auto;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .left-panel {
+            grid-area: left;
+        }
+
+        .right-panel {
+            grid-area: right;
+        }
+
+        #latticeCrystallizerPanel {
+            grid-area: main;
+            cursor: grab;
+        }
+
+        #latticeCrystallizerPanel:active {
+            cursor: grabbing;
+        }
+
+        .panel-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-color);
+            flex-shrink: 0;
+        }
+
+        .panel-title {
+            text-transform: uppercase;
+            font-size: 12px;
+            letter-spacing: .5px;
+            opacity: .8;
+        }
+
+        .panel-content {
+            padding: 16px;
+            overflow: auto;
+            flex-grow: 1;
+        }
+
+        .panel-content.no-padding {
+            padding: 0;
+            position: relative;
+        }
+
+        header {
+            grid-area: header;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+            pointer-events: auto;
+            background: linear-gradient(to right, rgba(20, 26, 40, 0.7), rgba(20, 26, 40, 0.3));
+            border-bottom: 1px solid var(--border-color);
+            border-radius: 12px;
+        }
+
+        .brand {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--accent);
+        }
+
+        .brand span {
+            opacity: .7;
+            font-weight: 400;
+            font-size: 14px;
+        }
+
+        .status-tag {
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: rgba(125, 145, 255, 0.15);
+            color: #9ab0ff;
+            border: 1px solid rgba(125, 145, 255, 0.25);
+        }
+
+        .footer {
+            grid-area: footer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .weather-box {
+            margin-top: 12px;
+            padding: 8px 12px;
+            background: var(--glass-2);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            font-size: 12px;
+        }
+
+        .weather-box .row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            margin: 4px 0;
+        }
+
+        .weather-box .label {
+            color: var(--muted);
+        }
+
+        .weather-box .value {
+            color: var(--fg);
+            font-weight: 600;
+            text-align: right;
+        }
+
+        .ring {
+            position: relative;
+            width: 92px;
+            height: 92px;
+        }
+
+        .ring canvas {
+            position: absolute;
+            inset: 0;
+        }
+
+        .ring .ring-label {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            color: var(--muted);
+        }
+
+        .tab-header {
+            display: flex;
+            border-bottom: 1px solid var(--border-color);
+            padding: 0 8px;
+            flex-shrink: 0;
+        }
+
+        .tab-btn {
+            background: none;
+            border: none;
+            color: var(--muted);
+            padding: 10px 16px;
+            cursor: pointer;
+            font-size: 12px;
+            border-bottom: 2px solid transparent;
+        }
+
+        .tab-btn.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+        }
+
+        .tab-content {
+            display: none;
+            flex-direction: column;
+            flex-grow: 1;
+            overflow: hidden;
+        }
+
+        .tab-content.active {
+            display: flex;
+        }
+
+        .theme-toggle-btn {
+            background: none;
+            border: 1px solid var(--border-color);
+            color: var(--fg);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+                "d3-delaunay": "https://cdn.skypack.dev/d3-delaunay"
+            }
+        }
+    </script>
+</head>
+
+<body>
+
+    <div class="ui-overlay">
+        <header>
+            <div class="brand">E8 Mind-Crystal <span>// M18 HUD (Dynamic Telemetry)</span></div>
+            <div style="display:flex; align-items:center; gap:16px;">
+                <div class="status-tag" id="runTag">OFFLINE</div>
+                <button id="themeToggle" class="theme-toggle-btn">☀️</button>
+            </div>
+        </header>
+
+        <aside class="left-panel panel">
+            <div class="panel-header">
+                <div class="panel-title">System Vitals</div>
+            </div>
+            <div class="panel-content">
+                <div class="weather-box">
+                    <div class="row"><span class="label">Weather</span><span class="value" id="wx-mood">—</span></div>
+                    <div class="row"><span class="label">Region</span><span class="value" id="wx-region">—</span></div>
+                    <div class="row"><span class="label">BH Pressure</span><span class="value"
+                            id="wx-pressure">0.00</span></div>
+                </div>
+                <div style="margin-top: 16px; display:flex; gap:14px; flex-wrap:wrap;">
+                    <div class="ring"><canvas width="92" height="92" id="ringPressure"></canvas>
+                        <div class="ring-label">Collapse</div>
+                    </div>
+                    <div class="ring"><canvas width="92" height="92" id="ringTeacher"></canvas>
+                        <div class="ring-label">Teacher</div>
+                    </div>
+                    <div class="ring"><canvas width="92" height="92" id="ringExplorer"></canvas>
+                        <div class="ring-label">Explorer</div>
+                    </div>
+                    <div class="ring"><canvas width="92" height="92" id="ringReward"></canvas>
+                        <div class="ring-label">Reward</div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 16px">
+                    <div class="panel-title" style="font-size: 11px; margin-bottom: 4px;">Mood Vectors</div>
+                    <div class="weather-box">
+                        <div class="row"><span class="label">Intensity</span><progress id="mood-intensity" max="1"
+                                value="0.5" style="width:160px"></progress></div>
+                        <div class="row"><span class="label">Entropy</span><progress id="mood-entropy" max="1"
+                                value="0.5" style="width:160px"></progress></div>
+                        <div class="row"><span class="label">Coherence</span><progress id="mood-coherence" max="1"
+                                value="0.5" style="width:160px"></progress></div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 16px;">
+                    <div class="panel-title" style="font-size: 11px; margin-bottom: 4px;">Dialogue</div>
+                    <div class="weather-box">
+                        <div class="row" style="align-items: flex-start;"><span class="label">Teacher</span><span
+                                class="value" id="teacher-question">—</span></div>
+                        <div class="row" style="align-items: flex-start; margin-top: 8px;"><span
+                                class="label">Explorer</span><span class="value" id="explorer-answer">—</span></div>
+                    </div>
+                </div>
+            </div>
+            <div class="panel-header" style="border-top:1px solid var(--border-color);">
+                <div class="panel-title">Quantum Attention</div>
+            </div>
+            <div class="panel-content">
+                <div style="display:flex; gap:14px; flex-wrap:wrap;">
+                    <div class="ring"><canvas width="92" height="92" id="ringPsi"></canvas>
+                        <div class="ring-label">ψ Entropy</div>
+                    </div>
+                    <div class="ring"><canvas width="92" height="92" id="ringLambda"></canvas>
+                        <div class="ring-label">λ (L↔V)</div>
+                    </div>
+                </div>
+                <div class="weather-box" style="margin-top:10px;">
+                    <div class="row"><span class="label">ψ Entropy</span><span class="value" id="val-psi">—</span></div>
+                    <div class="row"><span class="label">λ (Laplacian vs Potential)</span><span class="value"
+                            id="val-lam">—</span></div>
+                </div>
+            </div>
+            <div class="panel-header" style="border-top:1px solid var(--border-color);">
+                <div class="panel-title">Goals Field</div>
+            </div>
+
+            <div class="panel-content" id="goalsList"></div>
+        </aside>
+
+        <div id="latticeCrystallizerPanel" class="panel">
+            <div class="panel-header">
+                <div class="panel-title">Dynamic E8 Projection</div>
+            </div>
+            <div class="panel-content no-padding">
+                <canvas id="crystallizerCanvas"></canvas>
+            </div>
+        </div>
+
+        <aside class="right-panel panel">
+            <div class="tab-header">
+                <button class="tab-btn active" data-tab="dynamics">Core Dynamics</button>
+                <button class="tab-btn" data-tab="insights">System Insights</button>
+            </div>
+
+            <div id="tab-dynamics" class="tab-content active">
+                <div class="panel-header">
+                    <div class="panel-title">Dimensional Rotors</div>
+                </div>
+                <div class="panel-content no-padding" style="flex-grow: 1; display: flex;">
+                    <canvas id="rotorCanvas" style="width:100%; height:100%;"></canvas>
+                </div>
+                <div class="panel-header" style="border-top:1px solid var(--border-color);">
+                    <div class="panel-title">Shell Tensions</div>
+                </div>
+                <div class="panel-content">
+                    <div id="shellTensionSparklines" style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+                    </div>
+                </div>
+                <div class="panel-header" style="border-top:1px solid var(--border-color);">
+                    <div class="panel-title">Encoder</div>
+                </div>
+                <div class="panel-content" style="font-size:12px; flex-grow: 0; flex-shrink: 0;">
+                    <div class="weather-box">
+                        <div class="row"><span class="label">Autoencoder</span><span class="value"
+                                id="encoder-status">Untrained</span></div>
+                        <div class="row"><span class="label">Global Tension</span><span class="value"
+                                id="global-tension">0.000</span></div>
+                    </div>
+                </div>
+                <div class="panel-header" style="border-top:1px solid var(--border-color);">
+                    <div class="panel-title">Discovery Metrics</div>
+                </div>
+                <div class="panel-content">
+                    <div class="weather-box">
+                        <div class="row"><span class="label">Novelty</span><span class="value" id="val-novelty">—</span>
+                        </div>
+                    </div>
+                    <div class="weather-box" id="spark-novelty" style="margin-top:6px;"></div>
+                    <div class="weather-box" style="margin-top:10px;">
+                        <div class="row"><span class="label">Compression Δ</span><span class="value"
+                                id="val-compression">—</span></div>
+                    </div>
+                    <div class="weather-box" id="spark-compression" style="margin-top:6px;"></div>
+                    <div class="weather-box" style="margin-top:10px;">
+                        <div class="row"><span class="label">Disagreement</span><span class="value"
+                                id="val-dis">—</span></div>
+                    </div>
+                    <div class="weather-box" id="spark-disagreement" style="margin-top:6px;"></div>
+                </div>
+                <div class="panel-header" style="border-top:1px solid var(--border-color);">
+                    <div class="panel-title">Shell Stats</div>
+                </div>
+                <div class="panel-content">
+                    <div class="weather-box">
+                        <div class="row"><span class="label">KDTree Failures</span><span class="value"
+                                id="val-kdtree">0</span></div>
+                    </div>
+                    <div id="shellStats"
+                        style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; margin-top:10px;"></div>
+                </div>
+            </div>
+
+            <div id="tab-insights" class="tab-content">
+                <div class="panel-header">
+                    <div class="panel-title">Ingestion Feed</div>
+                </div>
+                <div class="panel-content" id="ingestionFeed">...</div>
+                <div class="panel-header" style="border-top:1px solid var(--border-color);">
+                    <div class="panel-title">Validation Lab</div>
+                </div>
+                <div class="panel-content" id="validationLab">...</div>
+                <div class="panel-header" style="border-top:1px solid var(--border-color);">
+                    <div class="panel-title">Insight Holocron</div>
+                </div>
+                <div class="panel-content" id="insightHolocron">...</div>
+            </div>
+        </aside>
+
+        <footer class="footer">
+            <div id="status">Initializing...</div>
+        </footer>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { Delaunay } from 'd3-delaunay';
+
+        const API_BASE_URL = new URLSearchParams(location.search).get('api') || (location.origin && location.origin.startsWith('http') ? location.origin : 'http://localhost:7870');
+        const API = {
+            telemetryStream: `${API_BASE_URL}/api/telemetry/stream`,
+            blueprint: `${API_BASE_URL}/api/blueprint`,
+        };
+        const TELEMETRY_CANDIDATES = [
+            `${API_BASE_URL}/api/telemetry/stream`,
+            `${API_BASE_URL}/api/telemetry`,
+            `${API_BASE_URL}/telemetry/stream`,
+            `${API_BASE_URL}/telemetry`
+        ];
+        let telemetryTry = 0;
+
+        async function fetchBlueprintWithFallback() {
+            const candidates = [
+                `${API_BASE_URL}/api/blueprint`,
+                `${API_BASE_URL}/api/quasicrystal_blueprint`,
+                `${API_BASE_URL}/blueprint`,
+                `${API_BASE_URL}/quasicrystal_blueprint`
+            ];
+            let lastErr;
+            for (const url of candidates) {
+                try {
+                    const res = await fetch(url);
+                    if (res.ok) {
+                        API.blueprint = url;
+                        return await res.json();
+                    }
+                    lastErr = new Error(`HTTP ${res.status}`);
+                } catch (e) {
+                    lastErr = e;
+                }
+            }
+            throw lastErr || new Error("Blueprint fetch failed");
+        }
+
+        function coerceNumber(v, fallback = 0) {
+            const n = Number(v);
+            return Number.isFinite(n) ? n : fallback;
+        }
+
+        function prepareBlueprint(raw) {
+            if (!raw || !Array.isArray(raw)) return [];
+            const pts = raw.map(p => (typeof p === 'object' ? { ...p } : { value: p }));
+            const xs = [], ys = [], zs = [];
+            pts.forEach(p => {
+                const x = p.render_x ?? p.x ?? p.X ?? (p.pos && p.pos[0]) ?? 0;
+                const y = p.render_y ?? p.y ?? p.Y ?? (p.pos && p.pos[1]) ?? 0;
+                const z = p.render_z ?? p.z ?? p.Z ?? (p.pos && p.pos[2]) ?? 0;
+                xs.push(coerceNumber(x));
+                ys.push(coerceNumber(y));
+                zs.push(coerceNumber(z));
+            });
+            const minX = Math.min(...xs), maxX = Math.max(...xs);
+            const minY = Math.min(...ys), maxY = Math.max(...ys);
+            const minZ = Math.min(...zs), maxZ = Math.max(...zs);
+            const sx = (maxX - minX) || 1, sy = (maxY - minY) || 1, sz = (maxZ - minZ) || 1;
+            return pts.map((p, i) => {
+                const rx = ((xs[i] - minX) / sx) * 2 - 1;
+                const ry = ((ys[i] - minY) / sy) * 2 - 1;
+                const rz = ((zs[i] - minZ) / sz) * 1 - 0.5;
+                p.render_x = rx;
+                p.render_y = ry;
+                p.render_z = rz;
+                return p;
+            });
+        }
+
+        const TEACHER_CYCLE_LENGTH = 25;
+
+        const state = {
+            blueprint: [],
+            nodes: new Map(),
+            rotors: {
+                '8': { angle: 0, target: 0, vel: 0 },
+                '16': { angle: 0, target: 0, vel: 0 },
+                '32': { angle: 0, target: 0, vel: 0 },
+                '64': { angle: 0, target: 0, vel: 0 }
+            },
+            shellSparklines: new Map(),
+            noveltySeries: [],
+            compressionSeries: [],
+            disagreementSeries: [],
+            smooth: {
+                pressure: 0,
+                teacher: 0,
+                explorer: 0,
+                reward: 0,
+                moodIntensity: 0.5,
+                moodEntropy: 0.5,
+                moodCoherence: 0.5,
+                wxPressure: 0,
+                globalTension: 0,
+                psi: 0, lam: 0, novelty: 0, compression: 0, disagreement: 0
+            },
+            targets: {
+                pressure: 0,
+                teacher: 0,
+                explorer: 0,
+                reward: 0,
+                moodIntensity: 0.5,
+                moodEntropy: 0.5,
+                moodCoherence: 0.5,
+                wxPressure: 0,
+                globalTension: 0,
+                psi: 0, lam: 0, novelty: 0, compression: 0, disagreement: 0
+            },
+        };
+        Object.values(state.rotors).forEach(r => { r.hadTarget = false; r.baseSpin = 0; });
+
+        let clock = new THREE.Clock();
+        const DOM = {
+            moodIntensity: document.getElementById('mood-intensity'),
+            moodEntropy: document.getElementById('mood-entropy'),
+            moodCoherence: document.getElementById('mood-coherence'),
+            rotorCanvas: document.getElementById('rotorCanvas'),
+            shellTensionSparklines: document.getElementById('shellTensionSparklines'),
+            encoderStatus: document.getElementById('encoder-status'),
+            globalTension: document.getElementById('global-tension'),
+            ringReward: document.getElementById('ringReward'),
+            runTag: document.getElementById('runTag'),
+            status: document.getElementById('status'),
+            themeToggle: document.getElementById('themeToggle'),
+            crystallizerCanvas: document.getElementById('crystallizerCanvas'),
+            wxMood: document.getElementById('wx-mood'),
+            wxRegion: document.getElementById('wx-region'),
+            wxPressure: document.getElementById('wx-pressure'),
+            ringPressure: document.getElementById('ringPressure'),
+            ringTeacher: document.getElementById('ringTeacher'),
+            ringExplorer: document.getElementById('ringExplorer'),
+            goalsList: document.getElementById('goalsList'),
+            teacherQuestion: document.getElementById('teacher-question'),
+            explorerAnswer: document.getElementById('explorer-answer'),
+            ingestionFeed: document.getElementById('ingestionFeed'),
+            validationLab: document.getElementById('validationLab'),
+            insightHolocron: document.getElementById('insightHolocron'),
+            ringPsi: document.getElementById('ringPsi'),
+            ringLambda: document.getElementById('ringLambda'),
+            valPsi: document.getElementById('val-psi'),
+            valLam: document.getElementById('val-lam'),
+            valDis: document.getElementById('val-dis'),
+            valNovelty: document.getElementById('val-novelty'),
+            valCompression: document.getElementById('val-compression'),
+            sparkNovelty: document.getElementById('spark-novelty'),
+            sparkCompression: document.getElementById('spark-compression'),
+            sparkDisagreement: document.getElementById('spark-disagreement'),
+            shellStats: document.getElementById('shellStats'),
+            valKDTree: document.getElementById('val-kdtree'),
+        };
+        let rctx = DOM.rotorCanvas.getContext('2d');
+
+        function resizeRotorCanvas() {
+            const dpr = Math.min(window.devicePixelRatio || 1, 2);
+            const parent = DOM.rotorCanvas.parentElement;
+            const w = parent.clientWidth || 300;
+            const h = parent.clientHeight || 200;
+            DOM.rotorCanvas.width = Math.floor(w * dpr);
+            DOM.rotorCanvas.height = Math.floor(h * dpr);
+            DOM.rotorCanvas.style.width = w + 'px';
+            DOM.rotorCanvas.style.height = h + 'px';
+            rctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        }
+        window.addEventListener('resize', resizeRotorCanvas);
+        resizeRotorCanvas();
+
+        function escapeHTML(str) {
+            if (str === null || str === undefined) return '';
+            return String(str).replace(/[&<>"']/g, s => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            })[s]);
+        }
+
+        function num(v, fallback = 0) {
+            if (v === null || v === undefined) return fallback;
+            const n = Number(v);
+            return Number.isFinite(n) ? n : fallback;
+        }
+
+        function clamp01(v) {
+            return Math.max(0, Math.min(1, num(v, 0)));
+        }
+
+        function asArray(x) {
+            if (x == null) return [];
+            if (Array.isArray(x)) return x;
+            if (typeof x === 'string') return x.trim() ? [x] : [];
+            if (typeof x === 'object') {
+                return Object.entries(x).map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`);
+            }
+            return [String(x)];
+        }
+
+        function renderList(elem, data, { boxed = true } = {}) {
+            if (!elem) return;
+            const rows = asArray(data).slice(-200);
+            if (!rows.length) {
+                elem.innerHTML = '<div class="weather-box" style="opacity: 0.5;"><div class="row"><span class="value">Awaiting data...</span></div></div>';
+                return;
+            }
+            elem.innerHTML = rows.map(line => boxed
+                ? `<div class="weather-box" style="margin-bottom:6px;"><div class="row" style="align-items:flex-start;"><span class="label" style="opacity:0.6;">•</span><span class="value" style="white-space:pre-wrap;text-align:left">${escapeHTML(line)}</span></div></div>`
+                : `<div style="white-space:pre-wrap">${escapeHTML(line)}</div>`
+            ).join('');
+        }
+
+        function lerp(a, b, t) {
+            return a + (b - a) * t;
+        }
+
+        function pct(x) {
+            return Math.max(0, Math.min(1, x));
+        }
+
+        function drawRing(canvas, val, colorVar = '--accent') {
+            const ctx = canvas.getContext('2d');
+            const w = canvas.width, h = canvas.height;
+            const v = Math.max(0, Math.min(1, val));
+            const color = getComputedStyle(document.documentElement).getPropertyValue(colorVar).trim();
+            ctx.save();
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.restore();
+            ctx.lineWidth = 6;
+            ctx.strokeStyle = "rgba(255,255,255,0.08)";
+            ctx.beginPath();
+            ctx.arc(w / 2, h / 2, w / 2 - 4, 0, 2 * Math.PI);
+            ctx.stroke();
+            if (v > 0) {
+                ctx.strokeStyle = color;
+                ctx.beginPath();
+                ctx.arc(w / 2, h / 2, w / 2 - 4, -0.5 * Math.PI, -0.5 * Math.PI + v * 2 * Math.PI);
+                ctx.stroke();
+            }
+        }
+
+        function sparkline(elem, values, maxPoints = 64) {
+            const canvas = elem.querySelector('canvas') || (() => {
+                const c = document.createElement('canvas');
+                c.width = 300;
+                c.height = 40;
+                elem.appendChild(c);
+                return c;
+            })();
+            const ctx = canvas.getContext('2d');
+            const w = canvas.width, h = canvas.height;
+            if (!Array.isArray(values)) values = [];
+            const safeVals = values.map(v => Number.isFinite(v) ? v : 0).slice(-maxPoints);
+            if (safeVals.length === 0) safeVals.push(0);
+            ctx.clearRect(0, 0, w, h);
+            const min = Math.min(...safeVals, 0);
+            const max = Math.max(...safeVals, 1e-6);
+            const denom = (max - min) || 1;
+            ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+            ctx.beginPath();
+            for (let i = 0; i < safeVals.length; i++) {
+                const v = safeVals[i];
+                const x = (i / Math.max(1, maxPoints - 1)) * w;
+                const y = h - ((v - min) / denom) * (h - 6) - 3;
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+        }
+
+        function updateRotorState(shellsData) {
+            if (!shellsData) return;
+            Object.keys(state.rotors).forEach(dim => {
+                const shellData = shellsData[dim];
+                const rotor = state.rotors[dim];
+                if (!shellData || !rotor) return;
+                const v = Number(shellData.orientation?.yaw); // Use yaw from M24
+                if (Number.isFinite(v)) {
+                    rotor.target = v;
+                    rotor.hadTarget = true;
+                } else if (!rotor.hadTarget) {
+                    rotor.baseSpin = ({ '8': 0.009, '16': 0.007, '32': 0.005, '64': 0.003 })[dim] || 0.005;
+                }
+            });
+        }
+
+        function drawRotors(dt) {
+            const w = DOM.rotorCanvas.width;
+            const h = DOM.rotorCanvas.height;
+            rctx.save();
+            rctx.setTransform(1, 0, 0, 1, 0, 0);
+            rctx.clearRect(0, 0, w, h);
+            rctx.restore();
+            const DIMS = [
+                { dim: 64, color: 'rgba(142, 241, 255, 0.9)', radius: Math.min(w, h) * 0.45 },
+                { dim: 32, color: 'rgba(255, 224, 128, 0.9)', radius: Math.min(w, h) * 0.35 },
+                { dim: 16, color: 'rgba(199, 146, 234, 0.9)', radius: Math.min(w, h) * 0.25 },
+                { dim: 8, color: 'rgba(110, 231, 183, 0.9)', radius: Math.min(w, h) * 0.15 }
+            ];
+            const spring_k = 0.08, damping = 0.85;
+            DIMS.forEach(({ dim, color, radius }) => {
+                const rotor = state.rotors[String(dim)];
+                if (!rotor) return;
+                const force = (rotor.target - rotor.angle) * spring_k;
+                rotor.vel = (rotor.vel + force) * damping;
+                rotor.angle += rotor.vel * dt * 60 + rotor.baseSpin * dt * 60;
+                rctx.strokeStyle = color;
+                rctx.lineWidth = 1.5;
+                rctx.beginPath();
+                const num_points = dim * 0.5 + 4;
+                for (let i = 0; i < num_points; i++) {
+                    const t = i / (num_points - 1);
+                    const a = -Math.PI / 2 + (rotor.angle + t) * 2 * Math.PI;
+                    const x = (w / 2) + Math.cos(a) * radius;
+                    const y = (h / 2) + Math.sin(a) * radius;
+                    if (i === 0) rctx.moveTo(x, y); else rctx.lineTo(x, y);
+                }
+                rctx.stroke();
+            });
+        }
+
+        document.querySelectorAll('.tab-btn').forEach(button => {
+            button.addEventListener('click', () => {
+                const tabName = button.dataset.tab;
+                document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+                button.classList.add('active');
+                document.getElementById(`tab-${tabName}`).classList.add('active');
+            });
+        });
+
+        class LatticeCrystallizer {
+            constructor(canvas) {
+                this.canvas = canvas;
+                this.scene = new THREE.Scene();
+                this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+                this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+                this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+                this.camera.position.set(0, 0, 3);
+                this.container = new THREE.Group();
+                this.scene.add(this.container);
+                this.mesh = null;
+                this.nodeContainer = new THREE.Group();
+                this.container.add(this.nodeContainer);
+                this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+                this.controls.enableDamping = true;
+                this.controls.dampingFactor = 0.05;
+                this.controls.autoRotate = true;
+                this.controls.autoRotateSpeed = 0.05;
+                this.resize();
+                window.addEventListener('resize', () => this.resize());
+            }
+            resize() {
+                const parent = this.canvas.parentElement;
+                if (!parent) return;
+                const w = Math.max(1, parent.clientWidth || 1);
+                const h = Math.max(1, parent.clientHeight || 1);
+                this.renderer.setSize(w, h);
+                this.camera.aspect = w / h;
+                this.camera.updateProjectionMatrix();
+            }
+            updateBlueprint(blueprintData) {
+                if (this.mesh) { this.container.remove(this.mesh); this.mesh.geometry.dispose(); this.mesh.material.dispose(); this.mesh = null; }
+                try {
+                    const points = (blueprintData || []).map(p => [num(p.render_x), num(p.render_y)])
+                        .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
+                    if (!points || points.length < 3) return;
+                    const uniq = []; const seen = new Set();
+                    for (const [x, y] of points) {
+                        const k = `${Math.round(x * 1e6)}:${Math.round(y * 1e6)}`;
+                        if (!seen.has(k)) { seen.add(k); uniq.push([x, y]); }
+                    }
+                    if (uniq.length < 3) return;
+                    const delaunay = Delaunay.from(uniq); const triangles = delaunay.triangles;
+                    const idx = (uniq.length < 65535) ? new Uint16Array(triangles) : new Uint32Array(triangles);
+                    const vertices = new Float32Array(uniq.length * 3);
+                    for (let i = 0; i < uniq.length; i++) {
+                        const [x, y] = uniq[i]; vertices[i * 3] = x; vertices[i * 3 + 1] = y;
+                        const bp_match = blueprintData.find(p => num(p.render_x) === x && num(p.render_y) === y);
+                        vertices[i * 3 + 2] = bp_match ? num(bp_match.render_z) * 0.5 : 0;
+                    }
+                    const geo = new THREE.BufferGeometry(); geo.setIndex(new THREE.BufferAttribute(idx, 1));
+                    geo.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+                    if (geo.computeVertexNormals) geo.computeVertexNormals();
+                    const mat = new THREE.MeshBasicMaterial({ color: 0x8ef1ff, wireframe: true, transparent: true, opacity: 0.2 });
+                    this.mesh = new THREE.Mesh(geo, mat);
+                    this.container.add(this.mesh);
+                } catch (err) { console.error("Blueprint mesh build failed:", err); }
+            }
+            addNode(nodeData) {
+                if (!state.blueprint || !state.blueprint.length) return;
+                function pickIndex(d) {
+                    const n = state.blueprint.length;
+                    const cand = Number(d?.blueprint_location_id);
+                    if (Number.isInteger(cand) && cand >= 0 && cand < n) return cand;
+                    const s = String(d?.id ?? d?.content ?? Math.random());
+                    let h = 2166136261 >>> 0;
+                    for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+                    return (h >>> 0) % n;
+                }
+                const idx = pickIndex(nodeData); const bp = state.blueprint[idx]; if (!bp) return;
+                let key = String(nodeData?.id ?? `node-${Date.now()}-${Math.random()}`);
+                while (state.nodes.has(key)) key += '_';
+                const color = nodeData?.type === 'blackhole_remnant' ? 0xffffff : (nodeData?.type && String(nodeData.type).includes('insight')) ? 0xFFD700 : 0x8ef1ff;
+                const rating = clamp01(nodeData?.rating ?? 0.5);
+                const size = Math.max(0.01, Math.min(0.1, 0.025 + rating * 0.03));
+                const geo = new THREE.SphereGeometry(size, 16, 16);
+                const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.4 });
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.set(num(bp.render_x, 0), num(bp.render_y, 0), num(bp.render_z, 0) * 0.5 + 0.01);
+                this.nodeContainer.add(mesh);
+                state.nodes.set(key, { mesh, data: nodeData });
+            }
+            applyOrientation(orientation) {
+                if (!this.container || orientation === undefined) return;
+                const val = num(orientation); if (!Number.isFinite(val)) return;
+                const target = Math.max(-Math.PI * 4, Math.min(Math.PI * 4, val * 2.0));
+                this.container.rotation.z = lerp(this.container.rotation.z, target, 0.1);
+            }
+            animate(dt) {
+                this.controls.autoRotateSpeed = 0.02 + 0.6 * Math.max(0, Math.min(1, state.targets.explorer));
+                this.controls.update();
+                state.nodes.forEach((node) => {
+                    const { mesh, data } = node;
+                    const targetOpacity = data.folded ? 0.1 : 1.0;
+                    mesh.material.opacity = lerp(mesh.material.opacity, targetOpacity, dt * 2.5);
+                    const temp = data.temperature || 0.5;
+                    const pulse = 1.0 + Math.sin(Date.now() * 0.005 * temp) * 0.15 * temp;
+                    mesh.scale.set(pulse, pulse, pulse);
+                });
+                this.renderer.render(this.scene, this.camera);
+            }
+        }
+        let crystallizer;
+
+        function processTelemetry(telemetry) {
+            updateUI(telemetry);
+            // --- M24 FIX: Access nested quantum telemetry data ---
+            const q_telemetry = telemetry.quantum_telemetry || {};
+            const lam = typeof q_telemetry.lam === 'number' ? q_telemetry.lam : null;
+            const psiEntropy = typeof q_telemetry.psi_entropy === 'number' ? q_telemetry.psi_entropy : null;
+            // --- END FIX ---
+
+            const shellPop = telemetry.shell_population || {};
+            const totalPop = Object.values(shellPop).reduce((a, b) => a + (Number(b) || 0), 0);
+            const maxH = totalPop > 1 ? Math.log(totalPop) : 1;
+            const psiNorm = (psiEntropy != null) ? Math.max(0, Math.min(1, psiEntropy / (maxH || 1))) : 0;
+
+            if (lam != null) { state.targets.lam = Math.max(0, Math.min(1, lam)); DOM.valLam.textContent = state.targets.lam.toFixed(3); }
+            if (psiEntropy != null) { state.targets.psi = psiNorm; DOM.valPsi.textContent = `${psiEntropy.toFixed(3)} (norm ${psiNorm.toFixed(3)})`; }
+            const nov = typeof telemetry.novelty === 'number' ? telemetry.novelty : null;
+            const cg = typeof telemetry.compression_gain === 'number' ? telemetry.compression_gain : null;
+            const dis = typeof telemetry.disagreement === 'number' ? telemetry.disagreement : null;
+            if (nov != null) { state.targets.novelty = Math.max(0, Math.min(1, nov)); DOM.valNovelty.textContent = nov.toFixed(3); state.noveltySeries.push(nov); }
+            if (cg != null) { state.targets.compression = Math.max(0, Math.min(1, (cg + 0.5))); DOM.valCompression.textContent = cg.toFixed(4); state.compressionSeries.push(cg); }
+            if (dis != null) { state.targets.disagreement = Math.max(0, Math.min(1, 0.5 + 0.5 * Math.tanh(dis))); DOM.valDis.textContent = dis.toFixed(4); state.disagreementSeries.push(dis); }
+            if (DOM.sparkNovelty) sparkline(DOM.sparkNovelty, state.noveltySeries, 96);
+            if (DOM.sparkCompression) sparkline(DOM.sparkCompression, state.compressionSeries, 96);
+            if (DOM.sparkDisagreement) sparkline(DOM.sparkDisagreement, state.disagreementSeries, 96);
+            if (DOM.shellStats) {
+                const entries = Object.entries(shellPop).sort((a, b) => Number(a[0]) - Number(b[0]));
+                DOM.shellStats.innerHTML = entries.map(([dim, count]) =>
+                    `<div class="weather-box"><div class="row"><span class="label">Shell ${dim}D</span><span class="value">${Number(count) || 0}</span></div></div>`
+                ).join('');
+            }
+            if (DOM.valKDTree && typeof telemetry.kdtree_failures === 'number') {
+                DOM.valKDTree.textContent = String(telemetry.kdtree_failures);
+                DOM.valKDTree.style.color = telemetry.kdtree_failures > 0 ? 'var(--warn)' : 'var(--ok)';
+            }
+            updateRotorState(telemetry.shells);
+            if (crystallizer && telemetry.shells && telemetry.shells['8'] && telemetry.shells['8'].orientation !== undefined) {
+                crystallizer.applyOrientation(telemetry.shells['8'].orientation);
+            }
+            renderList(DOM.ingestionFeed, telemetry.ingestion_feed);
+            renderList(DOM.validationLab, telemetry.validation_lab);
+            renderList(DOM.insightHolocron, telemetry.insight_holocron);
+            if (telemetry.new_memory_nodes && Array.isArray(telemetry.new_memory_nodes)) {
+                telemetry.new_memory_nodes.forEach(nodeData => {
+                    if (crystallizer) crystallizer.addNode(nodeData);
+                });
+            }
+            if (telemetry.run_id) { DOM.runTag.textContent = `LIVE · ${telemetry.run_id}`; }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const dt = clock.getDelta();
+            const s = 0.12;
+            for (const key in state.smooth) {
+                state.smooth[key] = lerp(state.smooth[key], state.targets[key], s);
+            }
+            DOM.moodIntensity.value = state.smooth.moodIntensity;
+            DOM.moodEntropy.value = state.smooth.moodEntropy;
+            DOM.moodCoherence.value = state.smooth.moodCoherence;
+            drawRing(DOM.ringPressure, state.smooth.pressure, '--bad');
+            drawRing(DOM.ringTeacher, state.smooth.teacher);
+            drawRing(DOM.ringExplorer, state.smooth.explorer);
+            if (DOM.ringPsi) drawRing(DOM.ringPsi, state.smooth.psi, '--accent-2');
+            if (DOM.ringLambda) drawRing(DOM.ringLambda, state.smooth.lam, '--glow');
+            drawRing(DOM.ringReward, state.smooth.reward, '--ok');
+            const p = state.smooth.wxPressure;
+            DOM.wxPressure.textContent = p.toFixed(2);
+            DOM.wxPressure.style.color = p > 0.85 ? 'var(--bad)' : p > 0.6 ? 'var(--warn)' : 'var(--ok)';
+            const g = state.smooth.globalTension;
+            DOM.globalTension.textContent = g.toFixed(3);
+            DOM.globalTension.style.color = g > 0.85 ? 'var(--bad)' : g > 0.6 ? 'var(--warn)' : 'var(--ok)';
+            drawRotors(dt);
+            if (crystallizer) crystallizer.animate(dt);
+        }
+
+        function startPolling(url, intervalMs = 1000) {
+            let alive = true;
+            DOM.status.textContent = `Polling telemetry at ${url}...`;
+            DOM.runTag.style.color = 'var(--ok)';
+            DOM.runTag.textContent = 'LIVE · POLL';
+            async function poll() {
+                if (!alive) return;
+                try {
+                    const res = await fetch(url, { cache: 'no-store' });
+                    if (res.ok) {
+                        const data = await res.json();
+                        processTelemetry(data);
+                        DOM.runTag.style.color = 'var(--ok)';
+                        if (!String(DOM.runTag.textContent).startsWith('LIVE')) DOM.runTag.textContent = 'LIVE';
+                        DOM.status.textContent = `Polling telemetry (Step: ${data.step})...`;
+                    } else {
+                        DOM.status.textContent = `Telemetry HTTP ${res.status}. Retrying...`;
+                    }
+                } catch (e) {
+                    DOM.status.textContent = 'Polling error. Retrying...';
+                } finally {
+                    if (alive) setTimeout(poll, intervalMs);
+                }
+            }
+            poll();
+            return () => { alive = false; };
+        }
+
+        function connectTelemetryStream() {
+            const url = TELEMETRY_CANDIDATES[telemetryTry % TELEMETRY_CANDIDATES.length];
+            const isStream = /\/stream$/.test(url);
+            DOM.status.textContent = `Connecting to telemetry ${isStream ? 'stream' : 'endpoint'} at ${url}...`;
+            let sse, stopPolling;
+            if (!isStream) {
+                stopPolling = startPolling(url);
+                return;
+            }
+            try { sse = new EventSource(url); } catch (err) {
+                DOM.status.textContent = 'Failed to open telemetry stream. Falling back to polling...';
+                const fallback = url.replace(/\/stream$/, '');
+                startPolling(fallback);
+                telemetryTry += 1;
+                return;
+            }
+            sse.onopen = () => {
+                DOM.status.textContent = 'Live connection established. Awaiting telemetry...';
+                DOM.runTag.style.color = 'var(--ok)';
+                DOM.runTag.textContent = 'LIVE';
+            };
+            sse.addEventListener('telemetry', (e) => {
+                try {
+                    const telemetry = JSON.parse(e.data);
+                    if (telemetry.step) DOM.status.textContent = `Receiving telemetry for step ${telemetry.step}...`;
+                    processTelemetry(telemetry);
+                    DOM.runTag.style.color = 'var(--ok)';
+                } catch (err) { console.error('Failed to parse telemetry event:', err); }
+            });
+            sse.addEventListener('message', (e) => {
+                try {
+                    const telemetry = JSON.parse(e.data);
+                    processTelemetry(telemetry);
+                    DOM.runTag.style.color = 'var(--ok)';
+                } catch { }
+            });
+            sse.onerror = (e) => {
+                DOM.status.textContent = 'Telemetry connection lost. Attempting to reconnect...';
+                DOM.runTag.style.color = 'var(--warn)';
+                DOM.runTag.textContent = 'RECONNECTING';
+                try { sse.close(); } catch { }
+                const fallback = url.replace(/\/stream$/, '');
+                stopPolling = startPolling(fallback);
+                telemetryTry += 1;
+                setTimeout(() => {
+                    if (stopPolling) stopPolling();
+                    connectTelemetryStream();
+                }, 5000);
+            };
+        }
+
+        /* ---------- Initialization ---------- */
+        async function init() {
+            DOM.status.textContent = 'Building visualization...';
+            crystallizer = new LatticeCrystallizer(DOM.crystallizerCanvas);
+            try {
+                const bp = await fetchBlueprintWithFallback();
+                state.blueprint = prepareBlueprint(bp);
+                crystallizer.updateBlueprint(state.blueprint);
+            } catch (e) {
+                console.error("Failed to load blueprint", e);
+                DOM.status.textContent = 'Error: Could not load blueprint.';
+                return;
+            }
+            animate();
+            connectTelemetryStream();
+        }
+        DOM.themeToggle.addEventListener('click', () => {
+            const html = document.documentElement;
+            const light = html.getAttribute('data-theme') === 'light';
+            html.setAttribute('data-theme', light ? 'dark' : 'light');
+            DOM.themeToggle.textContent = light ? '☀️' : '🌙';
+        });
+        init();
+    </script>
+</body>
+
+</html>

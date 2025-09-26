@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>E8 Semantic Mind – Living Crystal (M24 Compatible)</title>
+    <style>
+        :root {
+            --background-color: #161617;
+            --panel-background: rgba(30, 30, 32, 0.7);
+            --panel-border: rgba(255, 255, 255, 0.1);
+            --text-primary: #f5f5f7;
+            --text-secondary: #a1a1a6;
+            --highlight-color: #00BFFF;
+            /* Deep Sky Blue */
+            --accent-color: #FFD700;
+            /* Gold */
+            --trace-color: #FFFF44;
+            /* Yellow */
+        }
+
+        body {
+            margin: 0;
+            background: var(--background-color);
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        #app-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 1fr auto;
+            width: 100vw;
+            height: 100vh;
+            gap: 1.5vmin;
+            padding: 1.5vmin;
+            box-sizing: border-box;
+        }
+
+        .visual-container {
+            position: relative;
+            border-radius: 1.5vmin;
+            overflow: hidden;
+            background: #00000030;
+        }
+
+        .visual-container canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        #main-visual-container {
+            grid-column: 1 / 2;
+            grid-row: 1 / 2;
+        }
+
+        #ltm-visual-container {
+            grid-column: 2 / 3;
+            grid-row: 1 / 2;
+        }
+
+        .ui-panel {
+            background: var(--panel-background);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--panel-border);
+            border-radius: 1.5vmin;
+            box-shadow: 0 1vmin 4vmin rgba(0, 0, 0, 0.2);
+            color: var(--text-primary);
+            padding: 1.5vmin 2vmin;
+            box-sizing: border-box;
+            font-size: 1.4vmin;
+        }
+
+        #console-container {
+            grid-column: 1 / 3;
+            grid-row: 2 / 3;
+            height: 25vh;
+            display: grid;
+            grid-template-columns: 1.2fr 1.5fr 1fr 1.5fr 1fr 1fr;
+            /* Updated for more panes */
+            gap: 1.5vmin;
+        }
+
+        .console-pane {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .console-label {
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 1vmin;
+            flex-shrink: 0;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-size: 1.2vmin;
+        }
+
+        .console-output {
+            font-family: 'Menlo', 'Consolas', monospace;
+            flex-grow: 1;
+            overflow-y: auto;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        #ego-output {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-style: italic;
+            white-space: pre-wrap;
+            color: var(--text-secondary);
+        }
+
+        #status-output b {
+            color: var(--highlight-color);
+        }
+
+        #memory-output .memory-block {
+            margin-bottom: 1.2vmin;
+        }
+
+        #memory-output .memory-type {
+            font-weight: bold;
+            color: var(--accent-color);
+            font-size: 1.3vmin;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding-bottom: 0.2vmin;
+            margin-bottom: 0.5vmin;
+        }
+
+        #memory-output .memory-content {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: var(--text-secondary);
+            padding-left: 0.5vmin;
+        }
+
+        .hud {
+            position: absolute;
+            top: 1.5vmin;
+            left: 1.5vmin;
+            background: var(--panel-background);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid var(--panel-border);
+            border-radius: 1vmin;
+            padding: 1vmin 1.5vmin;
+            color: var(--text-secondary);
+            font-size: 1.3vmin;
+            font-family: 'Menlo', 'Consolas', monospace;
+            z-index: 10;
+        }
+
+        #mood-indicator {
+            transition: background-color 0.75s ease;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.154.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.154.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+
+<body>
+
+    <div id="app-container">
+        <div id="main-visual-container" class="visual-container"></div>
+        <div id="ltm-visual-container" class="visual-container">
+            <div id="ltm-hud" class="hud">
+                <div id="mood-indicator"
+                    style="margin-top:8px; height: 10px; width: 100%; background:#444; border-radius:6px;"></div>
+                <div id="weather-status" style="margin-top: 0.5vmin; font-style: italic;">Mood weather: loading...</div>
+                <div class="trace-info" style="margin-top: 0.5vmin;"></div>
+            </div>
+        </div>
+        <div id="console-container" class="ui-panel">
+            <div id="status-console" class="console-pane">
+                <div class="console-label">Current Perception</div>
+                <div id="status-output" class="console-output">Waiting for data...</div>
+            </div>
+            <div id="ego-console" class="console-pane">
+                <div class="console-label">Ego Summary</div>
+                <div id="ego-output" class="console-output">Awaiting initial state...</div>
+            </div>
+            <div id="memory-console" class="console-pane">
+                <div class="console-label">Memory Stats</div>
+                <div id="memory-output" class="console-output">Awaiting reflection...</div>
+            </div>
+            <div id="reflection-console" class="console-pane">
+                <div class="console-label">Subconscious Narrative</div>
+                <div id="reflection-output" class="console-output">Awaiting...</div>
+            </div>
+            <div id="critique-console" class="console-pane">
+                <div class="console-label">Validation Lab</div>
+                <div id="critique-output" class="console-output">Awaiting insights...</div>
+            </div>
+            <div id="telemetry-console" class="console-pane">
+                <div class="console-label">System Telemetry</div>
+                <div id="telemetry-output" class="console-output">Initializing...</div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+        // --- Constants & State ---
+        const API_BASE_URL = new URLSearchParams(location.search).get('api') || (location.origin.startsWith('http') ? location.origin : 'http://localhost:7870');
+        const LATTICE_SPACING = 7.5;
+        const LTM_VIS_SCALE = 30;
+
+        // --- UI & Scene Variables ---
+        let statusOutput, egoOutput, memoryOutput, reflectionOutput, critiqueOutput, telemetryOutput, ltmHud;
+        let mainScene, mainCamera, mainRenderer, mainControls, mainComposer;
+        let ltmScene, ltmCamera, ltmRenderer, ltmControls, ltmComposer;
+        let pointCloud, mainHullMesh, smoothCurve, e8Lattice;
+        let ltmPointCloud, fieldVectorMesh, influenceLinesGroup;
+
+        // --- Data State ---
+        let roots = []; // Blueprint points
+        let tracePoints = []; // Simulated trace from new_memory_nodes
+        let ltmData = {}; // For the 2D visualization
+        let allNodesData = new Map(); // Store all node data by ID
+
+        let animState = { name: 'DWELLING', lastTime: 0, targetIndex: 0 };
+        let currentTraceIndex = 0;
+        let clock = new THREE.Clock();
+
+        // --- Helper Functions ---
+        function easeInOutCubic(t) { return t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
+        function hsv2rgb(h, s, v) { let f = (n, k = (n + h * 6) % 6) => v - v * s * Math.max(Math.min(k, 4 - k, 1), 0); return [f(5), f(3), f(1)]; }
+        function projectE8(v) { return new THREE.Vector3(v[0], v[1], v[2]).multiplyScalar(LATTICE_SPACING); }
+        function sanitize(text) { return text.replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+
+
+        // --- UI Update Functions ---
+        function updateConsolePanes(telemetry) {
+            // Status Pane (Current Perception)
+            if (tracePoints.length > 0 && tracePoints[currentTraceIndex]) {
+                const traceItem = tracePoints[currentTraceIndex];
+                statusOutput.innerHTML = `<b>STEP ${telemetry.step}</b> :: NODE ${traceItem.blueprint_location_id}<br><b>CONCEPT:</b> ${sanitize(traceItem.label)}<br><br><b>METAPHOR:</b><br>${sanitize(traceItem.metaphor)}`;
+            } else {
+                statusOutput.innerHTML = `<b>STEP ${telemetry.step}</b><br>Waiting for initial concepts...`;
+            }
+
+            // Ego Summary Pane
+            egoOutput.textContent = telemetry.ego_summary || "Awaiting ego formation...";
+
+            // Memory Stats Pane
+            const memoryCount = telemetry.memory_count || 0;
+            const bhEvents = (telemetry.insight_holocron || []).filter(s => s.startsWith("BH Event")).length;
+            memoryOutput.innerHTML = `<div class="memory-block"><div class="memory-type">Core Memory</div><div class="memory-content"><p><b>Concepts:</b> ${memoryCount}</p><p><b>BH Events:</b> ${bhEvents}</p></div></div>`;
+
+            // Subconscious Narrative Pane
+            reflectionOutput.textContent = telemetry.subconscious_narrative || "Awaiting reflection...";
+
+            // Validation Lab Pane
+            const validationItems = (telemetry.validation_lab || []).slice(-5).reverse();
+            critiqueOutput.innerHTML = validationItems.length > 0
+                ? validationItems.map(item => `<div>${sanitize(item)}</div>`).join('')
+                : 'Awaiting validations...';
+
+            // System Telemetry Pane
+            const metrics = telemetry.m20_metrics || {};
+            const q_metrics = telemetry.quantum_telemetry || {};
+            telemetryOutput.innerHTML = `
+        <b>Flux:</b> ${metrics.poynting_flux?.toFixed(3) || 'N/A'}<br>
+        <b>Curvature:</b> ${metrics.spacetime_curvature?.toFixed(3) || 'N/A'}<br>
+        <b>Flow:</b> ${metrics.consciousness_flow_rate?.toFixed(3) || 'N/A'}<br>
+        <b>Tension:</b> ${metrics.field_pressure_proxy?.toFixed(3) || 'N/A'}<br>
+        <b>ψ Entropy:</b> ${q_metrics.psi_entropy?.toFixed(3) || 'N/A'}
+    `;
+        }
+
+        function updateHud(telemetry) {
+            if (!ltmHud) return;
+
+            // Mood Indicator
+            const moodIndicator = document.getElementById('mood-indicator');
+            const weatherStatus = document.getElementById('weather-status');
+            if (moodIndicator && telemetry.mood) {
+                const { intensity, entropy, coherence } = telemetry.mood;
+                const r = Math.floor(intensity * 200 + 55);
+                const g = Math.floor(coherence * 200 + 55);
+                const b = Math.floor((1 - entropy) * 200 + 55);
+                moodIndicator.style.backgroundColor = `rgb(${r},${g},${b})`;
+            }
+            if (weatherStatus) {
+                weatherStatus.textContent = `Weather: ${telemetry.symbolic_weather || 'calm'}`;
+            }
+
+            // Trace Info
+            const traceInfoContainer = ltmHud.querySelector('.trace-info');
+            if (traceInfoContainer) {
+                const maturity = tracePoints.length > 0 ? (currentTraceIndex / (tracePoints.length - 1) * 100).toFixed(1) : 0;
+                const ltmConceptCount = allNodesData.size;
+                traceInfoContainer.innerHTML = `
+            <span class="hud-label">Trace Maturity:</span> ${maturity}%<br>
+            <span class="hud-label">LTM Concepts:</span> ${ltmConceptCount}<br>
+            <span class="hud-label">Step:</span> ${telemetry.step || 0}
+        `;
+            }
+        }
+
+
+        // --- Scene Object Builders ---
+        function buildHull(hullPoints) {
+            if (hullPoints.length < 4) return null;
+            const uniquePoints = [];
+            const pointSet = new Set();
+            hullPoints.forEach(p => {
+                const key = `${p.x.toFixed(4)},${p.y.toFixed(4)},${p.z.toFixed(4)}`;
+                if (!pointSet.has(key)) { pointSet.add(key); uniquePoints.push(p); }
+            });
+            if (uniquePoints.length < 4) return null;
+            const hullGeo = new ConvexGeometry(uniquePoints);
+            hullGeo.computeVertexNormals();
+            const mat = new THREE.MeshStandardMaterial({ color: 0x87CEEB, emissive: 0x87CEEB, emissiveIntensity: 0.1, metalness: 0.4, roughness: 0.5, transparent: true, opacity: 0.3 });
+            return new THREE.Mesh(hullGeo, mat);
+        }
+
+        function buildPoints() {
+            let geo = new THREE.BufferGeometry();
+            const positions = roots.flatMap(r => projectE8(r.coords).toArray());
+            geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            geo.setAttribute('color', new THREE.Float32BufferAttribute(new Array(roots.length * 3).fill(0.5), 3));
+            const mat = new THREE.PointsMaterial({ vertexColors: true, size: 0.5, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+            return new THREE.Points(geo, mat);
+        }
+
+        function buildE8Lattice(allRoots) {
+            const points = [];
+            // This is a simplified connection logic for visualization
+            const kdtree = new THREE.Object3D();
+            allRoots.forEach((root, i) => {
+                const p = projectE8(root.coords);
+                const node = new THREE.Object3D();
+                node.position.copy(p);
+                node.userData.originalIndex = i;
+                kdtree.add(node);
+            });
+
+            allRoots.forEach((root, i) => {
+                const p1 = projectE8(root.coords);
+                // Find N nearest neighbors (simple brute force for this viz)
+                let neighbors = [];
+                for (let j = 0; j < allRoots.length; j++) {
+                    if (i === j) continue;
+                    const p2 = projectE8(allRoots[j].coords);
+                    neighbors.push({ dist: p1.distanceToSquared(p2), p: p2 });
+                }
+                neighbors.sort((a, b) => a.dist - b.dist);
+                for (let k = 0; k < 3; k++) {
+                    points.push(p1, neighbors[k].p);
+                }
+            });
+
+            const geo = new THREE.BufferGeometry().setFromPoints(points);
+            return new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0xcccccc, transparent: true, opacity: 0.04 }));
+        }
+
+
+        function updateLtmVisual(telemetry) {
+            if (ltmPointCloud) {
+                ltmScene.remove(ltmPointCloud);
+                ltmPointCloud.geometry.dispose();
+                ltmPointCloud.material.dispose();
+            }
+            if (fieldVectorMesh) ltmScene.remove(fieldVectorMesh);
+            if (influenceLinesGroup) ltmScene.remove(influenceLinesGroup);
+
+            const points = [];
+            const colors = [];
+
+            // Add all nodes from the graph to the visualization
+            allNodesData.forEach((node) => {
+                if (node.coords_3d) {
+                    points.push(node.coords_3d[0] * LTM_VIS_SCALE, node.coords_3d[1] * LTM_VIS_SCALE, node.coords_3d[2] * LTM_VIS_SCALE);
+                    // Color based on temperature or rating
+                    const temp = node.temperature || 0.5;
+                    const rating = node.rating || 0.5;
+                    const [r, g, b] = hsv2rgb(rating * 0.6, 0.8, temp);
+                    colors.push(r, g, b);
+                }
+            });
+
+            if (points.length === 0) return;
+
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
+            geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+            const mat = new THREE.PointsMaterial({ vertexColors: true, size: 0.8, transparent: true, opacity: 0.85 });
+            ltmPointCloud = new THREE.Points(geo, mat);
+            ltmScene.add(ltmPointCloud);
+
+            // Goal Vector Visualization (if data available)
+            if (telemetry.goals && Object.keys(telemetry.goals).length > 0) {
+                // This is a simplification. A real implementation would need goal embeddings.
+                // We'll place a marker based on the dominant goal.
+                const topGoal = Object.entries(telemetry.goals).sort((a, b) => b[1] - a[1])[0];
+                if (topGoal) {
+                    if (goalVectorMesh) ltmScene.remove(goalVectorMesh);
+                    const goalGeo = new THREE.IcosahedronGeometry(0.8, 1);
+                    const goalMat = new THREE.MeshBasicMaterial({ color: 0xFFD700, wireframe: true });
+                    goalVectorMesh = new THREE.Mesh(goalGeo, goalMat);
+                    // Position based on goal name hash
+                    let hash = 0;
+                    for (let i = 0; i < topGoal[0].length; i++) { hash = topGoal[0].charCodeAt(i) + ((hash << 5) - hash); }
+                    const x = Math.sin(hash) * LTM_VIS_SCALE * 0.8;
+                    const y = Math.cos(hash) * LTM_VIS_SCALE * 0.8;
+                    goalVectorMesh.position.set(x, y, 0);
+                    ltmScene.add(goalVectorMesh);
+                }
+            }
+        }
+
+
+        function updateMainVisual(progress) {
+            if (!roots || !roots.length) return;
+            const elapsedTime = clock.getElapsedTime();
+
+            if (pointCloud) {
+                const colors = pointCloud.geometry.attributes.color.array;
+                const activeNodeIdxs = new Set(tracePoints.slice(0, currentTraceIndex + 1).map(p => p.blueprint_location_id));
+                for (let i = 0; i < roots.length; ++i) {
+                    let [r, g, b] = hsv2rgb(((i * 137.5) % 360) / 360, 0.85, 1.0);
+                    if (activeNodeIdxs.has(i)) {
+                        let pulse = Math.abs(Math.sin(elapsedTime * 4)) * 0.3 + 0.7;
+                        colors[i * 3] = r * pulse; colors[i * 3 + 1] = g * pulse; colors[i * 3 + 2] = b * pulse;
+                    } else {
+                        colors[i * 3] = r * 0.3; colors[i * 3 + 1] = g * 0.3; colors[i * 3 + 2] = b * 0.3;
+                    }
+                }
+                pointCloud.geometry.attributes.color.needsUpdate = true;
+            }
+
+            const completedTrace = tracePoints.slice(0, currentTraceIndex + 1).map(p => roots[p.blueprint_location_id]);
+            if (completedTrace.length < 1) return;
+
+            let hullPoints = completedTrace.map(p => projectE8(p.coords));
+
+            // Animate transition to next point
+            if (animState.name === 'TRANSITIONING' && currentTraceIndex < tracePoints.length - 1) {
+                const currentRoot = roots[tracePoints[currentTraceIndex].blueprint_location_id];
+                const nextRoot = roots[tracePoints[currentTraceIndex + 1].blueprint_location_id];
+                hullPoints.push(new THREE.Vector3().lerpVectors(projectE8(currentRoot.coords), projectE8(nextRoot.coords), progress));
+            }
+
+            const newMainHullMesh = buildHull(hullPoints);
+            if (newMainHullMesh) {
+                if (mainHullMesh) mainScene.remove(mainHullMesh);
+                mainHullMesh = newMainHullMesh;
+                mainScene.add(mainHullMesh);
+            }
+
+            if (smoothCurve) mainScene.remove(smoothCurve);
+            if (completedTrace.length >= 2) {
+                const curvePath = new THREE.CatmullRomCurve3(completedTrace.map(p => projectE8(p.coords)));
+                const geo = new THREE.BufferGeometry().setFromPoints(curvePath.getPoints(Math.max(50, completedTrace.length * 10)));
+                smoothCurve = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xffff44, linewidth: 3 }));
+                mainScene.add(smoothCurve);
+            }
+        }
+
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const elapsedTime = clock.getElapsedTime();
+            const dt = clock.getDelta();
+            let frameCounter = elapsedTime - animState.lastTime;
+            let progress = 0;
+
+            if (tracePoints.length > 0) {
+                if (animState.name === 'DWELLING' && currentTraceIndex < animState.targetIndex) {
+                    if (frameCounter > DWELL_TIME_SECONDS) {
+                        animState.name = 'TRANSITIONING';
+                        animState.lastTime = elapsedTime;
+                        frameCounter = 0;
+                    }
+                } else if (animState.name === 'TRANSITIONING') {
+                    progress = easeInOutCubic(frameCounter / TRANSITION_TIME_SECONDS);
+                    if (progress >= 1.0) {
+                        currentTraceIndex++;
+                        animState.name = 'DWELLING';
+                        animState.lastTime = elapsedTime;
+                        if (tracePoints[currentTraceIndex]) {
+                            const root = roots[tracePoints[currentTraceIndex].blueprint_location_id];
+                            if (root) cameraTargetPosition.copy(projectE8(root.coords));
+                        }
+                    }
+                }
+            }
+
+            updateMainVisual(animState.name === 'TRANSITIONING' ? progress : 0);
+
+            mainControls.target.lerp(cameraTargetPosition, 0.05);
+            mainControls.update();
+            ltmControls.update();
+
+            mainComposer.render();
+            ltmComposer.render();
+            updateHud();
+        }
+
+
+        function setupScene(container, isLtmView = false) {
+            const scene = new THREE.Scene();
+            const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 5000);
+            camera.position.set(0, 0, isLtmView ? 60 : 35);
+
+            const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            container.appendChild(renderer.domElement);
+
+            const controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.minDistance = 10;
+            controls.maxDistance = 150;
+            controls.autoRotate = !isLtmView;
+            controls.autoRotateSpeed = 0.5;
+
+            scene.add(new THREE.AmbientLight(0xcccccc, 1.5));
+            const dLight = new THREE.DirectionalLight(0xffffff, 1.0);
+            dLight.position.set(5, 10, 7.5);
+            scene.add(dLight);
+
+            const composer = new EffectComposer(renderer);
+            composer.addPass(new RenderPass(scene, camera));
+            const bloomPass = new UnrealBloomPass(new THREE.Vector2(container.clientWidth, container.clientHeight), 1.0, 0.4, 0.6);
+            composer.addPass(bloomPass);
+
+            return { scene, camera, renderer, controls, composer };
+        }
+
+        // --- NEW M24 DATA HANDLING ---
+        function processTelemetry(telemetry) {
+            // This is the new central handler for all incoming data.
+
+            // 1. Update the simulated trace with new nodes
+            if (telemetry.new_memory_nodes && Array.isArray(telemetry.new_memory_nodes)) {
+                telemetry.new_memory_nodes.forEach(nodeData => {
+                    // Add to our simulated trace
+                    tracePoints.push(nodeData);
+                    // Add to the master node map for LTM viz
+                    allNodesData.set(nodeData.id, nodeData);
+                });
+                animState.targetIndex = tracePoints.length - 1;
+            }
+
+            // 2. Update all UI panes
+            updateConsolePanes(telemetry);
+            updateLtmVisual(telemetry);
+            updateHud(telemetry);
+        }
+
+        function startDataStream() {
+            let eventSource;
+
+            function connect() {
+                if (eventSource) {
+                    eventSource.close();
+                }
+                eventSource = new EventSource(API.telemetryStream);
+
+                eventSource.onopen = () => {
+                    console.log("Telemetry stream connected.");
+                    document.getElementById('status-output').textContent = "Live connection established.";
+                };
+
+                eventSource.addEventListener('telemetry', (event) => {
+                    try {
+                        const telemetry = JSON.parse(event.data);
+                        processTelemetry(telemetry);
+                    } catch (e) {
+                        console.error('Failed to parse telemetry data:', e);
+                    }
+                });
+
+                eventSource.onerror = (err) => {
+                    console.error("EventSource failed:", err);
+                    document.getElementById('status-output').textContent = "Stream disconnected. Reconnecting in 5s...";
+                    eventSource.close();
+                    setTimeout(connect, 5000);
+                };
+            }
+
+            connect();
+        }
+
+
+        // --- Main Initialization ---
+        async function main() {
+            statusOutput = document.getElementById('status-output');
+            egoOutput = document.getElementById('ego-output');
+            memoryOutput = document.getElementById('memory-output');
+            reflectionOutput = document.getElementById('reflection-output');
+            critiqueOutput = document.getElementById('critique-output');
+            telemetryOutput = document.getElementById('telemetry-output');
+            ltmHud = document.getElementById('ltm-hud');
+
+            const mainVis = setupScene(document.getElementById('main-visual-container'));
+            mainScene = mainVis.scene; mainCamera = mainVis.camera; mainRenderer = mainVis.renderer; mainControls = mainVis.controls; mainComposer = mainVis.composer;
+
+            const ltmVis = setupScene(document.getElementById('ltm-visual-container'), true);
+            ltmScene = ltmVis.scene; ltmCamera = ltmVis.camera; ltmRenderer = ltmVis.renderer; ltmControls = ltmVis.controls; ltmComposer = ltmVis.composer;
+
+            try {
+                const blueprintData = await fetch(API.blueprint).then(res => res.json());
+                roots = blueprintData.map((p, i) => ({ idx: i, coords: [p.x, p.y, p.z, 0, 0, 0, 0, 0] }));
+
+                e8Lattice = buildE8Lattice(roots);
+                if (e8Lattice) mainScene.add(e8Lattice);
+                pointCloud = buildPoints();
+                if (pointCloud) mainScene.add(pointCloud);
+
+                animState.lastTime = clock.getElapsedTime();
+                animate();
+
+                // **REPLACED ALL POLL FUNCTIONS WITH SINGLE STREAM**
+                startDataStream();
+
+            } catch (e) {
+                console.error("CRITICAL ERROR during initialization:", e);
+                statusOutput.innerHTML = `<b>CRITICAL ERROR:</b> Could not initialize visuals.<br><i>Details: ${e.message}</i>`;
+            }
+        }
+
+        window.addEventListener('resize', () => {
+            const resizeScene = (container, camera, renderer, composer) => {
+                if (!container || !camera || !renderer || !composer) return;
+                camera.aspect = container.clientWidth / container.clientHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(container.clientWidth, container.clientHeight);
+                composer.setSize(container.clientWidth, container.clientHeight);
+            };
+            resizeScene(document.getElementById('main-visual-container'), mainCamera, mainRenderer, mainComposer);
+            resizeScene(document.getElementById('ltm-visual-container'), ltmCamera, ltmRenderer, ltmComposer);
+        });
+
+        main();
+    </script>
+</body>
+
+</html>

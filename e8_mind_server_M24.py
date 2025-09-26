@@ -29360,6 +29360,7 @@ async def main():
     app.router.add_get("/api/telemetry", handle_get_telemetry)
     app.router.add_get("/api/blueprint", handle_get_blueprint)
     app.router.add_get("/api/telemetry/stream", handle_stream_telemetry)
+    app.router.add_get("/api/telemetry/latest", handle_get_telemetry)
     # WebSocket endpoints (multiple aliases for frontend probes)
     app.router.add_get("/api/telemetry/ws", handle_ws_telemetry)
     app.router.add_get("/ws/telemetry", handle_ws_telemetry)
