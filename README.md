@@ -6,16 +6,16 @@ Kaleidoscope is a **proto domain-agnostic discovery engine** and the first use o
 Memories are stored on concentric shells within a **Hyperdimensional Field Mantle**, a continuous spacetime fluid where concepts evolve according to physical laws. Their interactions are shaped by simulated spacetime curvature, and retrieval is a **geodesic ray-tracing** process, gated by attention light-cones and refracted across horizon boundaries. The system's evolution is governed by a holographic **Emergence Law** derived from E8 symmetry, which dictates the timed release of information. The result is not just recall—it's **metaphysical emergence.**
 
 -----
-<img width="300" height="293" alt="QSN-Vertex-Types-Samples-3-e1467927748157-300x293" src="https://github.com/user-attachments/assets/4f42de8a-0548-4d4a-ae63-8a052f2e1837" />
+![QSN Vertex Types Sample](https://github.com/user-attachments/assets/4f42de8a-0548-4d4a-ae63-8a052f2e1837)
 
 ## What Makes Kaleidoscope Unique
 
-  - **E8 lattice geometry**: As the first application of E8 to AI cognition, it forms memory into a crystal in 8D space, preserving symmetry and avoiding drift.
-  - **Holographic Emergence Law**: The dynamics of thought are governed by $Q(t)=Q\_{\\infty}(1-e^{-s\_{Q}t})$, a time-dependent decoding function that releases information from a hidden boundary.
-  - **Hyperdimensional Field Mantle**: A continuous spacetime fluid where memory evolves according to Maxwell-Lorentz and Friedmann dynamics, with concepts transported along geodesics.
-  - **Mood-shaped Retrieval**: Cognitive state bends memory access like gravity curves light, gated by attention light-cones.
-  - **Teacher, Explorer, Subconscious**: Agents guide the mind recursively across symbolic terrain.
-  - **Systematic Physics Validation**: A built-in validator enforces physical constraints like mass-energy conservation and spectral stability, proving correctness through dimensionless invariants.
+- **E8 lattice geometry**: As the first application of E8 to AI cognition, it forms memory into a crystal in 8D space, preserving symmetry and avoiding drift.
+- **Holographic Emergence Law**: The dynamics of thought are governed by $Q(t)=Q\_{\\infty}(1-e^{-s\_{Q}t})$, a time-dependent decoding function that releases information from a hidden boundary.
+- **Hyperdimensional Field Mantle**: A continuous spacetime fluid where memory evolves according to Maxwell-Lorentz and Friedmann dynamics, with concepts transported along geodesics.
+- **Mood-shaped Retrieval**: Cognitive state bends memory access like gravity curves light, gated by attention light-cones.
+- **Teacher, Explorer, Subconscious**: Agents guide the mind recursively across symbolic terrain.
+- **Systematic Physics Validation**: A built-in validator enforces physical constraints like mass-energy conservation and spectral stability, proving correctness through dimensionless invariants.
 
 Memory Systems Combined in Kaleidoscope
 
@@ -75,12 +75,12 @@ In Kaleidoscope: the VAE maps embeddings into compact latent shells (8,16,32,64�
 
 The E8 lattice is not merely a storage structure; it is an active physical and computational substrate. Its unique properties are foundational to Kaleidoscope's ability to self-organize and discover novel patterns.
 
-  - **Fundamental Structure**: E8 is a highly symmetrical 248-dimensional Lie group. Its root system is composed of 240 vectors in an 8-dimensional space, which are associated with concepts like triality and compactified extra dimensions in string theory. Kaleidoscope treats this structure not just as a symmetry algebra but as a **data structure—an encoding template**.
-  - **Geometric Properties**: The system programmatically generates and verifies the 240 E8 root vectors, ensuring they adhere to two strict geometric constraints:
-      - The squared norm of every root vector is exactly 2.
-      - The inner product between any two distinct root vectors is always an integer in the set {-1, 0, 1}.
-  - **Algebraic Integrity**: The system validates the Lie algebra structure constants through bracket relations. It also acknowledges E8's decomposition into the `so(16)` algebra and a 128-dimensional spinor representation `S`, and includes tests for simplified octonionic bracket relations to ensure algebraic consistency.
-  - **Holographic Projection**: Kaleidoscope projects the 8D E8 roots into a 3D quasicrystal structure for visualization and indexing. This projection uses **triacontagonal (30-gonal) symmetry** based on the golden ratio ($\\phi$), a known property of E8 projections. This creates non-periodic tilings that are locally unique but globally coherent, enabling holographic redundancy.
+- **Fundamental Structure**: E8 is a highly symmetrical 248-dimensional Lie group. Its root system is composed of 240 vectors in an 8-dimensional space, which are associated with concepts like triality and compactified extra dimensions in string theory. Kaleidoscope treats this structure not just as a symmetry algebra but as a **data structure—an encoding template**.
+- **Geometric Properties**: The system programmatically generates and verifies the 240 E8 root vectors, ensuring they adhere to two strict geometric constraints:
+  - The squared norm of every root vector is exactly 2.
+  - The inner product between any two distinct root vectors is always an integer in the set {-1, 0, 1}.
+- **Algebraic Integrity**: The system validates the Lie algebra structure constants through bracket relations. It also acknowledges E8's decomposition into the `so(16)` algebra and a 128-dimensional spinor representation `S`, and includes tests for simplified octonionic bracket relations to ensure algebraic consistency.
+- **Holographic Projection**: Kaleidoscope projects the 8D E8 roots into a 3D quasicrystal structure for visualization and indexing. This projection uses **triacontagonal (30-gonal) symmetry** based on the golden ratio ($\\phi$), a known property of E8 projections. This creates non-periodic tilings that are locally unique but globally coherent, enabling holographic redundancy.
 
 -----
 
@@ -88,12 +88,12 @@ The E8 lattice is not merely a storage structure; it is an active physical and c
 
 The **E8 lattice** is a mathematical jewel: the densest known sphere packing in 8D, with 240 root vectors forming a highly symmetric polytope. It provides:
 
-  - **Symmetry Stability**: Memory transformations preserve structural integrity.
-  - **An Encoding Template**: E8 is treated as a data structure, where projections from its internal symmetry space onto our 3+1D spacetime drive cosmological evolution.
-  - **Shell Stratification**: Layers of abstraction—inner = core, outer = speculative.
-  - **Quasicrystal Inheritance**: Holographic properties emerge via E8→Penrose projections.
-  - **Staggered Emergence**: The projection of E8 root vectors determines the timing scale of events; fields with high projection values emerge early, while those with low projections emerge late.
-  - **Beyond Nearest Neighbor**: Retrieval is a function of distance, orientation, and symmetry fit within a dynamic, curved geometry.
+- **Symmetry Stability**: Memory transformations preserve structural integrity.
+- **An Encoding Template**: E8 is treated as a data structure, where projections from its internal symmetry space onto our 3+1D spacetime drive cosmological evolution.
+- **Shell Stratification**: Layers of abstraction—inner = core, outer = speculative.
+- **Quasicrystal Inheritance**: Holographic properties emerge via E8→Penrose projections.
+- **Staggered Emergence**: The projection of E8 root vectors determines the timing scale of events; fields with high projection values emerge early, while those with low projections emerge late.
+- **Beyond Nearest Neighbor**: Retrieval is a function of distance, orientation, and symmetry fit within a dynamic, curved geometry.
 
 > Kaleidoscope treats memory not as a list, but as a **physics engine**—where symmetry, entropy, and coherence evolve in time, governed by a cosmological emergence law.
 
@@ -103,44 +103,44 @@ The **E8 lattice** is a mathematical jewel: the densest known sphere packing in 
 
 ### Memory Layer
 
-  - **LLM embeddings** (768–4096 dim) projected into the **8D E8 lattice**.
-  - Snap to nearest **E8 point**, store on shells by norm.
-  - Rotate with **Clifford rotors** → captures relation and perspective.
-  - Memory = orbiting shell nodes + rotors + entropy.
+- **LLM embeddings** (768–4096 dim) projected into the **8D E8 lattice**.
+- Snap to nearest **E8 point**, store on shells by norm.
+- Rotate with **Clifford rotors** → captures relation and perspective.
+- Memory = orbiting shell nodes + rotors + entropy.
 
 ### Holographic Decoding & Emergence Law
 
-  - All cognitive "fields" (concepts) emerge from an encoded state via a time-dependent decoding function: $Q(t)=Q\_{\\infty}(1-e^{-s\_{Q}t})$.
-  - The emergence rate, $s\_Q$, is derived from the projection of a concept's corresponding E8 root vector ($\\vec{r}\_{Q}$) onto a decoding axis, directly linking geometry to timing.
-  - This law governs the dynamic onset of each cognitive component, mirroring the staggered emergence of radiation, matter, and dark energy in cosmology.
+- All cognitive "fields" (concepts) emerge from an encoded state via a time-dependent decoding function: $Q(t)=Q\_{\\infty}(1-e^{-s\_{Q}t})$.
+- The emergence rate, $s\_Q$, is derived from the projection of a concept's corresponding E8 root vector ($\\vec{r}\_{Q}$) onto a decoding axis, directly linking geometry to timing.
+- This law governs the dynamic onset of each cognitive component, mirroring the staggered emergence of radiation, matter, and dark energy in cosmology.
 
 ### Mood & Drive Engine
 
-  - Tracks entropy, coherence, fluidity, and affect.
-  - Rewards novelty, stability, and intelligibility.
-  - Controls retrieval tilt: convergent ↔ divergent ↔ serendipitous.
-  - Mood modulates recall pathways like temperature in physics.
+- Tracks entropy, coherence, fluidity, and affect.
+- Rewards novelty, stability, and intelligibility.
+- Controls retrieval tilt: convergent ↔ divergent ↔ serendipitous.
+- Mood modulates recall pathways like temperature in physics.
 
 ### Agent Loop
 
-  - **Teacher**: structured, curriculum-based refinement.
-  - **Explorer**: high-entropy free association.
-  - **Subconscious**: long-term integration, background summarization.
-  - Recursive dialogue builds hypotheses, tests, refines.
+- **Teacher**: structured, curriculum-based refinement.
+- **Explorer**: high-entropy free association.
+- **Subconscious**: long-term integration, background summarization.
+- Recursive dialogue builds hypotheses, tests, refines.
 
 ### Insight & Evolution
 
-  - Novelty detector spots surprising low-coherence clusters.
-  - SAC/MPO RL adapts memory tuning over time.
-  - Auto-task manager triggers refinement runs.
-  - Over time, theories form—not just memories.
+- Novelty detector spots surprising low-coherence clusters.
+- SAC/MPO RL adapts memory tuning over time.
+- Auto-task manager triggers refinement runs.
+- Over time, theories form—not just memories.
 
 ### Tools and Hooks
 
-  - Shell projection visualizer (3D or 8D → 2D).
-  - Trajectory lines of concept drift.
-  - Black hole compression events (high-curvature collapse).
-  - Mood-state overlays and cluster mappings.
+- Shell projection visualizer (3D or 8D → 2D).
+- Trajectory lines of concept drift.
+- Black hole compression events (high-curvature collapse).
+- Mood-state overlays and cluster mappings.
 
 -----
 
@@ -150,11 +150,11 @@ Kaleidoscope is a **metacognitive system** that models cognition **as emergence*
 
 It can:
 
-  - Think over long time horizons
-  - Autonomously rewrite its own conceptual structures
-  - Detect novelty without labels
-  - Balance entropy with meaning
-  - Generate its own internal curriculum
+- Think over long time horizons
+- Autonomously rewrite its own conceptual structures
+- Detect novelty without labels
+- Balance entropy with meaning
+- Generate its own internal curriculum
 
 -----
 
@@ -162,15 +162,15 @@ It can:
 
 Kaleidoscope can be applied to domains that require **long-term, unsupervised, cross-domain synthesis**:
 
-  - **Scientific Discovery**: Extracts emergent theories from unlabeled papers.
-  - **Finance**: Detects novel factor clusters across time.
-  - **Research Labs**: Logs, links, and evolves conceptual threads.
-  - **Personal Memory Systems**: Reorganizes life data into cohesive timelines.
-  - **Speculative AI**: Experimental symbolic reasoning via dynamic embedding.
+- **Scientific Discovery**: Extracts emergent theories from unlabeled papers.
+- **Finance**: Detects novel factor clusters across time.
+- **Research Labs**: Logs, links, and evolves conceptual threads.
+- **Personal Memory Systems**: Reorganizes life data into cohesive timelines.
+- **Speculative AI**: Experimental symbolic reasoning via dynamic embedding.
 
 > Imagine running Kaleidoscope overnight with 10k papers… waking up to clusters, analogies, and **a theory of something new.**
-<img width="1965" height="1006" alt="Screen Shot 2025-09-23 at 05 27 44 854 PM" src="https://github.com/user-attachments/assets/e1daf1b4-6622-4895-982a-540d02291d64" />
-<img width="1966" height="1088" alt="Screen Shot 2025-09-16 at 07 27 18 435 PM" src="https://github.com/user-attachments/assets/33867042-6a3f-47a5-b43b-97dc9fe09416" />
+![Screenshot 2025-09-23 05-27-44](https://github.com/user-attachments/assets/e1daf1b4-6622-4895-982a-540d02291d64)
+![Screenshot 2025-09-16 07-27-18](https://github.com/user-attachments/assets/33867042-6a3f-47a5-b43b-97dc9fe09416)
 
 -----
 
@@ -178,22 +178,87 @@ Kaleidoscope can be applied to domains that require **long-term, unsupervised, c
 
 ```bash
 # Clone repository
-$ git clone https://github.com/Howtoimagine/E8-Kaleidescope-AI.git
-$ cd E8-Kaleidescope-AI
+git clone https://github.com/Howtoimagine/E8-Kaleidescope-AI.git
+cd E8-Kaleidescope-AI
 
 # Create environment
-$ python -m venv .venv
-$ source .venv/bin/activate     # Mac/Linux
-$ .venv\Scripts\activate       # Windows
+python -m venv .venv
+# Mac/Linux
+source .venv/bin/activate
+# Windows
+.venv\Scripts\activate
 
 # Install requirements
-$ pip install -r requirements.txt
+pip install -r requirements.txt
 ```
 
-### Run With Profile
+## Modular Edition (M24 → Modular)
 
-```bash
-python e8_mind_server_M24.py --profile profiles/my_profile.json
+The project has been refactored to a modular package layout with a new entrypoint and HTTP handlers, while preserving legacy compatibility.
+
+- New entrypoint: `main.py` (aiohttp server + orchestrator bootstrap)
+- Modular packages: `e8_mind/physics`, `e8_mind/memory`, `e8_mind/cognitive`, `e8_mind/core`, `e8_mind/http`
+- Health endpoint: `GET /healthz`
+- Lattice/graph/telemetry endpoints ported to modular handlers with legacy fallbacks
+- Test script: `test_endpoints.py` (smoke checks for lattice, graph, telemetry)
+
+Quick start (Windows PowerShell):
+
+```powershell
+# Server-only mode (no cognitive cycle; ideal for UI/tests)
+python .\main.py --server-only --non-interactive --port 7871
+
+# Full run with cycle (non-interactive, finite steps)
+$env:E8_LINGER_SECS='120'
+python .\main.py --non-interactive --port 7871 --max-steps 600
+
+# Smoke test endpoints
+python .\test_endpoints.py --port 7871
+```
+
+Migration pointers:
+
+- Prefer imports from `e8_mind.*` modules or `e8_mind.monolith` rather than the legacy monolith files.
+- HTTP handlers are now in `e8_mind/http/handlers.py` and used by `main.py` automatically.
+- Legacy servers (`e8_mind_server_M24.1.py`/`.2.py`) are still loadable for parity and fallback.
+- Lattice response maintains legacy keys `roots_3d` and `active_highlights` for compatibility.
+
+Known Windows tips:
+
+- Set env vars as `$env:NAME='value'` in PowerShell (no leading `=`).
+- If a port is in use, pick another `--port` or wait for linger to release the socket.
+
+
+
+### Modular Physics (E8/Horizon/Quantum)
+
+The physics has been refactored into modular packages under `e8_mind/physics/`:
+
+- `e8_mind.physics.e8.E8Physics` — E8 roots, graph, normalized Laplacian, heat masks
+- `e8_mind.physics.mantle.HyperdimensionalFieldMantle` — Maxwell-Lorentz substrate on shell lattice
+- `e8_mind.physics.horizon` — `HorizonLayer`, `HorizonManager`, `build_e8_horizon`, `build_cross_horizon_kernel`
+- `e8_mind.physics.quantum` — `QuantumConfig`, `QuantumEngine` (adaptive step + measurements)
+
+The legacy files `e8_mind_server_M24.1.py` / `.2.py` rebind these symbols at import time to avoid drift, but new code should import from the modules above or `e8_mind.monolith`.
+
+Quick smoke test (Windows PowerShell):
+
+```powershell
+python -X utf8 scripts\smoke_physics.py
+```
+
+You should see lines like:
+
+```text
+[SMOKE] E8 init OK
+[SMOKE] Horizon OK; K type: coo_matrix
+[SMOKE] Quantum OK; tv=0.0000, choices=9
+```
+
+### Run With Profile (Legacy M24)
+
+```powershell
+python .\e8_mind_server_M24.2.py --profile profiles\my_profile.json
 ```
 
 -----
@@ -208,9 +273,9 @@ Example: `lab_notebook` favors abstraction + subconscious + summarization.
 
 You can:
 
-  * Generate profiles dynamically from prompts
-  * Load via JSON or YAML
-  * Test A/B configurations
+- Generate profiles dynamically from prompts
+- Load via JSON or YAML
+- Test A/B configurations
 
 -----
 
@@ -218,38 +283,38 @@ You can:
 
 Kaleidoscope is already:
 
-  * Evolving memories over time
-  * Merging physics, ML, and cognition
-  * Generating symbolic insight loops
+- Evolving memories over time
+- Merging physics, ML, and cognition
+- Generating symbolic insight loops
 
 Next:
 
-  * Adaptive rotor fields
-  * Shell entanglement metrics
-  * Benchmarks for theory emergence
-  * Web UI for shells, memory maps, mood overlays
-  * Inference API for downstream tools
-  * Plugin system for custom agents and tools
-  * Distributed multi-node operation (think folding home)
+- Adaptive rotor fields
+- Shell entanglement metrics
+- Benchmarks for theory emergence
+- Web UI for shells, memory maps, mood overlays
+- Inference API for downstream tools
+- Plugin system for custom agents and tools
+- Distributed multi-node operation (think folding home)
 
 # Kaleidoscope E8 Mind - Minimal M24 Setup
 
 ## Quick Start
 
-1.  Open terminal in this directory
+1. Open terminal in this directory
 
-2.  Run: `start_kaleidoscope.bat` (Windows)
+2. Run: `start_kaleidoscope.bat` (Windows)
 
-3.  Or manually:
+3. Or manually:
 
-    ```
-    .venv\Scripts\activate
-    python e8_mind_server_M24.py
-    ```
+  ```powershell
+  .venv\Scripts\activate
+  python e8_mind_server_M24.py
+  ```
 
 ## Directory Structure
 
-```
+```text
 kaleidoscope/
 ├── e8_mind_server_M24.py      # Main server
 ├── ehs.py                     # Event scheduler
@@ -269,16 +334,16 @@ kaleidoscope/
 
 ## Environment Variables (Optional)
 
-  * `E8_LLM_PROVIDER`: openai, ollama, google (default: openai)
-  * `E8_LLM_MODEL`: Model name (default: gpt-4)
-  * `E8_WEB_PORT`: Web interface port (default: 8080)
-  * `OPENAI_API_KEY`: Your OpenAI API key
+- `E8_LLM_PROVIDER`: openai, ollama, google (default: openai)
+- `E8_LLM_MODEL`: Model name (default: gpt-4)
+- `E8_WEB_PORT`: Web interface port (default: 8080)
+- `OPENAI_API_KEY`: Your OpenAI API key
 
 ## Notes
 
-  * Runtime and data directories are created automatically
-  * Profiles system has fallbacks if missing components
-  * All heavy dependencies have built-in fallback implementations
+- Runtime and data directories are created automatically
+- Profiles system has fallbacks if missing components
+- All heavy dependencies have built-in fallback implementations
 
 -----
 
