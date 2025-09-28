@@ -228,8 +228,6 @@ Known Windows tips:
 - Set env vars as `$env:NAME='value'` in PowerShell (no leading `=`).
 - If a port is in use, pick another `--port` or wait for linger to release the socket.
 
-
-
 ### Modular Physics (E8/Horizon/Quantum)
 
 The physics has been refactored into modular packages under `e8_mind/physics/`:

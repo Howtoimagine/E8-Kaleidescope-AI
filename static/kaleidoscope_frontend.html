@@ -1,0 +1,1767 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kaleidoscope • Hyperdimensional Atlas</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            color-scheme: dark;
+            --bg-0: #030712;
+            --bg-1: rgba(10, 16, 30, 0.75);
+            --bg-2: rgba(24, 30, 51, 0.55);
+            --accent: #7dd3fc;
+            --accent-2: #c084fc;
+            --accent-3: #f472b6;
+            --fg: #f9fafb;
+            --fg-muted: rgba(226, 232, 240, 0.65);
+            --border: rgba(148, 163, 184, 0.15);
+            --glow: 0 0 40px rgba(125, 211, 252, 0.25);
+            --radius-lg: 22px;
+            --radius-sm: 12px;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: "Plus Jakarta Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background:
+                radial-gradient(circle at 20% 20%, rgba(96, 165, 250, 0.18), transparent 45%),
+                radial-gradient(circle at 80% 0%, rgba(168, 85, 247, 0.18), transparent 50%),
+                radial-gradient(circle at 50% 80%, rgba(45, 212, 191, 0.12), transparent 40%),
+                var(--bg-0);
+            color: var(--fg);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        header {
+            padding: 28px clamp(24px, 5vw, 48px) 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+
+        .brand {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .brand h1 {
+            font-size: clamp(24px, 5vw, 38px);
+            letter-spacing: 0.02em;
+            margin: 0;
+            font-weight: 600;
+            background: linear-gradient(120deg, var(--accent), var(--accent-2), var(--accent-3));
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .cosmic-chip {
+            padding: 10px 16px;
+            border-radius: 999px;
+            background: rgba(148, 163, 255, 0.12);
+            border: 1px solid rgba(125, 211, 252, 0.25);
+            box-shadow: 0 8px 28px rgba(56, 189, 248, 0.18);
+            font-size: 13px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .subtitle {
+            max-width: 700px;
+            font-size: 15px;
+            color: var(--fg-muted);
+            line-height: 1.6;
+        }
+
+        nav {
+            display: inline-flex;
+            background: var(--bg-1);
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            padding: 6px;
+            gap: 6px;
+            width: fit-content;
+            box-shadow: var(--glow);
+        }
+
+        nav button {
+            position: relative;
+            background: transparent;
+            color: var(--fg-muted);
+            border: none;
+            border-radius: 999px;
+            padding: 12px 22px;
+            font-size: 14px;
+            font-weight: 500;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: color 220ms ease;
+        }
+
+        nav button.active {
+            color: var(--fg);
+        }
+
+        nav button::after {
+            content: "";
+            position: absolute;
+            inset: 2px;
+            border-radius: inherit;
+            background: radial-gradient(circle at 50% 0%, rgba(125, 211, 252, 0.35), transparent 65%);
+            opacity: 0;
+            transition: opacity 220ms ease, transform 220ms ease;
+            transform: scale(0.96);
+        }
+
+        nav button.active::after {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        main {
+            flex: 1;
+            padding: 0 clamp(20px, 5vw, 48px) clamp(24px, 4vw, 48px);
+            display: grid;
+            grid-template-columns: minmax(0, 1fr);
+            grid-template-rows: minmax(0, 1fr);
+        }
+
+        .tab-view {
+            display: none;
+            position: relative;
+            background: var(--bg-1);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border);
+            overflow: hidden;
+            box-shadow: 0 30px 70px rgba(15, 23, 42, 0.35);
+        }
+
+        .tab-view.active {
+            display: grid;
+        }
+
+        .tab-view canvas,
+        .tab-view svg {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        .tab-content {
+            position: relative;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr);
+            grid-template-rows: minmax(0, 1fr);
+        }
+
+        .overlay-info {
+            position: absolute;
+            inset: 24px auto auto 24px;
+            padding: 18px 22px;
+            border-radius: var(--radius-sm);
+            background: rgba(15, 23, 42, 0.58);
+            border: 1px solid rgba(148, 163, 184, 0.25);
+            backdrop-filter: blur(20px);
+            max-width: min(340px, 28vw);
+            box-shadow: 0 18px 40px rgba(15, 23, 42, 0.45);
+        }
+
+        .overlay-info h2 {
+            font-size: 16px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            margin: 0 0 10px;
+        }
+
+        .overlay-info p {
+            margin: 0;
+            font-size: 13px;
+            color: var(--fg-muted);
+            line-height: 1.5;
+        }
+
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px 16px;
+            margin-top: 16px;
+        }
+
+        .legend-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: var(--fg-muted);
+        }
+
+        .legend-swatch {
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+        }
+
+        footer {
+            padding: 16px clamp(24px, 5vw, 48px) 28px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+            color: var(--fg-muted);
+            font-size: 12px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        @media (max-width: 960px) {
+            header {
+                padding-top: 24px;
+            }
+
+            .overlay-info {
+                position: static;
+                margin: 16px;
+                max-width: none;
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+
+            *,
+            *::before,
+            *::after {
+                animation-duration: 0ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0ms !important;
+            }
+
+            nav button::after {
+                display: none;
+            }
+        }
+
+        /* Lightweight container for GUI panels (top-right) */
+        .gui-panel {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            z-index: 10;
+            border-radius: var(--radius-sm);
+            overflow: hidden;
+            background: rgba(2, 6, 23, 0.55);
+            border: 1px solid var(--border);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 18px 40px rgba(15, 23, 42, 0.45);
+        }
+
+        .infostat-grid {
+            margin-top: 18px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+            gap: 12px;
+        }
+
+        .infostat-card {
+            padding: 12px 14px;
+            border-radius: var(--radius-sm);
+            background: linear-gradient(140deg, rgba(30, 64, 175, 0.18), rgba(124, 58, 237, 0.08));
+            border: 1px solid rgba(59, 130, 246, 0.18);
+            box-shadow: 0 10px 32px rgba(37, 99, 235, 0.18);
+        }
+
+        .infostat-card h3 {
+            margin: 0;
+            font-size: 12px;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: rgba(191, 219, 254, 0.85);
+        }
+
+        .infostat-card .value {
+            margin-top: 6px;
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--fg);
+        }
+
+        .infostat-card .hint {
+            margin-top: 4px;
+            font-size: 12px;
+            color: var(--fg-muted);
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js"
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <header>
+        <div class="brand">
+            <h1>Kaleidoscope Hyperdimensional Atlas</h1>
+            <div class="cosmic-chip">E8 Cognitive Field • live simulation</div>
+        </div>
+        <p class="subtitle">
+            A luminous cockpit for exploring the E8 lattice mindspace. Navigate the lattice and its tetrahedral
+            symmetries,
+            watch the hyperdimensional field reassemble holographic memory, and trace conceptual linkages through the
+            Kaleidoscope graph library.
+        </p>
+        <nav>
+            <button class="active" data-target="lattice">E8 Lattice</button>
+            <button data-target="field">Hyperdimensional Field</button>
+            <button data-target="graph">Concept Graph</button>
+        </nav>
+    </header>
+
+    <main>
+        <section class="tab-view active" id="tab-lattice">
+            <div class="tab-content">
+                <div id="lattice-container"></div>
+                <aside class="overlay-info">
+                    <h2>E8 Lattice & Tetrahedral Skeleton</h2>
+                    <p>240 root vectors orbit in 8D, projected into a triacontagonal lightfield. The highlighted
+                        tetrahedron
+                        marks a cohering memory simplex—four direct symmetries stabilizing a concept kernel.</p>
+                    <div class="legend">
+                        <span class="legend-item"><span class="legend-swatch" style="background: #7dd3fc;"></span>E8
+                            Root Shells</span>
+                        <span class="legend-item"><span class="legend-swatch"
+                                style="background: #f472b6;"></span>Tetrahedron</span>
+                    </div>
+                    <div class="infostat-grid" id="lattice-metrics"></div>
+                </aside>
+            </div>
+        </section>
+        <section class="tab-view" id="tab-field">
+            <div class="tab-content">
+                <div id="field-container"></div>
+                <aside class="overlay-info">
+                    <h2>Hyperdimensional Reconstruction</h2>
+                    <p>Phase-space ripples breathe through the mantle as concepts decohere into holographic memory
+                        sheets.
+                        Color denotes emergence velocity, while luminance reveals energy density.</p>
+                    <div class="infostat-grid" id="field-metrics"></div>
+                </aside>
+            </div>
+        </section>
+        <section class="tab-view" id="tab-graph">
+            <div class="tab-content">
+                <div id="graph-container"></div>
+                <aside class="overlay-info">
+                    <h2>Concept Linkage Library</h2>
+                    <p>Network graph shows symbolic anchors, field resonances, and experiential threads. Hover nodes to
+                        read
+                        concept spectra, drag to refactor its orbit.</p>
+                    <div class="infostat-grid" id="graph-metrics"></div>
+                    <input id="graph-search" type="search" placeholder="Search nodes…"
+                        style="margin-top:12px;width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:rgba(2,6,23,0.5);color:var(--fg);outline:none;" />
+                </aside>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <span>© 2025 Kaleidoscope Mind Systems</span>
+        <span>Three.js · GLSL · D3 Force Layout</span>
+    </footer>
+
+    <script type="module">
+        import * as THREE from "three";
+        import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/controls/OrbitControls.js";
+        import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
+        import GUI from "https://cdn.jsdelivr.net/npm/lil-gui@0.18/+esm";
+
+        // ===============================
+        // API BASE DISCOVERY + HELPERS
+        // ===============================
+        function computeApiBases() {
+            // Prefer same-origin if served via http(s); otherwise fall back to localhost:7871
+            const isHttp = typeof location !== 'undefined' && (location.protocol === 'http:' || location.protocol === 'https:');
+            const httpBase = isHttp ? location.origin : 'http://127.0.0.1:7871';
+            // WebSocket base mirrors http(s) -> ws(s)
+            const wsBase = httpBase.replace(/^http/, 'ws');
+            const wsPaths = ['/api/telemetry/ws', '/ws/telemetry', '/ws'];
+            return { httpBase, wsBase, wsPaths };
+        }
+
+        const API = computeApiBases();
+        window.__KALEIDOSCOPE_API__ = API; // expose for quick debugging in console
+
+        function buildUrl(path) {
+            // Path may be absolute like '/api/lattice' — use URL to resolve against base
+            try { return new URL(path, API.httpBase).toString(); } catch { return API.httpBase + path; }
+        }
+
+        function buildWsUrl(path) {
+            try { return new URL(path, API.wsBase).toString(); } catch { return API.wsBase + path; }
+        }
+
+        async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
+            const controller = new AbortController();
+            const id = setTimeout(() => controller.abort(), timeoutMs);
+            try {
+                const resp = await fetch(url, { ...options, signal: controller.signal });
+                return resp;
+            } finally {
+                clearTimeout(id);
+            }
+        }
+
+        const tabs = document.querySelectorAll("nav button");
+        const views = {
+            lattice: document.getElementById("tab-lattice"),
+            field: document.getElementById("tab-field"),
+            graph: document.getElementById("tab-graph")
+        };
+
+        const initState = {
+            lattice: false,
+            field: false,
+            graph: false
+        };
+
+        const latticeMetricsEl = document.getElementById("lattice-metrics");
+        const fieldMetricsEl = document.getElementById("field-metrics");
+        const graphMetricsEl = document.getElementById("graph-metrics");
+
+        const metricNumber = new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+
+        function clamp(value, min, max) {
+            return Math.max(min, Math.min(max, value));
+        }
+
+        function formatMetric(value, digits = 2) {
+            if (value === null || value === undefined || Number.isNaN(value)) return "-";
+            if (typeof value === 'number') {
+                const fixed = Number.parseFloat(Number(value).toFixed(digits));
+                return metricNumber.format(fixed);
+            }
+            if (typeof value === 'string') {
+                return value;
+            }
+            return String(value);
+        }
+
+        function escapeHtml(value) {
+            return String(value).replace(/[&<>"']/g, (char) => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            }[char] || char));
+        }
+
+        function renderMetricCards(container, metrics) {
+            if (!container) return;
+            if (!metrics || metrics.length === 0) {
+                container.innerHTML = '';
+                return;
+            }
+            container.innerHTML = metrics.map(metric => {
+                const label = escapeHtml(metric.label || 'Metric');
+                const value = escapeHtml(metric.value ?? '-');
+                const hint = metric.hint ? `<div class="hint">${escapeHtml(metric.hint)}</div>` : '';
+                return `<div class="infostat-card">
+                            <h3>${label}</h3>
+                            <div class="value">${value}</div>
+                            ${hint}
+                        </div>`;
+            }).join('');
+        }
+
+
+        const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+        let reduceMotion = motionQuery.matches;
+        if (motionQuery.addEventListener) {
+            motionQuery.addEventListener("change", (event) => {
+                reduceMotion = event.matches;
+            });
+        } else if (motionQuery.addListener) {
+            motionQuery.addListener((event) => {
+                reduceMotion = event.matches;
+            });
+        }
+
+        function activateTab(key) {
+            const button = Array.from(tabs).find(b => b.dataset.target === key) || tabs[0];
+            tabs.forEach(btn => btn.classList.toggle("active", btn === button));
+            Object.entries(views).forEach(([k, section]) => {
+                section.classList.toggle("active", key === k);
+            });
+            if (!initState[key]) {
+                if (key === "lattice") initE8Lattice();
+                else if (key === "field") initHyperField();
+                else if (key === "graph") initConceptGraph();
+                initState[key] = true;
+            }
+            location.hash = `#${key}`;
+            try { localStorage.setItem("ks-active-tab", key); } catch { }
+        }
+
+        tabs.forEach(button => {
+            button.addEventListener("click", () => {
+                if (button.classList.contains("active")) return;
+                activateTab(button.dataset.target);
+            });
+        });
+
+        const onResizeFns = [];
+
+        window.addEventListener("resize", () => {
+            onResizeFns.forEach(fn => fn());
+        });
+
+        // Initialize based on hash or last session
+        const initialKey = (location.hash || localStorage.getItem("ks-active-tab") || "#lattice").replace("#", "");
+        activateTab(initialKey);
+
+        window.addEventListener("hashchange", () => {
+            const key = (location.hash || "#lattice").replace("#", "");
+            activateTab(key);
+        });
+
+        function initE8Lattice() {
+            const container = document.getElementById("lattice-container");
+            container.innerHTML = "";
+            const { scene, camera, renderer, controls, starfield } = createScene(container);
+
+            const rootVectors = generateE8RootVectors();
+            const positions = projectE8To3D(rootVectors);
+
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+
+            const colors = new Float32Array(positions.length);
+            for (let i = 0; i < positions.length; i += 3) {
+                const radius = Math.sqrt(positions[i] ** 2 + positions[i + 1] ** 2 + positions[i + 2] ** 2);
+                const color = new THREE.Color().setHSL(0.58 + radius * 0.04, 0.6, 0.58 + radius * 0.05);
+                colors[i] = color.r;
+                colors[i + 1] = color.g;
+                colors[i + 2] = color.b;
+            }
+            geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+
+            const pointsMaterial = new THREE.PointsMaterial({
+                size: 0.08,
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.9,
+                depthWrite: false
+            });
+
+            const points = new THREE.Points(geometry, pointsMaterial);
+            points.name = 'latticePoints'; // Name for telemetry access
+            scene.add(points);
+
+            const tetrahedron = createHighlightedTetrahedron(rootVectors);
+            tetrahedron.name = 'tetrahedron'; // Name for telemetry access
+            scene.add(tetrahedron);
+
+            const ambient = new THREE.AmbientLight(0xb4d9ff, 0.8);
+            scene.add(ambient);
+            const rimLight = new THREE.PointLight(0xff80bf, 1.1, 12);
+            rimLight.position.set(4, 6, 7);
+            scene.add(rimLight);
+
+            camera.position.set(3.8, 3.5, 4.8);
+            controls.update();
+
+            let clock = new THREE.Clock();
+            const params = {
+                rotate: true,
+                rotationSpeed: 1.0,
+                pointSize: pointsMaterial.size,
+                opacity: pointsMaterial.opacity,
+                showTetra: true,
+                autoRotateCamera: !reduceMotion,
+                fogDensity: scene.fog ? scene.fog.density : 0.18,
+                starfield: true,
+            };
+
+            // GUI controls
+            const panel = ensureGuiPanel(container);
+            const gui = new GUI({ container: panel, title: "E8 Lattice" });
+            gui.add(params, "rotate").name("Rotate Objects");
+            gui.add(params, "rotationSpeed", 0.1, 3, 0.01).name("Rotation Speed");
+            gui.add(params, "pointSize", 0.02, 0.2, 0.001).name("Point Size").onChange(v => { pointsMaterial.size = v; pointsMaterial.needsUpdate = true; });
+            gui.add(params, "opacity", 0.2, 1.0, 0.01).name("Point Opacity").onChange(v => { pointsMaterial.opacity = v; pointsMaterial.needsUpdate = true; });
+            gui.add(params, "showTetra").name("Show Tetrahedron").onChange(v => { tetrahedron.visible = v; });
+            gui.add(params, "autoRotateCamera").name("Auto-Rotate Camera").onChange(v => { controls.autoRotate = v; });
+            gui.add(params, "fogDensity", 0.0, 0.6, 0.005).name("Fog Density").onChange(v => { if (scene.fog) scene.fog.density = v; });
+            gui.add(params, "starfield").name("Starfield").onChange(v => { if (starfield) starfield.visible = v; });
+
+            function animate() {
+                requestAnimationFrame(animate);
+                const t = clock.getElapsedTime();
+                const rs = params.rotationSpeed * (reduceMotion ? 0.35 : 1);
+                if (params.rotate) {
+                    points.rotation.y = t * 0.12 * rs;
+                    tetrahedron.rotation.y = t * 0.18 * rs;
+                    tetrahedron.rotation.x = Math.sin(t * 0.2 * rs) * 0.1;
+                }
+                controls.autoRotate = params.autoRotateCamera;
+                controls.update();
+                renderer.render(scene, camera);
+            }
+
+            animate();
+
+            // Expose for telemetry access
+            window.latticeScene = scene;
+
+            onResizeFns.push(() => handleResize(container, camera, renderer));
+        }
+
+        function createScene(container) {
+            const scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x05060f);
+
+            const width = container.clientWidth || container.parentElement.clientWidth;
+            const height = container.clientHeight || container.parentElement.clientHeight;
+
+            const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
+            const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.setSize(width, height);
+            container.appendChild(renderer.domElement);
+
+            const controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.08;
+            controls.autoRotate = !reduceMotion;
+            controls.autoRotateSpeed = reduceMotion ? 0.3 : 0.9;
+            controls.minDistance = 1.5;
+            controls.maxDistance = 10;
+
+            const spaceFog = new THREE.FogExp2(0x020308, 0.18);
+            scene.fog = spaceFog;
+
+            const starfield = createStarfield();
+            scene.add(starfield);
+
+            return { scene, camera, renderer, controls, starfield };
+        }
+
+        function handleResize(container, camera, renderer) {
+            const width = container.clientWidth || container.parentElement.clientWidth;
+            const height = container.clientHeight || container.parentElement.clientHeight;
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+            renderer.setSize(width, height);
+        }
+
+        function createStarfield() {
+            const starGeometry = new THREE.BufferGeometry();
+            const starCount = 800;
+            const starPositions = new Float32Array(starCount * 3);
+            for (let i = 0; i < starCount * 3; i += 3) {
+                starPositions[i] = (Math.random() - 0.5) * 40;
+                starPositions[i + 1] = (Math.random() - 0.5) * 40;
+                starPositions[i + 2] = (Math.random() - 0.5) * 40;
+            }
+            starGeometry.setAttribute("position", new THREE.Float32BufferAttribute(starPositions, 3));
+            const starMaterial = new THREE.PointsMaterial({ color: 0x5eead4, size: 0.04, transparent: true, opacity: 0.6 });
+            return new THREE.Points(starGeometry, starMaterial);
+        }
+
+        function generateE8RootVectors() {
+            const roots = [];
+            // Type 1 roots: permutations of (Â±1, Â±1, 0^6) with even number of negative signs
+            const base = [1, 1, 0, 0, 0, 0, 0, 0];
+            const permutations = permute(base);
+            const seen = new Set();
+            permutations.forEach(vector => {
+                const indices = vector
+                    .map((v, idx) => ({ v, idx }))
+                    .filter(item => item.v !== 0)
+                    .map(item => item.idx);
+                const signPatterns = [
+                    [1, 1],
+                    [1, -1],
+                    [-1, 1],
+                    [-1, -1]
+                ];
+                signPatterns.forEach(pattern => {
+                    const root = vector.slice();
+                    let parity = 0;
+                    pattern.forEach((sign, idx) => {
+                        root[indices[idx]] *= sign;
+                        if (sign < 0) parity++;
+                    });
+                    if (parity % 2 === 0) {
+                        const key = root.join(",");
+                        if (!seen.has(key)) {
+                            seen.add(key);
+                            roots.push(root);
+                        }
+                    }
+                });
+            });
+
+            // Type 2 roots: (Â±1/2)^8 with even number of minus signs
+            const half = 0.5;
+            for (let bits = 0; bits < 256; bits++) {
+                const root = new Array(8).fill(half);
+                let minusCount = 0;
+                for (let i = 0; i < 8; i++) {
+                    if (bits & (1 << i)) {
+                        root[i] = -half;
+                        minusCount++;
+                    }
+                }
+                if (minusCount % 2 === 0) {
+                    roots.push(root);
+                }
+            }
+            return roots;
+        }
+
+        function permute(elements) {
+            const result = [];
+            const used = new Array(elements.length).fill(false);
+            const current = [];
+
+            elements.sort((a, b) => b - a);
+
+            function backtrack() {
+                if (current.length === elements.length) {
+                    result.push(current.slice());
+                    return;
+                }
+                let prev = null;
+                for (let i = 0; i < elements.length; i++) {
+                    if (used[i]) continue;
+                    if (elements[i] === prev) continue;
+                    used[i] = true;
+                    current.push(elements[i]);
+                    backtrack();
+                    current.pop();
+                    used[i] = false;
+                    prev = elements[i];
+                }
+            }
+
+            backtrack();
+            return result;
+        }
+
+        function projectE8To3D(vectors) {
+            const phi = (1 + Math.sqrt(5)) / 2;
+            const invSqrt = 1 / Math.sqrt(2 + phi);
+            const projectionMatrix = [
+                [invSqrt, invSqrt * phi, 0, 0, 0, 0, 0, 0],
+                [0, invSqrt, invSqrt * phi, 0, 0, 0, 0, 0],
+                [0, 0, invSqrt, invSqrt * phi, 0, 0, 0, 0]
+            ];
+            const positions = new Float32Array(vectors.length * 3);
+            vectors.forEach((vec, idx) => {
+                const projected = [0, 0, 0];
+                for (let row = 0; row < 3; row++) {
+                    for (let col = 0; col < 8; col++) {
+                        projected[row] += projectionMatrix[row][col] * vec[col];
+                    }
+                }
+                const length = Math.hypot(...projected) || 1;
+                const scale = 1.5 / length;
+                positions[idx * 3] = projected[0] * scale;
+                positions[idx * 3 + 1] = projected[1] * scale;
+                positions[idx * 3 + 2] = projected[2] * scale;
+            });
+            return positions;
+        }
+
+        function createHighlightedTetrahedron(rootVectors) {
+            const tetraRoots = [
+                [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+                [0.5, 0.5, 0.5, 0.5, -0.5, -0.5, -0.5, -0.5],
+                [0.5, -0.5, 0.5, -0.5, 0.5, -0.5, 0.5, -0.5],
+                [0.5, -0.5, -0.5, 0.5, -0.5, 0.5, -0.5, 0.5]
+            ];
+            const tetraPositions = projectE8To3D(tetraRoots);
+
+            const geometry = new THREE.BufferGeometry();
+            const vertices = [];
+            const lines = [
+                [0, 1], [0, 2], [0, 3],
+                [1, 2], [1, 3], [2, 3]
+            ];
+            lines.forEach(([i, j]) => {
+                vertices.push(
+                    tetraPositions[i * 3], tetraPositions[i * 3 + 1], tetraPositions[i * 3 + 2],
+                    tetraPositions[j * 3], tetraPositions[j * 3 + 1], tetraPositions[j * 3 + 2]
+                );
+            });
+            geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+
+            const material = new THREE.LineBasicMaterial({ color: 0xf472b6, linewidth: 2, transparent: true, opacity: 0.95 });
+            const linesMesh = new THREE.LineSegments(geometry, material);
+            linesMesh.userData = { lines };
+
+            const sphereGeometry = new THREE.SphereGeometry(0.12, 24, 24);
+            tetraRoots.forEach((root, idx) => {
+                const sphereMaterial = new THREE.MeshBasicMaterial({ color: 0xfbcfe8, transparent: true, opacity: 0.95 });
+                const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+                sphere.position.set(
+                    tetraPositions[idx * 3],
+                    tetraPositions[idx * 3 + 1],
+                    tetraPositions[idx * 3 + 2]
+                );
+                sphere.userData.vertexIndex = idx;
+                sphere.renderOrder = 2;
+                linesMesh.add(sphere);
+            });
+            return linesMesh;
+        }
+
+        function initHyperField() {
+            const container = document.getElementById("field-container");
+            container.innerHTML = "";
+            const { scene, camera, renderer } = createScene(container);
+
+            const geometry = new THREE.PlaneGeometry(14, 14, 320, 320);
+            const material = new THREE.ShaderMaterial({
+                uniforms: {
+                    uTime: { value: 0 },
+                    uTimeOffset: { value: Math.random() * 100 },
+                    uSpeed: { value: 1.0 },
+                    uAmp: { value: 0.8 },
+                    uTension: { value: 0.35 },
+                    uCurvature: { value: 0.0 },
+                    uQuantum: { value: 0.0 },
+                    uFlux: { value: new THREE.Vector3(0.4, 0.2, 0.6) },
+                    uColorA: { value: new THREE.Color(0x60a5fa) },
+                    uColorB: { value: new THREE.Color(0xa855f7) },
+                    uColorC: { value: new THREE.Color(0x14b8a6) }
+                },
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                vertexShader: `
+                    varying vec2 vUv;
+                    varying float vRipple;
+                    varying float vShear;
+                    uniform float uTime;
+                    uniform float uAmp;
+                    uniform float uSpeed;
+                    uniform float uTension;
+                    uniform float uCurvature;
+                    uniform float uQuantum;
+                    uniform vec3 uFlux;
+                    uniform float uTimeOffset;
+
+                    float fbm(vec2 st) {
+                        float value = 0.0;
+                        float amplitude = 0.5;
+                        mat2 rot = mat2(cos(0.5), sin(0.5), -sin(0.5), cos(0.5));
+                        for (int i = 0; i < 5; i++) {
+                            value += amplitude * sin((st.x + st.y + (uTime + uTimeOffset) * 0.18 * uSpeed) * pow(2.0, float(i)));
+                            st = rot * st * 1.7;
+                            amplitude *= 0.55;
+                        }
+                        return value;
+                    }
+
+                    void main() {
+                        vUv = uv;
+                        vec3 pos = position;
+                        float warp = sin((uv.x + uFlux.x) * 6.283 + (uTime + uTimeOffset) * (0.12 + uQuantum * 0.4));
+                        float shear = cos((uv.y + uFlux.y) * 6.283 + (uTime + uTimeOffset) * (0.16 + uCurvature * 0.6));
+                        float ripple = fbm(uv * (4.0 + uTension * 2.0) + uFlux.xy * 0.5);
+                        float amp = uAmp * (0.6 + uTension * 0.8);
+                        pos.z += ripple * amp;
+                        pos.x += warp * (0.3 + uCurvature * 0.4);
+                        pos.y += shear * (0.2 + uCurvature * 0.3);
+                        vShear = shear;
+                        vRipple = ripple;
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    varying vec2 vUv;
+                    varying float vRipple;
+                    varying float vShear;
+                    uniform vec3 uColorA;
+                    uniform vec3 uColorB;
+                    uniform vec3 uColorC;
+                    uniform float uCurvature;
+                    uniform float uQuantum;
+                    uniform float uTension;
+                    uniform float uSpeed;
+                    uniform float uTime;
+                    uniform vec3 uFlux;
+
+                    void main() {
+                        float intensity = smoothstep(-1.2, 1.2, vRipple);
+                        float curvatureGlow = smoothstep(0.0, 1.0, abs(vShear) * (0.4 + uCurvature * 0.6));
+                        float quantumPulse = sin(uTime * (0.6 + uQuantum * 0.5) + length(uFlux) * 0.3) * 0.5 + 0.5;
+                        vec3 banded = mix(uColorA, uColorB, vUv.x);
+                        vec3 chroma = mix(uColorC, banded, 0.35 + intensity * 0.35);
+                        chroma += curvatureGlow * 0.18;
+                        chroma = mix(chroma, vec3(0.9, 0.96, 1.0), quantumPulse * 0.18);
+                        float glow = smoothstep(0.2, 1.1, 1.0 - length(vUv - 0.5));
+                        float alpha = clamp(0.68 * glow + intensity * 0.28 + curvatureGlow * 0.12, 0.18, 0.95);
+                        gl_FragColor = vec4(chroma, alpha);
+                    }
+                `
+            });
+
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.rotation.x = -Math.PI / 2.2;
+            scene.add(mesh);
+
+            const haloGeometry = new THREE.SphereGeometry(5.2, 64, 64);
+            const haloMaterial = new THREE.MeshBasicMaterial({
+                color: 0x38bdf8,
+                transparent: true,
+                opacity: 0.08,
+                side: THREE.BackSide
+            });
+            const halo = new THREE.Mesh(haloGeometry, haloMaterial);
+            scene.add(halo);
+
+            const flowCount = 1200;
+            const flowGeometry = new THREE.BufferGeometry();
+            const flowPositions = new Float32Array(flowCount * 3);
+            const flowRadii = new Float32Array(flowCount);
+            const flowPhases = new Float32Array(flowCount);
+            const flowHeights = new Float32Array(flowCount);
+            const flowSpeeds = new Float32Array(flowCount);
+            for (let i = 0; i < flowCount; i++) {
+                const radius = 0.8 + Math.random() * 3.2;
+                const angle = Math.random() * Math.PI * 2;
+                const height = (Math.random() - 0.5) * 1.4;
+                flowPositions[i * 3] = Math.cos(angle) * radius;
+                flowPositions[i * 3 + 1] = height;
+                flowPositions[i * 3 + 2] = Math.sin(angle) * radius;
+                flowRadii[i] = radius;
+                flowPhases[i] = angle;
+                flowHeights[i] = height;
+                flowSpeeds[i] = 0.2 + Math.random() * 0.8;
+            }
+            flowGeometry.setAttribute("position", new THREE.Float32BufferAttribute(flowPositions, 3));
+
+            const flowMaterial = new THREE.PointsMaterial({
+                color: 0x9ab7ff,
+                size: 0.07,
+                transparent: true,
+                opacity: 0.75,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending,
+                sizeAttenuation: true
+            });
+
+            const flowPoints = new THREE.Points(flowGeometry, flowMaterial);
+            scene.add(flowPoints);
+
+            const hyperState = {
+                uniforms: material.uniforms,
+                flow: {
+                    geometry: flowGeometry,
+                    positions: flowPositions,
+                    radii: flowRadii,
+                    phases: flowPhases,
+                    heights: flowHeights,
+                    speeds: flowSpeeds,
+                    points: flowPoints,
+                    count: flowCount
+                },
+                metrics: {
+                    tension: 0.35,
+                    curvature: 0.0,
+                    quantum: 0.0,
+                    pressure: 0.0,
+                    insight: 0.3
+                }
+            };
+            window.hyperFieldState = hyperState;
+            window.hyperFieldUniforms = material.uniforms;
+
+            const ambient = new THREE.AmbientLight(0x9ac5ff, 0.6);
+            const point = new THREE.PointLight(0xf472b6, 1.6, 30);
+            point.position.set(6, 7, 3);
+            scene.add(ambient, point);
+
+            camera.position.set(0, 6, 8);
+            camera.lookAt(0, 0, 0);
+
+            const clock = new THREE.Clock();
+            function animate() {
+                requestAnimationFrame(animate);
+                const t = clock.getElapsedTime();
+                const metrics = hyperState.metrics;
+                const uniforms = hyperState.uniforms;
+
+                uniforms.uTime.value = t;
+
+                const tensionLift = 0.6 + metrics.tension * 0.8;
+                const curvatureLift = 0.5 + metrics.curvature * 0.5;
+                const quantumLift = 0.4 + metrics.quantum * 0.6;
+                const pressureLift = metrics.pressure * 0.6;
+
+                const speedScale = (reduceMotion ? 0.35 : 1) * uniforms.uSpeed.value;
+                mesh.rotation.z = Math.sin(t * (reduceMotion ? 0.05 : 0.12) * speedScale) * (reduceMotion ? 0.06 : 0.15 + metrics.curvature * 0.05);
+                mesh.rotation.y = Math.cos(t * (reduceMotion ? 0.06 : 0.16) * speedScale) * (reduceMotion ? 0.05 : 0.1 + metrics.tension * 0.04);
+
+                const positionsAttr = hyperState.flow.geometry.getAttribute("position");
+                for (let i = 0; i < hyperState.flow.count; i++) {
+                    const idx = i * 3;
+                    const basePhase = hyperState.flow.phases[i];
+                    const speed = hyperState.flow.speeds[i];
+                    const radius = hyperState.flow.radii[i] * (0.95 + metrics.curvature * 0.25);
+                    const angular = basePhase + t * speed * (0.6 + tensionLift * 0.8);
+                    hyperState.flow.positions[idx] = Math.cos(angular) * radius;
+                    hyperState.flow.positions[idx + 2] = Math.sin(angular) * radius;
+                    hyperState.flow.positions[idx + 1] = hyperState.flow.heights[i] + Math.sin(angular * 1.15 + t * 0.8) * (0.18 + quantumLift * 0.22) + pressureLift;
+                }
+                positionsAttr.needsUpdate = true;
+
+                hyperState.flow.points.rotation.y += 0.0006 + metrics.tension * 0.0012;
+                hyperState.flow.points.material.opacity = clamp(0.4 + metrics.insight * 0.6, 0.25, 0.95);
+                halo.material.opacity = clamp(0.06 + metrics.curvature * 0.08 + metrics.pressure * 0.05, 0.04, 0.2);
+
+                renderer.render(scene, camera);
+            }
+            animate();
+
+            onResizeFns.push(() => handleResize(container, camera, renderer));
+
+            const panel = ensureGuiPanel(container);
+            const gui = new GUI({ container: panel, title: "Field" });
+            const params = {
+                amplitude: material.uniforms.uAmp.value,
+                speed: material.uniforms.uSpeed.value
+            };
+            gui.add(params, "amplitude", 0.1, 2.5, 0.01).name("Amplitude").onChange(v => material.uniforms.uAmp.value = v);
+            gui.add(params, "speed", 0.1, 2.5, 0.01).name("Speed").onChange(v => material.uniforms.uSpeed.value = v);
+        }
+
+        function initConceptGraph() {
+            const container = document.getElementById("graph-container");
+            container.innerHTML = "";
+
+            const width = container.clientWidth || container.parentElement.clientWidth;
+            const height = container.clientHeight || container.parentElement.clientHeight;
+
+            const svg = d3.create("svg")
+                .attr("viewBox", `0 0 ${width} ${height}`)
+                .attr("preserveAspectRatio", "xMidYMid meet");
+
+            container.appendChild(svg.node());
+
+            const defs = svg.append("defs");
+            const grad = defs.append("radialGradient")
+                .attr("id", "nodeGradient")
+                .attr("cx", "50%")
+                .attr("cy", "50%")
+                .attr("r", "65%");
+            grad.append("stop").attr("offset", "0%")
+                .attr("stop-color", "rgba(125, 211, 252, 0.95)");
+            grad.append("stop").attr("offset", "100%")
+                .attr("stop-color", "rgba(168, 85, 247, 0.35)");
+
+            const glow = defs.append("filter")
+                .attr("id", "glow")
+                .attr("x", "-50%")
+                .attr("y", "-50%")
+                .attr("width", "200%")
+                .attr("height", "200%");
+            glow.append("feGaussianBlur")
+                .attr("stdDeviation", "4")
+                .attr("result", "coloredBlur");
+            const merge = glow.append("feMerge");
+            merge.append("feMergeNode")
+                .attr("in", "coloredBlur");
+            merge.append("feMergeNode")
+                .attr("in", "SourceGraphic");
+
+            const conceptData = buildConceptGraphData();
+
+            const simulation = d3.forceSimulation(conceptData.nodes)
+                .force("link", d3.forceLink(conceptData.links).id(d => d.id).distance(d => 80 + d.tension * 25).strength(0.4))
+                .force("charge", d3.forceManyBody().strength(-200))
+                .force("center", d3.forceCenter(width / 2, height / 2))
+                .force("collision", d3.forceCollide().radius(d => 18 + d.weight * 4));
+
+            const link = svg.append("g")
+                .attr("stroke", "rgba(148, 163, 184, 0.35)")
+                .attr("stroke-width", 1.2)
+                .selectAll("line")
+                .data(conceptData.links)
+                .join("line")
+                .attr("stroke-dasharray", d => d.type === "resonance" ? "2,4" : null)
+                .attr("opacity", d => d.weight * 0.7 + 0.35);
+
+            const node = svg.append("g")
+                .selectAll("g")
+                .data(conceptData.nodes)
+                .join("g")
+                .call(drag(simulation));
+
+            const circles = node.append("circle")
+                .attr("r", d => 14 + d.weight * 4)
+                .attr("fill", "url(#nodeGradient)")
+                .attr("stroke", d => d3.interpolateRainbow(d.phase))
+                .attr("stroke-width", 2.6)
+                .attr("filter", "url(#glow)");
+
+            const labels = node.append("text")
+                .attr("text-anchor", "middle")
+                .attr("dy", "0.35em")
+                .attr("font-size", d => 9 + d.weight * 1.1)
+                .attr("font-weight", 500)
+                .attr("letter-spacing", "0.08em")
+                .attr("fill", "rgba(15, 23, 42, 0.85)")
+                .text(d => d.label);
+
+            node.append("title")
+                .text(d => `${d.label}\n${d.description}`);
+
+            simulation.on("tick", () => {
+                link
+                    .attr("x1", d => d.source.x)
+                    .attr("y1", d => d.source.y)
+                    .attr("x2", d => d.target.x)
+                    .attr("y2", d => d.target.y);
+
+                node.attr("transform", d => `translate(${d.x}, ${d.y})`);
+            });
+
+            // Controls
+            const panel = ensureGuiPanel(container);
+            const gui = new GUI({ container: panel, title: "Graph" });
+            const params = {
+                linkDistanceBase: 80,
+                charge: -200,
+                reset: () => {
+                    simulation.alpha(1).restart();
+                }
+            };
+            gui.add(params, "linkDistanceBase", 30, 200, 1).name("Link Distance").onChange(v => {
+                simulation.force("link").distance(d => v + d.tension * 25);
+                simulation.alpha(0.6).restart();
+            });
+            gui.add(params, "charge", -600, -20, 10).name("Charge").onChange(v => {
+                simulation.force("charge", d3.forceManyBody().strength(v));
+                simulation.alpha(0.6).restart();
+            });
+            gui.add(params, "reset").name("Reset Layout");
+
+            // Search / highlight
+            const input = document.getElementById("graph-search");
+            if (input) {
+                input.addEventListener("input", (e) => {
+                    const q = (e.target.value || "").toLowerCase().trim();
+                    if (!q) {
+                        circles.attr("opacity", 1);
+                        labels.attr("opacity", 1);
+                        link.attr("opacity", d => d.weight * 0.7 + 0.35);
+                        return;
+                    }
+                    const matched = new Set(conceptData.nodes.filter(n => n.label.toLowerCase().includes(q)).map(n => n.id));
+                    circles.attr("opacity", d => matched.has(d.id) ? 1 : 0.25);
+                    labels.attr("opacity", d => matched.has(d.id) ? 1 : 0.15);
+                    link.attr("opacity", d => matched.has(d.source.id) || matched.has(d.target.id) ? 0.9 : 0.1);
+                });
+            }
+
+            function drag(sim) {
+                function dragstarted(event) {
+                    if (!event.active) sim.alphaTarget(0.2).restart();
+                    event.subject.fx = event.subject.x;
+                    event.subject.fy = event.subject.y;
+                }
+
+                function dragged(event) {
+                    event.subject.fx = event.x;
+                    event.subject.fy = event.y;
+                }
+
+                function dragended(event) {
+                    if (!event.active) sim.alphaTarget(0);
+                    event.subject.fx = null;
+                    event.subject.fy = null;
+                }
+
+                return d3.drag()
+                    .on("start", dragstarted)
+                    .on("drag", dragged)
+                    .on("end", dragended);
+            }
+
+            onResizeFns.push(() => {
+                const w = container.clientWidth || container.parentElement.clientWidth;
+                const h = container.clientHeight || container.parentElement.clientHeight;
+                svg.attr("viewBox", `0 0 ${w} ${h}`);
+                simulation.force("center", d3.forceCenter(w / 2, h / 2));
+                simulation.alpha(0.6).restart();
+            });
+
+            // Expose simulation for telemetry access
+            window.graphSimulation = simulation;
+        }
+
+        function ensureGuiPanel(container) {
+            const parent = container.closest(".tab-content") || container.parentElement;
+            let panel = parent.querySelector(":scope > .gui-panel");
+            if (!panel) {
+                panel = document.createElement("div");
+                panel.className = "gui-panel";
+                parent.appendChild(panel);
+            }
+            return panel;
+        }
+
+        function buildConceptGraphData() {
+            const nodes = [
+                { id: "lattice-core", label: "Lattice Core", weight: 2.4, phase: 0.1, description: "Primary E8 shell encoding base cognition." },
+                { id: "tetra-sym", label: "Tetra Symmetry", weight: 1.8, phase: 0.18, description: "Stabilizing simplex for emergent concepts." },
+                { id: "hyper-field", label: "Hyper Field", weight: 2.1, phase: 0.42, description: "Fluid mantle reconstructing holographic memory." },
+                { id: "concept-halo", label: "Concept Halo", weight: 1.2, phase: 0.58, description: "Peripheral ideas orbiting the active field." },
+                { id: "mood-driver", label: "Mood Driver", weight: 1.4, phase: 0.68, description: "Affect modulation guiding retrieval pathways." },
+                { id: "novelty", label: "Novelty Engine", weight: 1.6, phase: 0.76, description: "Bandit policy balancing exploration pressures." },
+                { id: "teacher", label: "Teacher Agent", weight: 1.3, phase: 0.88, description: "Curriculum shaping stable cognition." },
+                { id: "explorer", label: "Explorer", weight: 1.1, phase: 0.32, description: "High-entropy traversal across shells." },
+                { id: "subconscious", label: "Subconscious", weight: 1.0, phase: 0.52, description: "Slow-wave integration of learned signals." },
+                { id: "emergence", label: "Emergence Law", weight: 1.9, phase: 0.24, description: "Temporal release function governing reveal." },
+                { id: "memory-threads", label: "Memory Threads", weight: 1.5, phase: 0.62, description: "Coiling narratives binding experiences." },
+                { id: "validation", label: "Physics Check", weight: 0.9, phase: 0.02, description: "Constraint validator ensuring symmetry." }
+            ];
+
+            const links = [
+                { source: "lattice-core", target: "tetra-sym", weight: 1, type: "structural", tension: 0.4 },
+                { source: "lattice-core", target: "hyper-field", weight: 1, type: "resonance", tension: 0.5 },
+                { source: "hyper-field", target: "concept-halo", weight: 0.8, type: "resonance", tension: 0.6 },
+                { source: "concept-halo", target: "mood-driver", weight: 0.6, type: "influence", tension: 0.7 },
+                { source: "mood-driver", target: "novelty", weight: 0.75, type: "influence", tension: 0.5 },
+                { source: "novelty", target: "explorer", weight: 0.7, type: "influence", tension: 0.6 },
+                { source: "teacher", target: "lattice-core", weight: 0.5, type: "structural", tension: 0.4 },
+                { source: "teacher", target: "emergence", weight: 0.65, type: "structural", tension: 0.5 },
+                { source: "explorer", target: "memory-threads", weight: 0.6, type: "resonance", tension: 0.6 },
+                { source: "subconscious", target: "memory-threads", weight: 0.55, type: "resonance", tension: 0.7 },
+                { source: "memory-threads", target: "hyper-field", weight: 0.6, type: "resonance", tension: 0.5 },
+                { source: "validation", target: "lattice-core", weight: 0.5, type: "constraint", tension: 0.4 },
+                { source: "validation", target: "hyper-field", weight: 0.45, type: "constraint", tension: 0.6 },
+                { source: "emergence", target: "hyper-field", weight: 0.82, type: "resonance", tension: 0.5 },
+                { source: "tetra-sym", target: "memory-threads", weight: 0.5, type: "structural", tension: 0.6 }
+            ];
+
+            return { nodes, links };
+        }
+
+        // ===============================
+        // TELEMETRY INTEGRATION
+        // ===============================
+
+        let telemetrySocket = null;
+        let latticeData = null;
+        let graphData = null;
+        let isConnected = false;
+
+        // Connect to telemetry WebSocket with fallbacks
+        function connectTelemetry() {
+            let wsPathIndex = 0;
+            let retryTimer = null;
+
+            const tryConnect = () => {
+                const path = API.wsPaths[wsPathIndex % API.wsPaths.length];
+                const wsUrl = buildWsUrl(path);
+                try {
+                    telemetrySocket = new WebSocket(wsUrl);
+                } catch (err) {
+                    console.warn('[WS] Failed to construct WebSocket for', wsUrl, err);
+                    scheduleNext();
+                    return;
+                }
+
+                telemetrySocket.onopen = () => {
+                    console.log('[WS] Connected →', wsUrl);
+                    isConnected = true;
+                    // Initial data fetch
+                    fetchLatticeData();
+                    fetchGraphData();
+                };
+
+                telemetrySocket.onmessage = (event) => {
+                    let dataStr = event.data;
+                    let pos = 0;
+                    while (pos < dataStr.length) {
+                        let parsed = false;
+                        for (let len = dataStr.length - pos; len > 0; len--) {
+                            try {
+                                const data = JSON.parse(dataStr.substring(pos, pos + len));
+                                updateVisualizationsFromTelemetry(data);
+                                pos += len;
+                                parsed = true;
+                                break;
+                            } catch (e) {
+                                // try shorter
+                            }
+                        }
+                        if (!parsed) {
+                            console.warn('[Telemetry] Failed to parse JSON starting at position', pos, 'remaining data:', dataStr.substring(pos, pos + 100));
+                            break;
+                        }
+                    }
+                };
+
+                telemetrySocket.onclose = (ev) => {
+                    console.log('[WS] Closed', ev?.code, ev?.reason || '', '→ will retry');
+                    isConnected = false;
+                    scheduleNext();
+                };
+
+                telemetrySocket.onerror = (error) => {
+                    console.warn('[WS] Error on', wsUrl, error);
+                };
+            };
+
+            const scheduleNext = () => {
+                if (retryTimer) clearTimeout(retryTimer);
+                wsPathIndex += 1;
+                retryTimer = setTimeout(tryConnect, 2000);
+            };
+
+            tryConnect();
+        }
+
+        // Fetch lattice data from backend
+        async function fetchLatticeData() {
+            try {
+                const response = await fetchWithTimeout(buildUrl('/api/lattice'));
+                if (response.ok) {
+                    const raw = await response.json();
+                    latticeData = adaptLatticePayload(raw);
+                    updateLatticeVisualization(latticeData);
+                    console.log('[Lattice] Data updated');
+                }
+            } catch (e) {
+                console.warn('Failed to fetch lattice data:', e);
+            }
+        }
+
+        // Fetch graph data from backend
+        async function fetchGraphData() {
+            try {
+                const response = await fetchWithTimeout(buildUrl('/api/graph'));
+                if (response.ok) {
+                    const raw = await response.json();
+                    graphData = adaptGraphPayload(raw);
+                    updateGraphVisualization(graphData);
+                    console.log('[Graph] Data updated:', graphData.nodes?.length, 'nodes');
+                }
+            } catch (e) {
+                console.warn('Failed to fetch graph data:', e);
+            }
+        }
+
+        // Adapters to normalize backend payload variations
+        function adaptLatticePayload(payload) {
+            if (!payload || typeof payload !== 'object') return { roots: [], active_roots: [], meta: {} };
+
+            // Case A: Already in desired shape
+            if (Array.isArray(payload.roots)) {
+                const roots = payload.roots.map((r, i) => {
+                    if (Array.isArray(r)) {
+                        // some servers might send roots as [x,y,z]
+                        return { id: i, position: r, energy: 0.5, type: 'root' };
+                    }
+                    return {
+                        id: r.id ?? i,
+                        position: Array.isArray(r.position) ? r.position.slice(0, 3) : [0, 0, 0],
+                        energy: Number.isFinite(r.energy) ? r.energy : 0.5,
+                        type: r.type || 'root'
+                    };
+                });
+                const active = Array.isArray(payload.active_roots) ? payload.active_roots : [];
+                const meta = payload.meta || {};
+                return { roots, active_roots: active, meta };
+            }
+
+            // Case B: Mock/test shape with roots_3d and active_highlights
+            if (Array.isArray(payload.roots_3d)) {
+                const roots = payload.roots_3d.map((v, i) => ({ id: i, position: v.slice(0, 3), energy: 0.5, type: 'root' }));
+                const active = Array.isArray(payload.active_highlights) ? payload.active_highlights : [];
+                const meta = payload.meta || { total_roots: roots.length };
+                return { roots, active_roots: active, meta };
+            }
+
+            // Fallback
+            return { roots: [], active_roots: [], meta: {} };
+        }
+
+        function adaptGraphPayload(payload) {
+            if (!payload || typeof payload !== 'object') return { nodes: [], links: [] };
+            // Common shapes already supported by updateGraphVisualization; keep raw
+            if (Array.isArray(payload.nodes)) return payload;
+            if (Array.isArray(payload.graph?.nodes)) return payload.graph;
+            return { nodes: [], links: [] };
+        }
+
+        // Update lattice visualization with live data
+        function updateLatticeVisualization(data) {
+            if (!data?.roots) {
+                return;
+            }
+
+            const metrics = [
+                { label: "Step", value: formatMetric(data.meta?.step ?? 0, 0), hint: "mind cycle" },
+                { label: "Active Roots", value: formatMetric(data.active_roots?.length ?? 0, 0), hint: "energized" },
+                { label: "Energy", value: formatMetric(data.meta?.energy ?? 0, 3), hint: "field intensity" },
+                { label: "Shell", value: formatMetric(data.meta?.active_dimension ?? 8, 0), hint: "active dimension" },
+                { label: "Total Roots", value: formatMetric(data.meta?.total_roots ?? data.roots.length ?? 0, 0), hint: "projected" }
+            ];
+            renderMetricCards(latticeMetricsEl, metrics);
+
+            if (!window.latticeScene) return;
+
+            try {
+                const scene = window.latticeScene;
+                const points = scene.getObjectByName('latticePoints');
+                const tetrahedron = scene.getObjectByName('tetrahedron');
+
+                if (points && points.geometry) {
+                    const rootCount = data.roots.length;
+                    const geometry = points.geometry;
+
+                    if (!geometry.attributes.position || geometry.attributes.position.count !== rootCount) {
+                        const newPositions = new THREE.Float32BufferAttribute(new Float32Array(rootCount * 3), 3);
+                        const newColors = new THREE.Float32BufferAttribute(new Float32Array(rootCount * 3), 3);
+                        geometry.setAttribute('position', newPositions);
+                        geometry.setAttribute('color', newColors);
+                    }
+
+                    const positions = geometry.attributes.position.array;
+                    const colors = geometry.attributes.color.array;
+
+                    for (let i = 0; i < data.roots.length; i++) {
+                        const root = data.roots[i];
+                        const baseIndex = i * 3;
+                        positions[baseIndex] = root.position[0];
+                        positions[baseIndex + 1] = root.position[1];
+                        positions[baseIndex + 2] = root.position[2];
+
+                        const energy = Number.isFinite(root.energy) ? root.energy : 0.5;
+                        const rootId = root.id ?? i;
+                        const isActive = Array.isArray(data.active_roots) && data.active_roots.includes(rootId);
+
+                        if (isActive) {
+                            colors[baseIndex] = 1.0;
+                            colors[baseIndex + 1] = 0.58;
+                            colors[baseIndex + 2] = 0.2;
+                        } else {
+                            const hue = root.type === 'type2' ? 0.84 : 0.58;
+                            const color = new THREE.Color().setHSL(hue, 0.65, 0.55 + energy * 0.1);
+                            colors[baseIndex] = color.r;
+                            colors[baseIndex + 1] = color.g;
+                            colors[baseIndex + 2] = color.b;
+                        }
+                    }
+
+                    geometry.attributes.position.needsUpdate = true;
+                    geometry.attributes.color.needsUpdate = true;
+                    geometry.computeBoundingSphere?.();
+                }
+
+                if (tetrahedron && Array.isArray(data.tetrahedron) && data.tetrahedron.length >= 4) {
+                    const tetraIndices = data.tetrahedron.slice(0, 4);
+                    const lines = tetrahedron.userData?.lines || [
+                        [0, 1], [0, 2], [0, 3],
+                        [1, 2], [1, 3], [2, 3]
+                    ];
+
+                    const attr = tetrahedron.geometry?.attributes?.position;
+                    if (attr) {
+                        lines.forEach((pair, edgeIdx) => {
+                            const [a, b] = pair;
+                            const vA = data.roots[tetraIndices[a]]?.position || [0, 0, 0];
+                            const vB = data.roots[tetraIndices[b]]?.position || [0, 0, 0];
+                            const base = edgeIdx * 6;
+                            attr.array[base] = vA[0];
+                            attr.array[base + 1] = vA[1];
+                            attr.array[base + 2] = vA[2];
+                            attr.array[base + 3] = vB[0];
+                            attr.array[base + 4] = vB[1];
+                            attr.array[base + 5] = vB[2];
+                        });
+                        attr.needsUpdate = true;
+                    }
+
+                    if (Array.isArray(tetrahedron.children)) {
+                        tetrahedron.children.forEach(child => {
+                            if (child.userData?.vertexIndex !== undefined) {
+                                const vec = data.roots[tetraIndices[child.userData.vertexIndex]]?.position || [0, 0, 0];
+                                child.position.set(vec[0], vec[1], vec[2]);
+                            }
+                        });
+                    }
+
+                    const energy = Number.isFinite(data.meta?.energy) ? data.meta.energy : 0.5;
+                    const step = data.meta?.step || 0;
+                    tetrahedron.scale.setScalar(0.78 + energy * 0.5);
+                    tetrahedron.rotation.z = (step * 0.015) % (Math.PI * 2);
+
+                    if (tetrahedron.material) {
+                        const activeCount = Array.isArray(data.active_roots) ? data.active_roots.length : 0;
+                        const opacity = clamp(0.25 + activeCount / 12, 0.25, 0.82);
+                        tetrahedron.material.opacity = opacity;
+                        tetrahedron.material.color.setHSL(0.92 - energy * 0.25, 0.65, 0.66);
+                    }
+                }
+            } catch (e) {
+                console.warn('Failed to update lattice visualization:', e);
+            }
+        }
+
+        // Update graph visualization with live data
+        function updateGraphVisualization(data) {
+            if (!data?.nodes) {
+                return;
+            }
+
+            try {
+                const simulation = window.graphSimulation;
+                const previous = simulation ? new Map(simulation.nodes().map(n => [n.id, n])) : new Map();
+
+                const nodes = data.nodes.map(node => {
+                    const existing = previous.get(node.id);
+                    const activation = Number.isFinite(node.activation) ? node.activation : (Number.isFinite(node.strength) ? node.strength : (Number.isFinite(node.weight) ? node.weight : 0));
+                    const weight = Number.isFinite(node.rating) ? node.rating : (Number.isFinite(node.weight) ? node.weight : 0.5);
+                    return {
+                        id: node.id,
+                        label: node.label || node.name || node.id,
+                        weight,
+                        phase: node.temperature || node.phase || Math.random(),
+                        description: node.description || node.type || 'Cognitive concept',
+                        activation,
+                        concept_type: node.type || 'memory',
+                        x: existing?.x ?? node.x ?? (Math.random() * 600 - 300),
+                        y: existing?.y ?? node.y ?? (Math.random() * 400 - 200),
+                        vx: existing?.vx ?? 0,
+                        vy: existing?.vy ?? 0
+                    };
+                });
+
+                const links = (data.links || data.edges || []).map(link => ({
+                    source: typeof link.source === 'object' ? link.source.id : link.source,
+                    target: typeof link.target === 'object' ? link.target.id : link.target,
+                    weight: Number.isFinite(link.weight) ? link.weight : (Number.isFinite(link.strength) ? link.strength : 0.5),
+                    type: link.type || 'cognitive_link',
+                    tension: Number.isFinite(link.tension) ? link.tension : (Number.isFinite(link.distance) ? link.distance : 0.5)
+                }));
+
+                window.graphLastData = { nodes, links };
+
+                const avgActivation = nodes.length ? nodes.reduce((sum, n) => sum + (Number.isFinite(n.activation) ? n.activation : 0), 0) / nodes.length : 0;
+                const typeCounts = nodes.reduce((acc, n) => {
+                    const key = n.concept_type || 'memory';
+                    acc[key] = (acc[key] || 0) + 1;
+                    return acc;
+                }, {});
+                const dominantType = Object.entries(typeCounts).sort((a, b) => b[1] - a[1])[0];
+                const dominantLabel = dominantType ? `${dominantType[0]} (${dominantType[1]})` : '-';
+
+                renderMetricCards(graphMetricsEl, [
+                    { label: 'Nodes', value: formatMetric(nodes.length, 0), hint: 'concept anchors' },
+                    { label: 'Edges', value: formatMetric(links.length, 0), hint: 'cognitive ties' },
+                    { label: 'Activation', value: formatMetric(avgActivation, 3), hint: 'mean node activation' },
+                    { label: 'Dominant', value: dominantLabel, hint: 'most common type' }
+                ]);
+
+                if (simulation) {
+                    simulation.nodes(nodes);
+                    simulation.force('link').links(links);
+                    simulation.alpha(0.35).restart();
+                }
+
+                console.log('[Graph] Simulation refreshed with live data');
+            } catch (e) {
+                console.warn('Failed to update graph visualization:', e);
+            }
+        }
+
+        // Update visualizations from WebSocket telemetry
+        function updateVisualizationsFromTelemetry(data) {
+            if (!data) {
+                return;
+            }
+
+            const uniforms = window.hyperFieldUniforms;
+            const hyperState = window.hyperFieldState;
+            const insightsRaw = Array.isArray(data.insights) ? data.insights : [];
+            const insightVectors = insightsRaw
+                .map(entry => {
+                    if (!entry) return null;
+                    if (Array.isArray(entry)) return entry.slice(0, 8);
+                    if (Array.isArray(entry.vec8D)) return entry.vec8D.slice(0, 8);
+                    if (Array.isArray(entry.vector)) return entry.vector.slice(0, 8);
+                    return null;
+                })
+                .filter(Boolean);
+
+            let fieldIntensity = 0.6;
+            if (insightVectors.length > 0) {
+                fieldIntensity = insightVectors.reduce((sum, vec) => {
+                    const magnitude = Math.sqrt(vec.reduce((acc, value) => acc + value * value, 0));
+                    return sum + magnitude;
+                }, 0) / insightVectors.length;
+            }
+
+            let fieldCoherence = 0.5;
+            if (insightVectors.length > 1) {
+                let dots = 0;
+                let count = 0;
+                for (let i = 0; i < insightVectors.length - 1; i++) {
+                    const v1 = insightVectors[i];
+                    const v2 = insightVectors[i + 1];
+                    const dot = v1.reduce((sum, value, idx) => sum + value * (v2[idx] || 0), 0);
+                    const mag1 = Math.sqrt(v1.reduce((acc, value) => acc + value * value, 0));
+                    const mag2 = Math.sqrt(v2.reduce((acc, value) => acc + value * value, 0));
+                    if (mag1 > 0 && mag2 > 0) {
+                        dots += Math.abs(dot / (mag1 * mag2));
+                        count += 1;
+                    }
+                }
+                if (count > 0) {
+                    fieldCoherence = dots / count;
+                }
+            }
+
+            const globalTension = Number.isFinite(data.global_tension) ? data.global_tension : 0.0;
+            const curvatureIntensity = Number.isFinite(data.curvature_intensity) ? data.curvature_intensity : 0.0;
+            const psiEntropy = Number.isFinite(data.quantum_telemetry?.psi_entropy) ? data.quantum_telemetry.psi_entropy : 0.0;
+            const blackHolePressure = Number.isFinite(data.black_hole_pressure) ? data.black_hole_pressure : 0.0;
+            const avgInsightReward = insightVectors.length ? insightsRaw.reduce((sum, entry) => sum + (Number.isFinite(entry.reward) ? entry.reward : 0), 0) / insightVectors.length : 0.0;
+
+            const tensionNorm = clamp(globalTension / 2.5, 0, 1.6);
+            const curvatureNorm = clamp(Math.abs(curvatureIntensity) / 5.0, 0, 1.6);
+            const quantumNorm = clamp(psiEntropy / 4.5, 0, 1.8);
+            const pressureNorm = clamp(blackHolePressure / 12.0, 0, 1.6);
+            const intensityNorm = clamp(fieldIntensity / 4.0, 0.1, 2.5);
+            const coherenceNorm = clamp(fieldCoherence, 0.05, 1.6);
+
+            if (uniforms) {
+                uniforms.uAmp.value = clamp(0.45 + intensityNorm, 0.25, 3.0);
+                uniforms.uSpeed.value = clamp(0.55 + coherenceNorm + tensionNorm * 0.45, 0.2, 3.2);
+                if (uniforms.uTension) uniforms.uTension.value = tensionNorm;
+                if (uniforms.uCurvature) uniforms.uCurvature.value = curvatureNorm;
+                if (uniforms.uQuantum) uniforms.uQuantum.value = quantumNorm;
+
+                const shell8 = data.shells?.['8'] || data.shells?.[8];
+                if (shell8 && uniforms.uFlux) {
+                    const yaw = Number.isFinite(shell8.orientation?.yaw) ? shell8.orientation.yaw : 0;
+                    const omega = Number.isFinite(shell8.omega) ? shell8.omega : 0;
+                    const targetFlux = new THREE.Vector3(
+                        Math.cos(yaw),
+                        Math.sin(yaw),
+                        Math.sin(yaw * 0.5 + omega * 0.2)
+                    );
+                    uniforms.uFlux.value.lerp(targetFlux, 0.2);
+                }
+
+                if (data.mood) {
+                    const mood = data.mood;
+                    const curiosity = clamp(Number(mood.curiosity ?? 0.5), 0.05, 1.2);
+                    const confidence = clamp(Number(mood.confidence ?? 0.5), 0.05, 1.2);
+                    const wonder = clamp(Number(mood.wonder ?? 0.5), 0.05, 1.2);
+                    if (uniforms.uColorA) {
+                        uniforms.uColorA.value.setRGB(curiosity, confidence * 0.85 + 0.15, wonder);
+                    }
+                    if (uniforms.uColorB) {
+                        uniforms.uColorB.value.setRGB(
+                            clamp(0.35 + wonder * 0.4, 0.1, 1.2),
+                            clamp(0.45 + curiosity * 0.3, 0.1, 1.2),
+                            clamp(0.65 + confidence * 0.25, 0.2, 1.4)
+                        );
+                    }
+                    if (uniforms.uColorC) {
+                        uniforms.uColorC.value.setRGB(
+                            clamp(0.35 + confidence * 0.4, 0.1, 1.2),
+                            clamp(0.45 + wonder * 0.25, 0.1, 1.2),
+                            clamp(0.75 + curiosity * 0.2, 0.2, 1.4)
+                        );
+                    }
+                } else if (insightVectors.length > 0 && uniforms.uColorA) {
+                    const latest = insightVectors[insightVectors.length - 1];
+                    uniforms.uColorA.value.setRGB(
+                        clamp(Math.abs(latest[0] || 0), 0.1, 1.1),
+                        clamp(Math.abs(latest[1] || 0), 0.1, 1.1),
+                        clamp(Math.abs(latest[2] || 0), 0.1, 1.1)
+                    );
+                }
+            }
+
+            if (hyperState) {
+                hyperState.metrics.tension = tensionNorm;
+                hyperState.metrics.curvature = curvatureNorm;
+                hyperState.metrics.quantum = quantumNorm;
+                hyperState.metrics.pressure = pressureNorm;
+                hyperState.metrics.insight = clamp(intensityNorm + coherenceNorm * 0.4, 0.0, 2.0);
+            }
+
+            const moodVector = data.mood && typeof data.mood === 'object' ? data.mood : null;
+            const moodLabels = { curiosity: 'Cur', confidence: 'Conf', wonder: 'Won' };
+            const moodValue = moodVector ? ['curiosity', 'confidence', 'wonder']
+                .map(key => `${moodLabels[key]}:${formatMetric(Number(moodVector[key] ?? 0), 2)}`)
+                .join(' | ') : '-';
+
+            renderMetricCards(fieldMetricsEl, [
+                { label: 'Global Tension', value: formatMetric(globalTension, 3), hint: 'shell tension' },
+                { label: 'Curvature', value: formatMetric(curvatureIntensity, 3), hint: 'spacetime flux' },
+                { label: 'Psi Entropy', value: formatMetric(psiEntropy, 3), hint: 'quantum state' },
+                { label: 'BH Pressure', value: formatMetric(blackHolePressure, 3), hint: 'gravity well' },
+                { label: 'Insights', value: `${formatMetric(insightVectors.length, 0)} / ${formatMetric(avgInsightReward, 3)}`, hint: 'count / avg reward' },
+                { label: 'Mood', value: moodValue, hint: 'curiosity | confidence | wonder' }
+            ]);
+
+            if (data.step && data.step % 50 === 0) {
+                fetchLatticeData();
+            }
+
+            if (data.step && data.step % 100 === 0) {
+                fetchGraphData();
+            }
+        }
+
+        // Initialize telemetry connection when page loads
+        window.addEventListener('load', () => {
+            // Give the page a moment to fully initialize
+            setTimeout(() => {
+                connectTelemetry();
+                console.log('[Init] Telemetry integration initialized');
+            }, 1000);
+        });
+
+        // Periodic fallback updates in case WebSocket fails
+        setInterval(() => {
+            if (!isConnected) {
+                fetchLatticeData();
+                fetchGraphData();
+            }
+        }, 10000); // Every 10 seconds
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>WebSocket Test</title>
+</head>
+
+<body>
+    <h1>E8 Mind WebSocket Test</h1>
+    <div id="status">Connecting...</div>
+    <div id="data"></div>
+
+    <script>
+        const status = document.getElementById('status');
+        const data = document.getElementById('data');
+
+        // Test WebSocket connection
+        const ws = new WebSocket('ws://127.0.0.1:7871/api/telemetry/ws');
+
+        ws.onopen = function () {
+            status.textContent = '✅ Connected to E8 Mind telemetry!';
+            status.style.color = 'green';
+        };
+
+        ws.onmessage = function (event) {
+            try {
+                const telemetry = JSON.parse(event.data);
+                data.innerHTML = `
+                    <h3>Live Telemetry Data:</h3>
+                    <p><strong>Step:</strong> ${telemetry.step || 'N/A'}</p>
+                    <p><strong>Concepts:</strong> ${telemetry.concepts?.length || 0}</p>
+                    <p><strong>Insights:</strong> ${telemetry.insights?.length || 0}</p>
+                    <p><strong>Energy:</strong> ${telemetry.insight_reward || 'N/A'}</p>
+                    <p><strong>Timestamp:</strong> ${new Date().toLocaleTimeString()}</p>
+                `;
+                console.log('Received telemetry:', telemetry);
+            } catch (e) {
+                data.innerHTML = `<p style="color: red;">Error parsing data: ${e.message}</p>`;
+            }
+        };
+
+        ws.onerror = function (error) {
+            status.textContent = '❌ WebSocket error: ' + error;
+            status.style.color = 'red';
+            console.error('WebSocket error:', error);
+        };
+
+        ws.onclose = function () {
+            status.textContent = '🔌 Connection closed';
+            status.style.color = 'orange';
+        };
+    </script>
+</body>
+
+</html>

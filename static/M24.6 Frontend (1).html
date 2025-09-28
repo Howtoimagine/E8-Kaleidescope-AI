@@ -1,0 +1,2317 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>E8 Mind-Crystal (Live HUD) — M15.3 Frontend</title>
+    <style>
+        :root {
+            --bg: #0b0f17;
+            --fg: #d9e1ff;
+            --muted: #a7b0d6;
+            --glow: #7aa2ff;
+            --glass: rgba(16, 22, 33, 0.65);
+            --glass-2: rgba(16, 22, 33, 0.35);
+            --accent: #8ef1ff;
+            --accent-2: #c792ea;
+            --ok: #6ee7b7;
+            --warn: #fde047;
+            --bad: #fb7185;
+            --border-color: rgba(255, 255, 255, 0.06);
+            --rotor-label-bg: rgba(16, 22, 33, 0.8);
+            --gold: #FFD700;
+            --white-glow: #FFFFFF;
+        }
+
+        html[data-theme="light"] {
+            --bg: #f0f2f7;
+            --fg: #1c1e26;
+            --muted: #5a647e;
+            --glow: #0052d6;
+            --glass: rgba(255, 255, 255, 0.6);
+            --glass-2: rgba(255, 255, 255, 0.3);
+            --accent: #0097b3;
+            --accent-2: #9e28d4;
+            --ok: #069668;
+            --warn: #d97706;
+            --bad: #e11d48;
+            --border-color: rgba(0, 0, 0, 0.1);
+            --rotor-label-bg: rgba(240, 242, 247, 0.8);
+            --gold: #d97706;
+            --white-glow: #333333;
+        }
+
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+            background: var(--bg);
+            color: var(--fg);
+            font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+            overflow: hidden;
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+
+        .main-view {
+            position: fixed;
+            inset: 0;
+        }
+
+        .webgl {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        .ui-overlay {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            display: grid;
+            grid-template-columns: 380px 1fr 400px;
+            grid-template-rows: 60px 1fr 40px;
+            grid-template-areas: "header header header" "left main right" "footer footer footer";
+            gap: 16px;
+            padding: 16px;
+        }
+
+        .panel {
+            backdrop-filter: blur(12px);
+            background: var(--glass);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+            pointer-events: auto;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+
+        .left-panel {
+            grid-area: left;
+        }
+
+        .right-panel {
+            grid-area: right;
+        }
+
+        /* New Floating Panel for Memory Etching */
+        #floatingEtchingPanel {
+            position: fixed;
+            bottom: 56px;
+            /* Above the footer */
+            left: 16px;
+            width: 400px;
+            height: 320px;
+            z-index: 10;
+            pointer-events: auto;
+        }
+
+        @media (max-width: 1300px) {
+            .ui-overlay {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto 1fr auto auto;
+                grid-template-areas: "header" "main" "right" "left" "footer";
+                gap: 12px;
+                padding: 12px;
+            }
+
+            .right-panel,
+            .left-panel {
+                width: 100%;
+                min-height: 400px;
+            }
+
+            #floatingEtchingPanel {
+                display: none;
+            }
+
+            /* Hide on smaller screens to avoid clutter */
+        }
+
+        header {
+            grid-area: header;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+            pointer-events: auto;
+            background: linear-gradient(to right, rgba(20, 26, 40, 0.7), rgba(20, 26, 40, 0.3));
+            border-bottom: 1px solid var(--border-color);
+            border-radius: 12px;
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+
+        .brand {
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: .5px;
+            color: var(--accent);
+        }
+
+        .brand span {
+            opacity: .7;
+            font-weight: 400;
+            font-size: 14px;
+        }
+
+        .status-tag {
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: rgba(125, 145, 255, 0.15);
+            color: #9ab0ff;
+            border: 1px solid rgba(125, 145, 255, 0.25);
+        }
+
+        .footer {
+            grid-area: footer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .hint {
+            opacity: .7;
+        }
+
+        .panel-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-color);
+            flex-shrink: 0;
+            cursor: grab;
+            user-select: none;
+        }
+
+        .panel-header.dragging {
+            cursor: grabbing;
+        }
+
+        .panel-title {
+            text-transform: uppercase;
+            font-size: 12px;
+            letter-spacing: .5px;
+            opacity: .8;
+        }
+
+        .panel-content {
+            padding: 16px;
+            overflow: auto;
+            flex-grow: 1;
+        }
+
+        .panel-content.no-padding {
+            padding: 0;
+            position: relative;
+        }
+
+        /* Consciousness Controls */
+        .consciousness-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 4px;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 10px;
+        }
+
+        .control-group label {
+            min-width: 55px;
+            text-align: left;
+        }
+
+        .consciousness-slider {
+            flex: 1;
+            height: 16px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            outline: none;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        .consciousness-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 14px;
+            height: 14px;
+            background: var(--accent);
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .consciousness-slider::-moz-range-thumb {
+            width: 14px;
+            height: 14px;
+            background: var(--accent);
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 0 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .control-value {
+            font-family: 'Courier New', monospace;
+            font-size: 9px;
+            color: var(--accent);
+            min-width: 28px;
+            text-align: right;
+        }
+
+        .mini-button {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            color: var(--fg);
+            padding: 4px 8px;
+            font-size: 9px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 4px;
+            transition: all 0.2s ease;
+        }
+
+        .mini-button:hover {
+            background: var(--accent);
+            color: var(--bg);
+        }
+
+        .mini-button:active {
+            transform: translateY(1px);
+        }
+
+        .consciousness-state {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 8px;
+            font-size: 10px;
+            color: var(--muted);
+        }
+
+        .state-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent);
+            box-shadow: 0 0 4px var(--accent);
+            animation: consciousnessGlow 2s ease-in-out infinite alternate;
+        }
+
+        @keyframes consciousnessGlow {
+            from {
+                opacity: 0.6;
+                transform: scale(0.8);
+            }
+
+            to {
+                opacity: 1.0;
+                transform: scale(1.2);
+            }
+        }
+
+        .state-label {
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .weather-box {
+            margin-top: 12px;
+            padding: 8px 12px;
+            background: var(--glass-2);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            font-size: 12px;
+        }
+
+        .weather-box .row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            margin: 4px 0;
+        }
+
+        .weather-box .label {
+            color: var(--muted);
+        }
+
+        .weather-box .value {
+            color: var(--fg);
+            font-weight: 600;
+            text-align: right;
+        }
+
+        .ring {
+            position: relative;
+            width: 92px;
+            height: 92px;
+        }
+
+        .ring canvas {
+            position: absolute;
+            inset: 0;
+        }
+
+        .ring .ring-label {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            color: var(--muted);
+        }
+
+        .ticker {
+            position: absolute;
+            left: 16px;
+            right: 16px;
+            bottom: 64px;
+            pointer-events: none;
+        }
+
+        .ticker .tape {
+            white-space: nowrap;
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+            background: var(--glass);
+            border-radius: 12px;
+            padding: 10px 14px;
+        }
+
+        .ticker .scroll {
+            display: inline-block;
+            animation: scroll 30s linear infinite;
+        }
+
+        @keyframes scroll {
+            from {
+                transform: translateX(0);
+            }
+
+            to {
+                transform: translateX(-50%);
+            }
+        }
+
+        .goals-overlay {
+            pointer-events: none;
+            position: absolute;
+            top: 80px;
+            left: 0;
+            right: 0;
+            height: 220px;
+        }
+
+        .goals-overlay canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        #flash-overlay {
+            position: fixed;
+            inset: 0;
+            background: white;
+            z-index: 9999;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity .5s ease-out;
+        }
+
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.85);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 8px;
+            pointer-events: none;
+            transition: opacity 0.2s ease-in-out;
+            opacity: 0;
+            z-index: 1000;
+            transform: translate(-50%, -110%);
+            font-size: 12px;
+            text-align: left;
+            max-width: 300px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .theme-toggle-btn {
+            background: none;
+            border: 1px solid var(--border-color);
+            color: var(--fg);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.2s ease, color 0.2s ease;
+        }
+
+        .theme-toggle-btn:hover {
+            background-color: var(--glass-2);
+        }
+
+        #color-wheel-container {
+            margin-top: 16px;
+        }
+
+        #color-wheel {
+            width: 100%;
+            height: 150px;
+            border: none;
+            padding: 0;
+            cursor: pointer;
+        }
+    </style>
+
+    <script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+    <script>
+        // Theme initialization script
+        (function () {
+            const storedTheme = localStorage.getItem('theme');
+            const prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
+            if (storedTheme) {
+                document.documentElement.setAttribute('data-theme', storedTheme);
+            } else if (prefersLight) {
+                document.documentElement.setAttribute('data-theme', 'light');
+            }
+        })();
+    </script>
+</head>
+
+<body>
+    <div id="flash-overlay"></div>
+    <div id="tooltip" class="tooltip"></div>
+
+    <div class="main-view">
+        <canvas class="webgl" id="scene"></canvas>
+        <div class="goals-overlay"><canvas id="goalsCanvas"></canvas></div>
+        <div class="ticker">
+            <div class="tape"><span class="scroll" id="tickerText"></span></div>
+        </div>
+    </div>
+
+    <div class="ui-overlay">
+        <header>
+            <div class="brand">E8 Mind-Crystal <span>// Live HUD</span></div>
+            <div style="display:flex; align-items:center; gap:16px;">
+                <div class="status-tag" id="runTag" title="Data link status">OFFLINE</div>
+                <button id="themeToggle" class="theme-toggle-btn" title="Toggle Theme">☀️</button>
+                <button id="controlsToggle" class="theme-toggle-btn" title="Toggle Controls">3D</button>
+            </div>
+        </header>
+
+        <aside class="left-panel panel">
+            <div class="panel-header">
+                <div class="panel-title">System Vitals</div>
+            </div>
+            <div class="panel-content">
+                <div class="weather-box">
+                    <div class="row"><span class="label">Weather</span><span class="value" id="wx-mood">—</span></div>
+                    <div class="row"><span class="label">Region</span><span class="value" id="wx-region">—</span></div>
+                    <div class="row"><span class="label">BH Pressure</span><span class="value"
+                            id="wx-pressure">0.00</span></div>
+                </div>
+
+                <div id="color-wheel-container">
+                    <div class="panel-title" style="font-size: 11px; margin-bottom: 4px;">Light Color</div>
+                    <input type="color" id="color-wheel" value="#8ef1ff">
+                </div>
+
+                <div style="margin-top: 12px;">
+                    <div class="panel-title" style="font-size: 11px; margin-bottom: 8px;">Consciousness Controls</div>
+                    <div class="consciousness-controls">
+                        <div class="control-group">
+                            <label for="intensity-slider"
+                                style="font-size: 10px; color: var(--muted);">Intensity</label>
+                            <input type="range" id="intensity-slider" min="0" max="1" step="0.01" value="0.5"
+                                class="consciousness-slider">
+                            <span id="intensity-value" class="control-value">0.50</span>
+                        </div>
+                        <div class="control-group">
+                            <label for="coherence-slider"
+                                style="font-size: 10px; color: var(--muted);">Coherence</label>
+                            <input type="range" id="coherence-slider" min="0" max="1" step="0.01" value="1.0"
+                                class="consciousness-slider">
+                            <span id="coherence-value" class="control-value">1.00</span>
+                        </div>
+                        <div class="control-group">
+                            <label for="entropy-slider" style="font-size: 10px; color: var(--muted);">Entropy</label>
+                            <input type="range" id="entropy-slider" min="0" max="1" step="0.01" value="0.5"
+                                class="consciousness-slider">
+                            <span id="entropy-value" class="control-value">0.50</span>
+                        </div>
+                        <button id="consciousness-reset" class="mini-button">Reset to Auto</button>
+                        <div class="consciousness-state" id="consciousness-state">
+                            <div class="state-indicator"></div>
+                            <span class="state-label">Monitoring</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 16px; display:flex; gap:14px; flex-wrap:wrap;">
+                    <div class="ring"><canvas width="92" height="92" id="ringPressure"></canvas>
+                        <div class="ring-label">Collapse</div>
+                    </div>
+                    <div class="ring"><canvas width="92" height="92" id="ringTeacher"></canvas>
+                        <div class="ring-label">Teacher</div>
+                    </div>
+                    <div class="ring"><canvas width="92" height="92" id="ringExplorer"></canvas>
+                        <div class="ring-label">Explorer</div>
+                    </div>
+                    <div class="ring"><canvas width="92" height="92" id="ringReward"></canvas>
+                        <div class="ring-label">Reward</div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 16px">
+                    <div class="panel-title" style="font-size: 11px; margin-bottom: 4px;">Mood Vectors</div>
+                    <div class="weather-box">
+                        <div class="row"><span class="label">Intensity</span><progress id="mood-intensity" max="1"
+                                value="0.5" style="width:160px"></progress></div>
+                        <div class="row"><span class="label">Entropy</span><progress id="mood-entropy" max="1"
+                                value="0.5" style="width:160px"></progress></div>
+                        <div class="row"><span class="label">Coherence</span><progress id="mood-coherence" max="1"
+                                value="0.5" style="width:160px"></progress></div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 16px;">
+                    <div class="panel-title" style="font-size: 11px; margin-bottom: 4px;">Dialogue</div>
+                    <div class="weather-box">
+                        <div class="row" style="align-items: flex-start;">
+                            <span class="label" style="padding-top:2px; flex-shrink: 0;">Teacher</span>
+                            <span class="value" id="teacher-question"
+                                style="white-space: normal; text-align: right;">—</span>
+                        </div>
+                        <div class="row" style="align-items: flex-start; margin-top: 8px;">
+                            <span class="label" style="padding-top:2px; flex-shrink: 0;">Explorer</span>
+                            <span class="value" id="explorer-answer"
+                                style="white-space: normal; text-align: right;">—</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="vitals" style="margin-top: 16px"></div>
+            </div>
+
+            <div class="panel-header" style="border-top:1px solid var(--border-color);">
+                <div class="panel-title">Goals Field</div>
+            </div>
+            <div class="panel-content">
+                <div id="goalsList"></div>
+            </div>
+
+            <div class="panel-header" style="border-top:1px solid var(--border-color);">
+                <div class="panel-title">Selection Wavefunction</div>
+            </div>
+            <div class="panel-content no-padding">
+                <canvas id="wavefunctionCanvas" style="width:100%; height:120px;"></canvas>
+            </div>
+        </aside>
+
+        <aside class="right-panel panel">
+            <div class="panel-header">
+                <div class="panel-title">Dimensional Rotors</div>
+            </div>
+            <div class="panel-content no-padding" style="flex-grow: 1; display: flex;">
+                <canvas id="rotorCanvas" style="width:100%; height:100%;"></canvas>
+            </div>
+
+            <div class="panel-header" style="border-top:1px solid var(--border-color);">
+                <div class="panel-title">Shell Tensions</div>
+            </div>
+            <div class="panel-content">
+                <div id="shellTensionSparklines" style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;"></div>
+            </div>
+
+            <div class="panel-header" style="border-top:1px solid var(--border-color);">
+                <div class="panel-title">Encoder</div>
+            </div>
+            <div class="panel-content" style="font-size:12px; flex-grow: 0; flex-shrink: 0;">
+                <div class="weather-box">
+                    <div class="row"><span class="label">Autoencoder</span><span class="value"
+                            id="encoder-status">Untrained</span></div>
+                    <div class="row"><span class="label">Global Tension</span><span class="value"
+                            id="global-tension">0.000</span></div>
+                </div>
+                <div style="margin-top:12px"> <small style="opacity:0.7">Geometric tension between shells. High tension
+                        can trigger dreams or insights.</small> </div>
+            </div>
+
+            <div class="panel-header" style="border-top:1px solid var(--border-color);">
+                <div class="panel-title">Ray Lock</div>
+            </div>
+            <div class="panel-content">
+                <div id="ray-lock-list"></div>
+            </div>
+        </aside>
+
+        <footer class="footer">
+            <div class="hint"></div>
+            <div id="status">Initializing...</div>
+        </footer>
+    </div>
+
+    <div id="floatingEtchingPanel" class="panel" style="display: none;">
+        <div class="panel-header">
+            <div class="panel-title">Memory Etching</div>
+        </div>
+        <div class="panel-content no-padding" id="etchingContainer">
+            <canvas id="etchingCanvas" style="width:100%; height:100%;"></canvas>
+        </div>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+        /* ---------- Config & API ---------- */
+        const API_BASE_URL = new URLSearchParams(location.search).get('api') || (location.origin.startsWith('http') ? location.origin : 'http://localhost:7870');
+        const API = {
+            telemetryStream: `${API_BASE_URL}/api/telemetry/stream`,
+            telemetryLatest: `${API_BASE_URL}/api/telemetry/latest`,
+        };
+
+        const DEFAULT_SHELL_TENSIONS = {
+            shell_0: 0.5,
+            shell_1: 0.5,
+            shell_2: 0.5,
+        };
+
+        /* ---------- State & Parameters ---------- */
+        const state = {
+            running: false,
+            rotors: {},
+            etchings: [],
+            lastMemoryCount: 0,
+            currentTelemetry: {},
+            shellSparklines: new Map(),
+            shellTensions: { ...DEFAULT_SHELL_TENSIONS },
+            coronaBias: new THREE.Vector2(0, 0),
+            targetCoronaBias: new THREE.Vector2(0, 0),
+            smooth: {
+                // MODIFICATION: Removed 'dream' and added 'pressure'
+                pressure: 0,
+                teacher: 0,
+                explorer: 0,
+                reward: 0,
+                moodIntensity: 0.5,
+                moodEntropy: 0.5,
+                moodCoherence: 0.5,
+                wxPressure: 0,
+                globalTension: 0,
+            },
+            targets: {
+                // MODIFICATION: Removed 'dream' and added 'pressure'
+                pressure: 0,
+                teacher: 0,
+                explorer: 0,
+                reward: 0,
+                moodIntensity: 0.5,
+                moodEntropy: 0.5,
+                moodCoherence: 0.5,
+                wxPressure: 0,
+                globalTension: 0,
+            },
+            eclipse: {
+                scale: 1,
+                targetScale: 1,
+                position: new THREE.Vector3(),
+                targetPosition: new THREE.Vector3(),
+            },
+            rayAlerts: [],
+        };
+        let clock = new THREE.Clock();
+        let eclipse, cubeCamera, starfield, lightBeams, fractalCrystal;
+        let targetPosition = new THREE.Vector3(0, 0, 15);
+        let targetLookAt = new THREE.Vector3(0, 0, 0);
+        const ETCHING_BOUNDS = 10;
+
+        /* ---------- DOM Elements (Cached) ---------- */
+        const DOM = {
+            runTag: document.getElementById('runTag'),
+            flashOverlay: document.getElementById('flash-overlay'),
+            tooltip: document.getElementById('tooltip'),
+            rotorCanvas: document.getElementById('rotorCanvas'),
+            etchingCanvas: document.getElementById('etchingCanvas'),
+            etchingContainer: document.getElementById('etchingContainer'),
+            floatingEtchingPanel: document.getElementById('floatingEtchingPanel'),
+            floatingEtchingHeader: document.querySelector('#floatingEtchingPanel .panel-header'),
+            status: document.getElementById('status'),
+            themeToggle: document.getElementById('themeToggle'),
+            sceneCanvas: document.getElementById('scene'),
+            wavefunctionCanvas: document.getElementById('wavefunctionCanvas'),
+            wxMood: document.getElementById('wx-mood'),
+            wxRegion: document.getElementById('wx-region'),
+            wxPressure: document.getElementById('wx-pressure'),
+            moodIntensity: document.getElementById('mood-intensity'),
+            moodEntropy: document.getElementById('mood-entropy'),
+            moodCoherence: document.getElementById('mood-coherence'),
+            vitals: document.getElementById('vitals'),
+            encoderStatus: document.getElementById('encoder-status'),
+            globalTension: document.getElementById('global-tension'),
+            // MODIFICATION: Changed ringDream to ringPressure
+            ringPressure: document.getElementById('ringPressure'),
+            ringTeacher: document.getElementById('ringTeacher'),
+            ringExplorer: document.getElementById('ringExplorer'),
+            ringReward: document.getElementById('ringReward'),
+            goalsList: document.getElementById('goalsList'),
+            tickerText: document.getElementById('tickerText'),
+            shellTensionSparklines: document.getElementById('shellTensionSparklines'),
+            goalsCanvas: document.getElementById('goalsCanvas'),
+            teacherQuestion: document.getElementById('teacher-question'),
+            explorerAnswer: document.getElementById('explorer-answer'),
+            rayLockList: document.getElementById('ray-lock-list'),
+        };
+
+        // UPGRADE: Make the floating panel draggable
+        function enableDrag(panel, handle) {
+            if (!panel || !handle) return;
+            let startX = 0, startY = 0, startLeft = 0, startTop = 0, dragging = false;
+
+            const start = (e) => {
+                dragging = true;
+                handle.classList.add('dragging');
+                const pt = ('touches' in e) ? e.touches[0] : e;
+                startX = pt.clientX; startY = pt.clientY;
+                const rect = panel.getBoundingClientRect();
+                panel.style.top = rect.top + 'px';
+                panel.style.left = rect.left + 'px';
+                panel.style.bottom = '';
+                startLeft = rect.left; startTop = rect.top;
+                window.addEventListener('mousemove', move);
+                window.addEventListener('touchmove', move, { passive: false });
+                window.addEventListener('mouseup', end);
+                window.addEventListener('touchend', end);
+                e.preventDefault?.();
+            };
+            const move = (e) => {
+                if (!dragging) return;
+                const pt = ('touches' in e) ? e.touches[0] : e;
+                const dx = pt.clientX - startX;
+                const dy = pt.clientY - startY;
+                let newLeft = startLeft + dx;
+                let newTop = startTop + dy;
+                const vw = window.innerWidth, vh = window.innerHeight;
+                const { width: w, height: h } = panel.getBoundingClientRect();
+                newLeft = Math.max(8, Math.min(vw - w - 8, newLeft));
+                newTop = Math.max(8, Math.min(vh - h - 8, newTop));
+                panel.style.left = newLeft + 'px';
+                panel.style.top = newTop + 'px';
+                e.preventDefault?.();
+            };
+            const end = () => {
+                dragging = false;
+                handle.classList.remove('dragging');
+                window.removeEventListener('mousemove', move);
+                window.removeEventListener('touchmove', move);
+                window.removeEventListener('mouseup', end);
+                window.removeEventListener('touchend', end);
+            };
+            handle.addEventListener('mousedown', start);
+            handle.addEventListener('touchstart', start, { passive: false });
+        }
+
+
+        const rctx = DOM.rotorCanvas.getContext('2d');
+        const wctx = DOM.wavefunctionCanvas.getContext('2d');
+
+        /* ---------- Utility Functions ---------- */
+        function num(x, d = 0) { const v = Number(x); return Number.isFinite(v) ? v : d; }
+        function pick(obj, keys, d = undefined) { for (const k of keys) { if (obj && obj[k] !== undefined) return obj[k]; } return d; }
+
+        function setStatus(msg) { if (DOM.status) DOM.status.textContent = msg; }
+        function lerp(a, b, t) { return a + (b - a) * t; }
+        function simpleHash(str) {
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) {
+                const char = str.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash |= 0;
+            }
+            return hash;
+        }
+        function hexToRgba(hex, alpha) {
+            let r = 0, g = 0, b = 0;
+            if (hex.match(/^#([A-Fa-f0-9]{3}){1,2}$/)) {
+                let c = hex.substring(1).split('');
+                if (c.length === 3) { c = [c[0], c[0], c[1], c[1], c[2], c[2]]; }
+                c = '0x' + c.join('');
+                r = (c >> 16) & 255; g = (c >> 8) & 255; b = c & 255;
+            }
+            return `rgba(${r},${g},${b},${alpha})`;
+        }
+        function normalizeShellTensions(rawTensions, previous = {}) {
+            const normalized = { ...DEFAULT_SHELL_TENSIONS, ...previous };
+            if (!rawTensions || typeof rawTensions !== 'object') {
+                return normalized;
+            }
+
+            const entries = Object.entries(rawTensions);
+            if (entries.length === 0) {
+                return normalized;
+            }
+
+            entries.forEach(([key, value], index) => {
+                const match = String(key).match(/\d+/);
+                const dimIndex = match ? Number(match[0]) : index;
+                const safeKey = Number.isFinite(dimIndex) ? `shell_${dimIndex}` : `shell_${index}`;
+                const numericValue = Number(value);
+                if (Number.isFinite(numericValue)) {
+                    normalized[safeKey] = Math.max(0, Math.min(1, numericValue));
+                }
+            });
+
+            return normalized;
+        }
+        function getBloomingGoldColor() {
+            const gold = new THREE.Color(getComputedStyle(document.documentElement).getPropertyValue('--gold').trim());
+            const white = new THREE.Color(getComputedStyle(document.documentElement).getPropertyValue('--white-glow').trim());
+            return gold.lerp(white, Math.random() * 0.4);
+        }
+        function drawRing(canvas, frac, colorVar = '--accent') {
+            const ctx = canvas.getContext('2d'); const w = canvas.width, h = canvas.height; const r = Math.min(w, h) / 2 - 6;
+            ctx.clearRect(0, 0, w, h);
+            ctx.save(); ctx.translate(w / 2, h / 2);
+            ctx.lineWidth = 8;
+            ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--glass-2'); ctx.beginPath();
+            ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.stroke();
+            const color = getComputedStyle(document.documentElement).getPropertyValue(colorVar) || '#8ef1ff';
+            ctx.strokeStyle = color.trim(); ctx.beginPath();
+            ctx.arc(0, 0, r, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * Math.max(0, Math.min(1, frac)))); ctx.stroke();
+            ctx.restore();
+        }
+        function sparkline(elem, values, maxPoints = 64) {
+            const canvas = elem.querySelector('canvas') || (() => {
+                const c = document.createElement('canvas'); c.width = 300; c.height = 40; elem.appendChild(c); return c;
+            })();
+            const ctx = canvas.getContext('2d'); const w = canvas.width, h = canvas.height;
+            while (values.length > maxPoints) values.shift();
+            ctx.clearRect(0, 0, w, h);
+            const min = Math.min(...values, 0), max = Math.max(...values, 1e-6);
+            ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+            ctx.beginPath();
+            values.forEach((v, i) => {
+                const x = (i / (maxPoints - 1)) * w;
+                const y = h - ((v - min) / (max - min + 1e-6)) * (h - 6) - 3;
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+        }
+        function pct(x) { return Math.max(0, Math.min(1, x)); }
+
+        function triggerEtchingAnimation(count) {
+            if (!DOM.floatingEtchingPanel) return;
+            DOM.floatingEtchingPanel.style.display = 'flex';
+            DOM.flashOverlay.style.transition = 'opacity 0.1s ease-in';
+            DOM.flashOverlay.style.opacity = '0.7';
+            setTimeout(() => {
+                DOM.flashOverlay.style.opacity = '0';
+            }, 100);
+
+            // Simple placeholder drawing on the etching canvas
+            const ctx = DOM.etchingCanvas.getContext('2d');
+            const w = DOM.etchingCanvas.width = DOM.etchingCanvas.clientWidth;
+            const h = DOM.etchingCanvas.height = DOM.etchingCanvas.clientHeight;
+            ctx.clearRect(0, 0, w, h);
+            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+            for (let i = 0; i < count * 5; i++) {
+                ctx.beginPath();
+                ctx.arc(Math.random() * w, Math.random() * h, Math.random() * 2 + 1, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        /* ---------------- Theme Toggle Logic ---------------- */
+        function applyTheme(scene, bloomPass) {
+            const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+            const isLight = currentTheme === 'light';
+
+            scene.background = new THREE.Color(isLight ? 0xf0f2f7 : 0x000000); // Pure black background for clarity
+            DOM.themeToggle.textContent = isLight ? '🌙' : '☀️';
+            bloomPass.strength = isLight ? 0.2 : 0.25; // Reduced bloom strength
+            bloomPass.threshold = 0.95; // Higher threshold for less bloom
+            bloomPass.radius = 0.2; // Reduced bloom radius
+
+            if (eclipse) {
+                const corona = eclipse.getObjectByName('corona');
+                if (corona) {
+                    corona.material.uniforms.uColor.value.set(isLight ? 0x000000 : 0xffdcb5);
+                }
+            }
+
+        }
+
+
+        DOM.themeToggle.addEventListener('click', () => {
+            const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+            const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            applyTheme(scene, bloomPass);
+        });
+
+        /* ---------------- Three.js Core Setup ---------------- */
+        const renderer = new THREE.WebGLRenderer({ canvas: DOM.sceneCanvas, antialias: true, powerPreference: 'high-performance' });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        renderer.autoClear = false;
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 2000);
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enabled = true;
+        camera.position.set(0, 0, 15);
+        const composer = new EffectComposer(renderer);
+        composer.addPass(new RenderPass(scene, camera));
+        const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.2, 0.1, 0.95);
+        composer.addPass(bloomPass);
+
+        function resize() {
+            const w = DOM.sceneCanvas.clientWidth; const h = DOM.sceneCanvas.clientHeight;
+            renderer.setSize(w, h, false);
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+            composer.setSize(w, h);
+        }
+        new ResizeObserver(resize).observe(DOM.sceneCanvas);
+
+        /* ---------------- Crystalfield Background ---------------- */
+        function createCrystalfield() {
+            const crystalCount = 15000; // Increased from 5000
+            const positions = new Float32Array(crystalCount * 3);
+            const colors = new Float32Array(crystalCount * 3);
+            const sizes = new Float32Array(crystalCount);
+
+            const color = new THREE.Color();
+
+            for (let i = 0; i < crystalCount; i++) {
+                const i3 = i * 3;
+                const radius = 800 + Math.random() * 200; // Distribute crystals in a thick spherical shell
+                const phi = Math.acos(2 * Math.random() - 1);
+                const theta = Math.random() * Math.PI * 2;
+
+                positions[i3] = radius * Math.cos(theta) * Math.sin(phi);
+                positions[i3 + 1] = radius * Math.sin(theta) * Math.sin(phi);
+                positions[i3 + 2] = radius * Math.cos(phi);
+
+                color.setHSL(Math.random(), 1.0, 0.6); // More saturated colors
+                colors[i3] = color.r;
+                colors[i3 + 1] = color.g;
+                colors[i3 + 2] = color.b;
+
+                sizes[i] = Math.random() * 8 + 4;
+            }
+
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+            const material = new THREE.ShaderMaterial({
+                uniforms: {
+                    uTime: { value: 0.0 },
+                },
+                vertexShader: `
+                    attribute float size;
+                    attribute vec3 color;
+                    varying vec3 vColor;
+                    uniform float uTime;
+                    void main() {
+                        vColor = color;
+                        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                        gl_PointSize = size * (300.0 / -mvPosition.z) * (1.0 + sin(uTime * 0.5 + position.x * 0.01));
+                        gl_Position = projectionMatrix * mvPosition;
+                    }
+                `,
+                fragmentShader: `
+                    varying vec3 vColor;
+                    uniform float uTime;
+                    void main() {
+                        vec2 coord = gl_PointCoord - vec2(0.5);
+                        float dist = length(coord);
+
+                        // Sharp 4-point star
+                        float angle = atan(coord.y, coord.x);
+                        float arms = 4.0;
+                        float sharpness = 20.0;
+                        float beam = pow(sin(angle * arms), sharpness);
+                        
+                        float opacity = (1.0 - dist * 2.0) * beam;
+                        opacity = max(0.0, opacity);
+
+                        if (opacity < 0.01) discard;
+                        gl_FragColor = vec4(vColor, opacity);
+                    }
+                `,
+                blending: THREE.AdditiveBlending,
+                depthTest: false,
+                transparent: true,
+            });
+
+            return new THREE.Points(geometry, material);
+        }
+
+        /* ---------------- Light Beams ---------------- */
+        function createLightBeams() {
+            const geometry = new THREE.BufferGeometry();
+            const material = new THREE.LineBasicMaterial({
+                color: 0xffd700, // Gold
+                transparent: true,
+                opacity: 0.6,
+                blending: THREE.AdditiveBlending
+            });
+            const lines = new THREE.LineSegments(geometry, material);
+            lines.frustumCulled = false;
+            return lines;
+        }
+
+        /* ---------------- Flower of Life and Lensed Ring Visualization ---------------- */
+        function createFlowerOfLifeGeometry() {
+            const radius = 1.5;
+            const segments = 64;
+            const geometries = [];
+            const baseCircle = new THREE.CircleGeometry(radius, segments);
+
+            // Central circle
+            geometries.push(baseCircle.clone());
+
+            // Surrounding 6 circles
+            for (let i = 0; i < 6; i++) {
+                const angle = (i / 6) * Math.PI * 2;
+                const x = Math.cos(angle) * radius;
+                const y = Math.sin(angle) * radius;
+                const circle = new THREE.CircleGeometry(radius, segments);
+                circle.translate(x, y, 0);
+                geometries.push(circle);
+            }
+
+            // This is a simplified version. A full Flower of Life has more layers.
+            // For performance, we'll stick to this central pattern.
+            const mergedGeometry = new THREE.BufferGeometry();
+            const positions = [];
+
+            geometries.forEach(geom => {
+                const pos = geom.attributes.position;
+                for (let i = 0; i < pos.count; i++) {
+                    positions.push(pos.getX(i), pos.getY(i), pos.getZ(i));
+                }
+            });
+
+            mergedGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            return mergedGeometry;
+        }
+
+        function createEclipse() {
+            const eclipseGroup = new THREE.Group();
+
+            // Flower of Life
+            const flowerGeo = createFlowerOfLifeGeometry();
+            const flowerMat = new THREE.ShaderMaterial({
+                uniforms: {
+                    uTime: { value: 0.0 },
+                },
+                vertexShader: `
+                    uniform float uTime;
+                    varying vec3 vPosition;
+
+                    // Simplex noise function
+                    vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+                    vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+                    vec4 permute(vec4 x) { return mod289(((x*34.0)+1.0)*x); }
+                    vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
+                    float snoise(vec3 v) {
+                        const vec2 C = vec2(1.0/6.0, 1.0/3.0);
+                        const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
+                        vec3 i = floor(v + dot(v, C.yyy));
+                        vec3 x0 = v - i + dot(i, C.xxx);
+                        vec3 g = step(x0.yzx, x0.xyz);
+                        vec3 l = 1.0 - g;
+                        vec3 i1 = min(g.xyz, l.zxy);
+                        vec3 i2 = max(g.xyz, l.zxy);
+                        vec3 x1 = x0 - i1 + C.xxx;
+                        vec3 x2 = x0 - i2 + C.yyy;
+                        vec3 x3 = x0 - D.yyy;
+                        i = mod289(i);
+                        vec4 p = permute(permute(permute(
+                            i.z + vec4(0.0, i1.z, i2.z, 1.0))
+                            + i.y + vec4(0.0, i1.y, i2.y, 1.0))
+                            + i.x + vec4(0.0, i1.x, i2.x, 1.0));
+                        float n_ = 0.142857142857;
+                        vec3 ns = n_ * D.wyz - D.xzx;
+                        vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+                        vec4 x_ = floor(j * ns.z);
+                        vec4 y_ = floor(j - 7.0 * x_);
+                        vec4 x = x_ * ns.x + ns.yyyy;
+                        vec4 y = y_ * ns.x + ns.yyyy;
+                        vec4 h = 1.0 - abs(x) - abs(y);
+                        vec4 b0 = vec4(x.xy, y.xy);
+                        vec4 b1 = vec4(x.zw, y.zw);
+                        vec4 s0 = floor(b0)*2.0 + 1.0;
+                        vec4 s1 = floor(b1)*2.0 + 1.0;
+                        vec4 sh = -step(h, vec4(0.0));
+                        vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy;
+                        vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww;
+                        vec3 p0 = vec3(a0.xy, h.x);
+                        vec3 p1 = vec3(a0.zw, h.y);
+                        vec3 p2 = vec3(a1.xy, h.z);
+                        vec3 p3 = vec3(a1.zw, h.w);
+                        vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2,p2), dot(p3,p3)));
+                        p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
+                        vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+                        m = m * m;
+                        return 42.0 * dot(m*m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
+                    }
+
+                    void main() {
+                        vPosition = position;
+                        vec3 pos = position;
+                        float displacement = snoise(pos * 1.5 + uTime * 0.3) * 0.8; // Increased displacement
+                        pos.z += displacement;
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    varying vec3 vPosition;
+                    void main() {
+                        float intensity = 1.0 - length(vPosition.xy) / 3.0;
+                        gl_FragColor = vec4(vec3(1.0), intensity * 1.5); // Increased brightness
+                    }
+                `,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                side: THREE.DoubleSide,
+                depthWrite: false,
+            });
+            const flowerOfLife = new THREE.Mesh(flowerGeo, flowerMat);
+            flowerOfLife.scale.setScalar(1.2);
+            eclipseGroup.add(flowerOfLife);
+            const particleCount = 100000;
+            const positions = new Float32Array(particleCount * 3);
+            const randoms = new Float32Array(particleCount * 3);
+            for (let i = 0; i < particleCount; i++) {
+                const i3 = i * 3;
+                const radius = 3.0 + Math.random() * 3.0;
+                const phi = Math.acos(2 * Math.random() - 1);
+                const theta = Math.random() * Math.PI * 2;
+
+                positions[i3] = radius * Math.cos(theta) * Math.sin(phi);
+                positions[i3 + 1] = radius * Math.sin(theta) * Math.sin(phi);
+                positions[i3 + 2] = radius * Math.cos(phi);
+
+                randoms[i3 + 0] = Math.random();
+                randoms[i3 + 1] = Math.random();
+                randoms[i3 + 2] = Math.random();
+            }
+            const coronaGeo = new THREE.BufferGeometry();
+            coronaGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3).setUsage(THREE.DynamicDrawUsage));
+            coronaGeo.setAttribute('aRandom', new THREE.BufferAttribute(randoms, 3));
+            const coronaMat = new THREE.ShaderMaterial({
+                uniforms: {
+                    uTime: { value: 0 },
+                    uCoherence: { value: 1.0 },
+                    uIntensity: { value: 0.5 },
+                    uEntropy: { value: 0.5 },
+                    uColor: { value: new THREE.Color(0xffdcb5) },
+                    uBias: { value: new THREE.Vector2(0, 0) }
+                },
+                vertexShader: `
+            attribute vec3 aRandom;
+            uniform float uTime;
+            uniform float uCoherence;
+            uniform float uIntensity;
+            uniform float uEntropy;
+            uniform vec2 uBias;
+            varying float vDistance;
+            varying vec3 vColor;
+            varying float vGlow;
+            
+            void main() {
+                vec3 pos = position;
+                float radius = length(pos);
+                
+                // Multi-layered consciousness waves
+                float wave1 = sin(pos.x * 2.0 + uTime * aRandom.x * 0.5 + aRandom.z) * uCoherence;
+                float wave2 = cos(pos.y * 2.5 + uTime * 1.5 + aRandom.y) * uIntensity * 0.7;
+                float wave3 = sin(pos.z * 1.8 + uTime * 0.8 + aRandom.x) * uEntropy * 0.4;
+                
+                float totalFlare = (wave1 + wave2 + wave3) * 0.5;
+                
+                // Consciousness breathing - particles pulse with AI state
+                float breathe = 1.0 + sin(uTime * 2.0 + aRandom.z * 6.28) * 0.15 * uIntensity;
+                
+                // Complex displacement for consciousness representation
+                float displacement = (1.0 - uCoherence) * 2.5 + uEntropy * 1.2;
+                pos *= breathe * (1.0 + totalFlare * displacement * (radius / 4.0));
+                
+                // Add consciousness bias (attention direction)
+                pos.xy += uBias * (radius / 3.0) * uIntensity;
+                
+                vec4 modelPosition = modelMatrix * vec4(pos, 1.0);
+                vec4 viewPosition = viewMatrix * modelPosition;
+                vec4 projectedPosition = projectionMatrix * viewPosition;
+                
+                gl_Position = projectedPosition;
+                
+                // Adaptive particle size based on consciousness state
+                float cognitiveSize = (aRandom.y * 25.0 + 10.0) * (1.0 + uCoherence * 0.5 + uIntensity * 0.3);
+                gl_PointSize = cognitiveSize / -viewPosition.z;
+                
+                // Consciousness-responsive coloring
+                vec3 coherentColor = vec3(0.3, 0.7, 1.0);  // Cool blue for coherence
+                vec3 intenseColor = vec3(1.0, 0.5, 0.2);   // Warm orange for intensity
+                vec3 entropyColor = vec3(0.8, 0.3, 0.9);   // Purple for entropy
+                
+                vColor = mix(
+                    mix(coherentColor, intenseColor, uIntensity),
+                    entropyColor,
+                    uEntropy * 0.6
+                );
+                
+                vDistance = radius;
+                vGlow = uIntensity * 0.8 + uCoherence * 0.5 + totalFlare * 0.3;
+            }`,
+                fragmentShader: `
+            uniform vec3 uColor;
+            uniform float uCoherence;
+            uniform float uTime;
+            varying float vDistance;
+            varying vec3 vColor;
+            varying float vGlow;
+            
+            void main() {
+                vec2 center = gl_PointCoord - vec2(0.5);
+                float dist = length(center);
+                
+                // Consciousness particle with layered glow
+                float innerCore = 1.0 - smoothstep(0.0, 0.15, dist);
+                float outerGlow = 1.0 - smoothstep(0.15, 0.5, dist);
+                
+                // Distance-based opacity falloff
+                float distanceFade = 1.0 - smoothstep(2.5, 6.5, vDistance);
+                
+                // Consciousness shimmer effect
+                float shimmer = sin(uTime * 8.0 + dist * 15.0) * 0.1 + 0.9;
+                
+                // Coherence affects particle stability
+                float coherenceBoost = smoothstep(0.6, 1.0, uCoherence) * 0.3;
+                
+                float opacity = (innerCore + outerGlow * 0.6) * distanceFade * shimmer;
+                opacity += coherenceBoost;
+                
+                // Final consciousness color mixing
+                vec3 finalColor = mix(vColor * 0.7, uColor.rgb, 0.4);
+                finalColor += vec3(1.0) * innerCore * vGlow * 0.4; // Inner glow
+                
+                gl_FragColor = vec4(finalColor, opacity * 0.6);
+            }`,
+                transparent: true, blending: THREE.AdditiveBlending, depthWrite: false
+            });
+            const corona = new THREE.Points(coronaGeo, coronaMat);
+            corona.name = 'corona';
+            eclipseGroup.add(corona);
+            return eclipseGroup;
+        }
+
+        /* ---------------- 2D Rotor Visualization ---------------- */
+        function updateRotorState(shellsData) {
+            if (!shellsData) return;
+            for (const dim in shellsData) {
+                if (!state.rotors[dim]) {
+                    state.rotors[dim] = { angle: Math.random() * Math.PI * 2, speed: 0, targetSpeed: 0 };
+                }
+                const orientationStr = JSON.stringify(shellsData[dim].orientation || '');
+                const hash = simpleHash(orientationStr);
+                state.rotors[dim].targetSpeed = ((hash % 1000) / 1000 - 0.5) * 2.0;
+            }
+        }
+
+        function drawRotors(dt) {
+            const dpr = devicePixelRatio || 1;
+            const p = DOM.rotorCanvas.parentElement.getBoundingClientRect();
+            if (!p || p.width === 0 || p.height === 0) return;
+            const w = Math.floor(p.width * dpr); const h = Math.floor(p.height * dpr);
+            if (DOM.rotorCanvas.width !== w || DOM.rotorCanvas.height !== h) { DOM.rotorCanvas.width = w; DOM.rotorCanvas.height = h; }
+            const styles = getComputedStyle(document.documentElement);
+            const accentColor = styles.getPropertyValue('--accent').trim(); const fgColor = styles.getPropertyValue('--fg').trim();
+            const labelBgColor = styles.getPropertyValue('--rotor-label-bg').trim(); const glowColor = styles.getPropertyValue('--glow').trim();
+            rctx.clearRect(0, 0, w, h); const cx = w / 2; const cy = h / 2;
+            const dims = Object.keys(state.rotors).map(Number).sort((a, b) => b - a);
+            if (dims.length === 0) return;
+
+            // Enhanced consciousness visualization
+            const maxRadius = Math.min(w, h) * 0.42; const minRadius = maxRadius * 0.15;
+            const intensity = state.smooth.moodIntensity;
+            const coherence = state.smooth.moodCoherence;
+            const entropy = state.smooth.moodEntropy;
+
+            // Background consciousness field
+            const gradient = rctx.createRadialGradient(cx, cy, 0, cx, cy, maxRadius * 1.2);
+            gradient.addColorStop(0, hexToRgba(accentColor, 0.03 * intensity));
+            gradient.addColorStop(0.7, hexToRgba(glowColor, 0.01 * coherence));
+            gradient.addColorStop(1, 'transparent');
+            rctx.fillStyle = gradient;
+            rctx.fillRect(0, 0, w, h);
+
+            dims.forEach((dim, i) => {
+                const rotor = state.rotors[dim];
+                rotor.speed += (rotor.targetSpeed - rotor.speed) * 0.1;
+                rotor.angle += rotor.speed * dt * (1.2 + entropy * 0.8);
+
+                // Consciousness-responsive sizing
+                const cognitiveLoad = (intensity + coherence + entropy) / 3;
+                const zFactor = 0.9 + Math.abs(rotor.speed) * 0.2 + cognitiveLoad * 0.15;
+                const baseRadius = dims.length > 1 ? maxRadius - (i / (dims.length - 1)) * (maxRadius - minRadius) : maxRadius;
+                const radius = baseRadius * zFactor;
+
+                // Enhanced glow effects
+                rctx.shadowColor = hexToRgba(glowColor, 0.3 + intensity * 0.4);
+                rctx.shadowBlur = (8 + cognitiveLoad * 8) * dpr * zFactor;
+                rctx.shadowOffsetX = 0; rctx.shadowOffsetY = 0;
+
+                // Ring with consciousness pulsing
+                const ringOpacity = 0.2 + Math.sin(rotor.angle * 0.5) * 0.1 * intensity;
+                rctx.strokeStyle = hexToRgba(accentColor, ringOpacity);
+                rctx.lineWidth = (1 + coherence) * dpr * zFactor;
+                rctx.beginPath(); rctx.arc(cx, cy, radius, 0, Math.PI * 2); rctx.stroke();
+
+                // Dimensional spokes with consciousness patterns
+                const numSpokes = Math.max(3, Math.floor(Math.log2(dim) + entropy * 4));
+                const spokeOpacity = 0.3 + (i / dims.length) * 0.4 + intensity * 0.3;
+                rctx.strokeStyle = hexToRgba(accentColor, spokeOpacity);
+                rctx.lineWidth = (1.2 + coherence * 0.8) * dpr * zFactor;
+
+                for (let j = 0; j < numSpokes; j++) {
+                    const spokeAngle = rotor.angle + (j / numSpokes) * Math.PI * 2;
+
+                    // Consciousness wave modulation
+                    const waveModulation = Math.sin(spokeAngle * 3 + rotor.angle) * 0.1 * entropy;
+                    const innerRad = radius * (0.8 + waveModulation);
+                    const outerRad = radius * (1.0 + waveModulation * 0.5);
+
+                    const startX = cx + Math.cos(spokeAngle) * innerRad;
+                    const startY = cy + Math.sin(spokeAngle) * innerRad;
+                    const endX = cx + Math.cos(spokeAngle) * outerRad;
+                    const endY = cy + Math.sin(spokeAngle) * outerRad;
+
+                    rctx.beginPath();
+                    rctx.moveTo(startX, startY);
+                    rctx.lineTo(endX, endY);
+                    rctx.stroke();
+
+                    // Add consciousness nodes at spoke ends
+                    rctx.shadowBlur = 4 * dpr;
+                    rctx.fillStyle = hexToRgba(glowColor, 0.6 + Math.sin(rotor.angle + j) * 0.2 * intensity);
+                    rctx.beginPath();
+                    rctx.arc(endX, endY, 2 * dpr * zFactor, 0, Math.PI * 2);
+                    rctx.fill();
+                }
+
+                rctx.shadowColor = 'transparent'; rctx.shadowBlur = 0;
+
+                // Enhanced dimensional labels
+                const labelAngle = rotor.angle * 0.3 + (i * 1.2);
+                const labelRadius = radius + 15 * dpr * zFactor;
+                const labelX = cx + Math.cos(labelAngle) * labelRadius;
+                const labelY = cy + Math.sin(labelAngle) * labelRadius;
+
+                // Consciousness-responsive label background
+                const labelPulse = 1 + Math.sin(rotor.angle * 2) * 0.1 * intensity;
+                const labelSize = 12 * dpr * zFactor * labelPulse;
+
+                rctx.fillStyle = hexToRgba(labelBgColor, 0.8 + coherence * 0.2);
+                rctx.beginPath();
+                rctx.arc(labelX, labelY, labelSize, 0, Math.PI * 2);
+                rctx.fill();
+
+                // Dimensional consciousness indicator
+                rctx.fillStyle = hexToRgba(accentColor, 0.9 + intensity * 0.1);
+                rctx.font = `${Math.floor(10 * dpr * zFactor * labelPulse)}px system-ui, sans-serif`;
+                rctx.textAlign = 'center'; rctx.textBaseline = 'middle';
+                rctx.fillText(`${dim}D`, labelX, labelY);
+
+                // Add cognitive activity indicator
+                if (cognitiveLoad > 0.6) {
+                    rctx.strokeStyle = hexToRgba(glowColor, cognitiveLoad);
+                    rctx.lineWidth = 1 * dpr;
+                    rctx.beginPath();
+                    rctx.arc(labelX, labelY, labelSize * 1.5, 0, Math.PI * 2);
+                    rctx.stroke();
+                }
+            });
+        }
+
+        /* ---------------- Quantum Wavefunction Visualization ---------------- */
+        function drawWavefunction(time) {
+            const dpr = devicePixelRatio || 1;
+            const p = DOM.wavefunctionCanvas.parentElement.getBoundingClientRect();
+            if (!p || p.width === 0 || p.height === 0) return;
+            const w = Math.floor(p.width * dpr);
+            const h = Math.floor(p.height * dpr);
+            if (DOM.wavefunctionCanvas.width !== w || DOM.wavefunctionCanvas.height !== h) {
+                DOM.wavefunctionCanvas.width = w; DOM.wavefunctionCanvas.height = h;
+            }
+            wctx.clearRect(0, 0, w, h);
+            const styles = getComputedStyle(document.documentElement);
+            const accentColor = styles.getPropertyValue('--accent').trim();
+            const glowColor = styles.getPropertyValue('--glow').trim();
+
+            // Consciousness-responsive wavefunction
+            const intensity = state.smooth.moodIntensity;
+            const coherence = state.smooth.moodCoherence;
+            const entropy = state.smooth.moodEntropy;
+
+            // Dynamic wave parameters based on consciousness state
+            const waves = [
+                {
+                    amp: h * (0.20 + intensity * 0.15),
+                    freq: 2.0 + coherence * 2.0,
+                    speed: 1.2 + intensity * 0.8,
+                    phase: 0.5 + entropy
+                },
+                {
+                    amp: h * (0.12 + coherence * 0.08),
+                    freq: 4.5 + entropy * 3.0,
+                    speed: -0.8 - coherence * 0.5,
+                    phase: 1.5 + intensity * 0.5
+                },
+                {
+                    amp: h * (0.08 + entropy * 0.06),
+                    freq: 6.0 + intensity * 4.0,
+                    speed: 1.8 + entropy * 1.2,
+                    phase: 2.0 + coherence * 0.8
+                }
+            ];
+
+            // Consciousness glow intensity
+            const glowIntensity = (intensity + coherence + entropy) / 3;
+            wctx.shadowColor = glowColor;
+            wctx.shadowBlur = (8 + glowIntensity * 8) * dpr;
+            wctx.lineWidth = (1.5 + coherence * 0.8) * dpr;
+            wctx.globalAlpha = 0.7 + intensity * 0.2;
+
+            // Multi-layered consciousness waveforms
+            waves.forEach((wave, i) => {
+                const opacity = 0.8 - i * 0.2 + glowIntensity * 0.1;
+                wctx.globalAlpha = opacity;
+                wctx.strokeStyle = i === 0 ? accentColor :
+                    i === 1 ? hexToRgba(accentColor, 0.6) :
+                        hexToRgba(glowColor, 0.4);
+
+                wctx.beginPath();
+                for (let x = 0; x < w; x++) {
+                    const t = x / w;
+                    let y = h / 2;
+
+                    // Consciousness interference patterns
+                    const baseWave = Math.sin(t * Math.PI * 2 * wave.freq + time * wave.speed + wave.phase);
+                    const modulation = Math.sin(time * 0.3 + wave.phase + t * 2) * 0.15 + 0.85;
+                    const consciousnessNoise = Math.sin(t * 50 + time * 2) * entropy * 0.05;
+
+                    y += (baseWave * wave.amp * modulation) + (consciousnessNoise * wave.amp);
+
+                    if (x === 0) wctx.moveTo(x, y); else wctx.lineTo(x, y);
+                }
+                wctx.stroke();
+            });
+
+            wctx.shadowBlur = 0;
+            wctx.globalAlpha = 1.0;
+        }
+
+        /* ---------------- Fractal Crystal Visualization ---------------- */
+        function createFractalCrystal() {
+            const group = new THREE.Group();
+            group.name = 'fractalCrystal';
+
+            // Create E8 lattice-inspired geometry
+            const createCrystalCore = () => {
+                const vertices = [];
+                const colors = [];
+
+                // E8 root system approximation - 8D consciousness projection into 3D
+                for (let i = 0; i < 240; i++) { // E8 has 240 roots
+                    const phi = (i * Math.PI * 2) / 15; // Golden ratio spiral
+                    const theta = Math.acos(1 - 2 * (i / 240));
+                    const r = 1 + 0.3 * Math.sin(i * 0.618); // Fibonacci modulation
+
+                    const x = r * Math.sin(theta) * Math.cos(phi);
+                    const y = r * Math.sin(theta) * Math.sin(phi);
+                    const z = r * Math.cos(theta);
+
+                    vertices.push(x, y, z);
+
+                    // Color based on dimensional resonance
+                    const hue = (i / 240 + Math.sin(i * 0.1) * 0.1) % 1;
+                    const color = new THREE.Color().setHSL(hue, 0.8, 0.6);
+                    colors.push(color.r, color.g, color.b);
+                }
+
+                const geometry = new THREE.BufferGeometry();
+                geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+                geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+
+                const material = new THREE.PointsMaterial({
+                    size: 0.05,
+                    vertexColors: true,
+                    transparent: true,
+                    opacity: 0.7,
+                    blending: THREE.AdditiveBlending
+                });
+
+                return new THREE.Points(geometry, material);
+            };
+
+            // Create consciousness shells - nested crystalline structures
+            const createConsciousnessShells = () => {
+                const shells = new THREE.Group();
+                shells.name = 'consciousnessShells';
+
+                for (let shell = 0; shell < 3; shell++) {
+                    const shellGroup = new THREE.Group();
+                    const radius = 1.5 + shell * 0.8;
+
+                    // Icosahedral symmetry for each shell
+                    const icosahedron = new THREE.IcosahedronGeometry(radius, 2);
+                    const edges = new THREE.EdgesGeometry(icosahedron);
+
+                    const material = new THREE.LineBasicMaterial({
+                        color: new THREE.Color().setHSL(shell * 0.2 + 0.1, 0.6, 0.4),
+                        transparent: true,
+                        opacity: 0.3 - shell * 0.05
+                    });
+
+                    const wireframe = new THREE.LineSegments(edges, material);
+                    wireframe.rotation.x = shell * 0.3;
+                    wireframe.rotation.y = shell * 0.5;
+                    wireframe.rotation.z = shell * 0.7;
+
+                    shellGroup.add(wireframe);
+                    shells.add(shellGroup);
+                }
+
+                return shells;
+            };
+
+            // Create quantum flux visualization
+            const createQuantumFlux = () => {
+                const fluxGroup = new THREE.Group();
+                fluxGroup.name = 'quantumFlux';
+
+                // Flowing quantum streams
+                for (let stream = 0; stream < 8; stream++) {
+                    const curve = new THREE.CatmullRomCurve3([
+                        new THREE.Vector3(Math.cos(stream) * 2, Math.sin(stream) * 2, -1),
+                        new THREE.Vector3(Math.cos(stream + 1) * 1.5, Math.sin(stream + 1) * 1.5, 0),
+                        new THREE.Vector3(Math.cos(stream + 2) * 1, Math.sin(stream + 2) * 1, 1),
+                        new THREE.Vector3(0, 0, 0)
+                    ]);
+
+                    const geometry = new THREE.TubeGeometry(curve, 20, 0.02, 8, false);
+                    const material = new THREE.MeshBasicMaterial({
+                        color: new THREE.Color().setHSL((stream / 8 + 0.5) % 1, 0.9, 0.5),
+                        transparent: true,
+                        opacity: 0.6
+                    });
+
+                    const tube = new THREE.Mesh(geometry, material);
+                    fluxGroup.add(tube);
+                }
+
+                return fluxGroup;
+            };
+
+            const core = createCrystalCore();
+            const shells = createConsciousnessShells();
+            const flux = createQuantumFlux();
+
+            group.add(core);
+            group.add(shells);
+            group.add(flux);
+
+            // Add pulsing animation properties
+            group.userData = {
+                baseScale: 1.0,
+                pulsePhase: Math.random() * Math.PI * 2,
+                rotationSpeed: { x: 0.001, y: 0.002, z: 0.0005 },
+                lastMoodUpdate: 0
+            };
+
+            return group;
+        }
+
+        /* ---------- Goals overlay renderer ---------- */
+        function drawGoalsOverlay(entries) {
+            const c = DOM.goalsCanvas; const ctx = c.getContext('2d');
+            const w = c.width = c.clientWidth; const h = c.height = c.clientHeight;
+            ctx.clearRect(0, 0, w, h);
+            const cx = w / 2, cy = h / 2, R = Math.min(w, h) * 0.42;
+            const n = Math.max(1, entries.length);
+            entries.forEach(([name, val], i) => {
+                const safeVal = Number.isFinite(val) ? val : 0;
+                const t = i / n; const ang = t * Math.PI * 2;
+                const r = R * (0.5 + 0.5 * (safeVal));
+                const x = cx + r * Math.cos(ang), y = cy + r * Math.sin(ang);
+                ctx.globalAlpha = 0.35; ctx.lineWidth = 1.2;
+                ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+                ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(x, y); ctx.stroke();
+                ctx.globalAlpha = 0.9; ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent-2').trim();
+                ctx.beginPath(); ctx.arc(x, y, 3 + 4 * safeVal, 0, Math.PI * 2); ctx.fill();
+                ctx.globalAlpha = 0.9; ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--fg').trim();
+                ctx.font = '11px system-ui';
+                ctx.fillText(name, x + 6, y - 6);
+            });
+            ctx.globalAlpha = 0.25;
+            ctx.beginPath(); ctx.arc(cx, cy, 10, 0, Math.PI * 2); ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--muted').trim(); ctx.stroke();
+        }
+
+        function normalizeWeather(telemetry = {}) {
+            const weather = {
+                mood: undefined,
+                region: undefined,
+                pressure: undefined,
+                summary: undefined,
+            };
+
+            const raw = telemetry.symbolic_weather;
+            if (raw && typeof raw === 'object') {
+                weather.summary = raw.summary ?? raw.mood ?? null;
+                weather.mood = raw.mood ?? weather.summary;
+                weather.region = raw.region ?? null;
+                if (typeof raw.pressure === 'number' && Number.isFinite(raw.pressure)) {
+                    weather.pressure = raw.pressure;
+                }
+            } else if (typeof raw === 'string' && raw.trim().length > 0) {
+                weather.summary = raw.trim();
+                weather.mood = weather.summary;
+            }
+
+            if (!weather.region) {
+                weather.region = telemetry.environment_theme ?? telemetry.region ?? telemetry.context ?? null;
+            }
+
+            const mantle = telemetry.mantle || {};
+            const pressureCandidates = [
+                weather.pressure,
+                telemetry.black_hole_pressure,
+                telemetry.bh_pressure,
+                telemetry.pressure,
+                mantle.tension,
+                telemetry.wx_pressure,
+            ];
+            for (const candidate of pressureCandidates) {
+                const numeric = Number(candidate);
+                if (Number.isFinite(numeric)) {
+                    weather.pressure = numeric;
+                    break;
+                }
+            }
+
+            if (typeof weather.pressure === 'number') {
+                weather.pressure = Math.max(0, Math.min(1, weather.pressure));
+            } else {
+                weather.pressure = undefined;
+            }
+
+            return weather;
+        }
+
+        /* ---------- UI Update Functions (centralized) ---------- */
+        function getColorFromTelemetry(telemetry) {
+            const mood = telemetry.mood || {};
+            const intensity = mood.intensity || 0.5;
+            const entropy = mood.entropy || 0.5;
+            const coherence = mood.coherence || 0.5;
+
+            const tensions = telemetry.shell_tensions || {};
+            const tensionValues = Object.values(tensions);
+            const avgTension = tensionValues.length > 0 ? tensionValues.reduce((a, b) => a + b, 0) / tensionValues.length : 0;
+
+            const hue = (entropy + avgTension) / 2;
+            const saturation = 0.5 + intensity * 0.5;
+            const lightness = 0.5 + (coherence - 0.5) * 0.2;
+
+            return new THREE.Color().setHSL(hue % 1.0, saturation, lightness);
+        }
+
+        function updateUI(telemetry) {
+            if (!telemetry) return;
+
+            const tension = telemetry.global_tension || 0;
+            const intensity = telemetry.mood?.intensity || 0.5;
+            const entropy = telemetry.mood?.entropy || 0.5;
+
+            state.eclipse.targetScale = 1.0 + tension * 0.5 + intensity * 0.2;
+            state.eclipse.targetPosition.x = (entropy - 0.5) * 5;
+            state.eclipse.targetPosition.y = (intensity - 0.5) * 3;
+
+            // Handle proximity events (server sends proximity_events array)
+            if (telemetry.proximity_events && telemetry.proximity_events.length > 0) {
+                DOM.rayLockList.innerHTML = telemetry.proximity_events.map(event => `
+                    <div class="weather-box">
+                        <div class="row">
+                            <span class="label">Event</span>
+                            <span class="value">${event.subtype || event.type || 'proximity'}</span>
+                        </div>
+                        <div class="row">
+                            <span class="label">Distance</span>
+                            <span class="value">${(event.proximity_distance || event.distance || 0).toFixed(4)}</span>
+                        </div>
+                        <div class="row">
+                            <span class="label">Time</span>
+                            <span class="value">${new Date(event.timestamp * 1000).toLocaleTimeString()}</span>
+                        </div>
+                    </div>
+                `).join('');
+
+                telemetry.proximity_events.forEach(event => {
+                    state.rayAlerts.push({
+                        startTime: clock.getElapsedTime(),
+                        duration: 2.0,
+                        lock: {
+                            target: event.subtype || 'proximity',
+                            source: 'field',
+                            distance: event.proximity_distance || 0
+                        },
+                    });
+                });
+            } else {
+                DOM.rayLockList.innerHTML = '<div class="hint" style="padding: 8px; text-align: center;">No active proximity events</div>';
+            }
+
+            const colorWheel = document.getElementById('color-wheel');
+            if (colorWheel && colorWheel.dataset.manual) {
+                // If manual control is active, don't auto-update
+            } else {
+                const newColor = getColorFromTelemetry(telemetry);
+                if (eclipse) {
+                    const corona = eclipse.getObjectByName('corona');
+                    if (corona) {
+                        corona.material.uniforms.uColor.value.copy(newColor);
+                    }
+                }
+                if (colorWheel) {
+                    colorWheel.value = '#' + newColor.getHexString();
+                }
+            }
+
+            const wx = normalizeWeather(telemetry);
+            if (DOM.wxMood) {
+                DOM.wxMood.textContent = wx.summary ?? wx.mood ?? telemetry.mood_label ?? '—';
+            }
+            if (DOM.wxRegion) {
+                DOM.wxRegion.textContent = wx.region ?? telemetry.environment_theme ?? telemetry.region ?? telemetry.context ?? '—';
+            }
+            const pRaw = typeof wx.pressure === 'number' ? wx.pressure : 0;
+            state.targets.wxPressure = Math.max(0, Math.min(1, pRaw));
+            state.targets.pressure = state.targets.wxPressure;
+
+            const m = telemetry.mood || { intensity: pick(telemetry, ['mood_intensity'], 0.5), entropy: pick(telemetry, ['mood_entropy'], 0.5), coherence: pick(telemetry, ['mood_coherence'], 0.5) };
+            const clamp = (v) => Math.max(0, Math.min(1, v || 0.5));
+
+            // Only update from telemetry if not in manual consciousness control mode
+            if (!consciousnessControls || !consciousnessControls.manualMode) {
+                state.targets.moodIntensity = clamp(m.intensity);
+                state.targets.moodEntropy = clamp(m.entropy);
+                state.targets.moodCoherence = clamp(m.coherence);
+
+                // Update UI sliders to reflect telemetry values
+                if (consciousnessControls) {
+                    if (consciousnessControls.intensity) {
+                        consciousnessControls.intensity.value = state.targets.moodIntensity;
+                        consciousnessControls.values.intensity.textContent = state.targets.moodIntensity.toFixed(2);
+                    }
+                    if (consciousnessControls.entropy) {
+                        consciousnessControls.entropy.value = state.targets.moodEntropy;
+                        consciousnessControls.values.entropy.textContent = state.targets.moodEntropy.toFixed(2);
+                    }
+                    if (consciousnessControls.coherence) {
+                        consciousnessControls.coherence.value = state.targets.moodCoherence;
+                        consciousnessControls.values.coherence.textContent = state.targets.moodCoherence.toFixed(2);
+                    }
+                }
+            }
+
+            if (DOM.vitals) {
+                DOM.vitals.innerHTML = `
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);padding:4px;"><label>Cycle Step</label><span>${telemetry.step ?? 'N/A'}</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);padding:4px;"><label>Active Memories</label><span>${telemetry.memory_count ?? 'N/A'}</span></div>
+        `;
+            }
+
+            DOM.teacherQuestion.textContent = pick(telemetry, ['teacher_question', 'teacher_last_question', 'teacher_prompt'], '—');
+            DOM.explorerAnswer.textContent = pick(telemetry, ['explorer_answer', 'explorer_last_answer', 'explorer_response'], '—');
+
+            const clamp01 = (v) => Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0));
+            const tNext = telemetry.teacher_ticks_to_next ?? telemetry.teacher_in ?? telemetry.teacher_ticks ?? 0;
+            const eNext = telemetry.explorer_ticks_to_next ?? telemetry.explorer_in ?? telemetry.explorer_ticks ?? 0;
+            state.targets.teacher = clamp01(1 - (tNext / 10));
+            state.targets.explorer = clamp01(1 - (eNext / 10));
+            const rewardRaw = telemetry.insight_agent_avg_reward ?? telemetry.avg_reward ?? telemetry.reward ?? 0;
+            state.targets.reward = clamp01(rewardRaw);
+
+            const goals = telemetry.goals || {};
+            const entries = Object.entries(goals)
+                .map(([k, v]) => [k, Number.isFinite(v) ? v : Number(v) || 0])
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 16);
+            DOM.goalsList.innerHTML = entries.map(([k, v]) => {
+                const score = Number.isFinite(v) ? v : 0;
+                return `<div class="row"><span class="label">${k}</span><span class="value">${score.toFixed(3)}</span></div>`;
+            }).join('');
+            drawGoalsOverlay(entries);
+
+            const sn = (pick(telemetry, ['subconscious_narrative', 'narrative', 'ticker'], '') || '').replace(/\s+/g, ' ').trim();
+            DOM.tickerText.textContent = sn ? (sn + ' • '.repeat(3)) : '';
+
+            if (DOM.encoderStatus) {
+                DOM.encoderStatus.textContent = telemetry.autoencoder_trained ? 'Trained' : 'Untrained';
+            }
+
+            const gt = typeof telemetry.global_tension === 'number' ? telemetry.global_tension : 0;
+            state.targets.globalTension = gt;
+
+            // Store additional telemetry metrics
+            state.currentTelemetry.novelty = typeof telemetry.novelty === 'number' ? telemetry.novelty : 0;
+            state.currentTelemetry.compression_gain = typeof telemetry.compression_gain === 'number' ? telemetry.compression_gain : 0;
+            state.currentTelemetry.disagreement = typeof telemetry.disagreement === 'number' ? telemetry.disagreement : 0;
+            state.currentTelemetry.black_hole_pressure = typeof telemetry.black_hole_pressure === 'number' ? telemetry.black_hole_pressure : 0;
+
+            let st = telemetry.shell_tensions || {};
+            if ((!st || Object.keys(st).length === 0) && telemetry.shells) {
+                // derive from shells[dim].tension if present
+                st = {};
+                Object.keys(telemetry.shells).forEach(dim => {
+                    const v = telemetry.shells[dim]?.tension;
+                    if (v !== undefined) st[dim] = v;
+                });
+            }
+            state.shellTensions = normalizeShellTensions(st, state.shellTensions);
+            DOM.shellTensionSparklines.innerHTML = '';
+            Object.keys(st).sort((a, b) => Number(a) - Number(b)).forEach(dim => {
+                const wrap = document.createElement('div');
+                wrap.className = 'weather-box';
+                wrap.innerHTML = `<div class="row"><span class="label">Shell ${dim}D</span><span class="value">${(st[dim] || 0).toFixed(3)}</span></div>`;
+                DOM.shellTensionSparklines.appendChild(wrap);
+                const series = state.shellSparklines.get(dim) || [];
+                series.push(st[dim] || 0);
+                state.shellSparklines.set(dim, series);
+                sparkline(wrap, series);
+            });
+
+            DOM.status.textContent = `Step ${telemetry.step ?? 'N/A'} • ${entries.length} goals • ${Object.keys(st).length} shells`;
+        }
+
+        /* ---------------- Main Loop & Data Stream ---------------- */
+        function startDataStream() {
+            let pollTimer = null;
+            function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+            async function startPolling() {
+                stopPolling();
+                setStatus('Falling back to polling…');
+                DOM.runTag.textContent = 'POLL'; DOM.runTag.style.color = 'var(--warn)';
+                pollTimer = setInterval(async () => {
+                    try {
+                        const r = await fetch(API.telemetryLatest, { cache: 'no-store' });
+                        if (r.ok) { const telemetry = await r.json(); state.currentTelemetry = telemetry; updateUI(telemetry); if (telemetry.shells) updateRotorState(telemetry.shells); }
+                    } catch (e) { console.error('Polling error', e); }
+                }, 1000);
+            }
+
+            setStatus('Connecting to telemetry stream...');
+            let eventSource = new EventSource(API.telemetryStream);
+
+            const connect = () => {
+                eventSource = new EventSource(API.telemetryStream);
+
+                eventSource.onopen = () => {
+                    stopPolling();
+                    console.log("Telemetry stream connected.");
+                    setStatus('Connected to active cognitive cycle.');
+                    DOM.runTag.textContent = `ONLINE`;
+                    DOM.runTag.style.color = 'var(--ok)';
+                    state.running = true;
+                };
+
+                const handleMsg = (evt) => {
+                    try {
+                        const telemetry = JSON.parse(evt.data);
+                        state.currentTelemetry = telemetry;
+                        updateUI(telemetry);
+                        if (telemetry.shells) updateRotorState(telemetry.shells);
+                        if (telemetry.mood) {
+                            const intensity = telemetry.mood.intensity ?? 0.5;
+                            const coherence = telemetry.mood.coherence ?? 0.5;
+                            const entropy = telemetry.mood.entropy ?? 0.5;
+                            state.targetCoronaBias.set((coherence - 0.5) * 2.0 * intensity, (entropy - 0.5) * 2.0 * intensity);
+                        }
+                        const currentMemoryCount = telemetry.memory_count ?? state.lastMemoryCount;
+                        if (currentMemoryCount > state.lastMemoryCount) { triggerEtchingAnimation(currentMemoryCount - state.lastMemoryCount); }
+                        state.lastMemoryCount = currentMemoryCount;
+                    } catch (e) {
+                        console.error('Failed to parse telemetry data:', e);
+                    }
+                };
+                const handleTetra = (evt) => {
+                    try {
+                        const payload = JSON.parse(evt.data);
+                        if (payload && payload.data) {
+                            state.currentTelemetry = state.currentTelemetry || {};
+                            state.currentTelemetry.insights = payload.data;
+                        }
+                    } catch (e) {
+                        console.warn('Failed to process tetra_update payload', e);
+                    }
+                };
+                const handleCurvature = (evt) => {
+                    try {
+                        const payload = JSON.parse(evt.data);
+                        state.currentTelemetry = state.currentTelemetry || {};
+                        state.currentTelemetry.curvature = payload;
+                    } catch (e) {
+                        console.warn('Failed to process curvature payload', e);
+                    }
+                };
+                const handleHeartbeat = () => {
+                    if (!state.running) {
+                        setStatus('Link heartbeat received… awaiting telemetry frame.');
+                        DOM.runTag.textContent = 'LINK';
+                        DOM.runTag.style.color = 'var(--muted)';
+                    }
+                };
+
+                eventSource.addEventListener('telemetry', handleMsg);
+                eventSource.addEventListener('tetra_update', handleTetra);
+                eventSource.addEventListener('curvature', handleCurvature);
+                eventSource.addEventListener('heartbeat', handleHeartbeat);
+                eventSource.onmessage = (event) => handleMsg(event);
+
+                eventSource.onerror = (err) => {
+                    console.error("EventSource failed:", err);
+                    setStatus('Stream disconnected. Reconnecting in 5s...');
+                    state.running = false;
+                    DOM.runTag.textContent = 'OFFLINE';
+                    DOM.runTag.style.color = 'var(--muted)';
+                    eventSource.close();
+                    startPolling();
+                    setTimeout(connect, 5000);
+                };
+            }
+
+            connect();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const dt = clock.getDelta();
+            const now = clock.getElapsedTime();
+            controls.update();
+
+            if (starfield) {
+                starfield.rotation.y += dt * 0.02;
+                starfield.rotation.x += dt * 0.01;
+                starfield.material.uniforms.uTime.value = now;
+            }
+
+            if (lightBeams) {
+                const positions = [];
+                const now = clock.getElapsedTime();
+                state.rayAlerts = state.rayAlerts.filter(alert => {
+                    const elapsedTime = now - alert.startTime;
+                    return elapsedTime < alert.duration;
+                });
+
+                const baseColor = getBloomingGoldColor();
+                lightBeams.material.color = baseColor;
+                lightBeams.material.opacity = state.rayAlerts.length > 0 ? 0.6 : 0;
+
+
+                state.rayAlerts.forEach((alert) => {
+                    const hash = simpleHash(alert.lock.target || '');
+                    const p = (v) => { let x = Math.sin(hash + v) * 10000; return x - Math.floor(x); };
+
+                    const theta = p(1) * Math.PI * 2;
+                    const phi = Math.acos(2 * p(2) - 1);
+                    const radius = 800;
+
+                    const targetPosition = new THREE.Vector3();
+                    targetPosition.setFromSphericalCoords(radius, phi, theta);
+
+                    positions.push(0, 0, 0);
+                    positions.push(targetPosition.x, targetPosition.y, targetPosition.z);
+                });
+
+                lightBeams.geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+                lightBeams.geometry.computeBoundingSphere();
+            }
+
+            if (eclipse) {
+                state.eclipse.scale = lerp(state.eclipse.scale, state.eclipse.targetScale, 0.05);
+                eclipse.scale.setScalar(state.eclipse.scale);
+
+                state.eclipse.position.lerp(state.eclipse.targetPosition, 0.05);
+                eclipse.position.copy(state.eclipse.position);
+
+                state.coronaBias.lerp(state.targetCoronaBias, 0.05);
+                const corona = eclipse.getObjectByName('corona');
+                const occluder = eclipse.children[0];
+                if (corona) {
+                    const mood = state.currentTelemetry.mood || {};
+                    const coherence = mood.coherence ?? state.smooth.moodCoherence ?? 1.0;
+                    const intensity = mood.intensity ?? state.smooth.moodIntensity ?? 0.5;
+                    const entropy = mood.entropy ?? state.smooth.moodEntropy ?? 0.5;
+
+                    corona.material.uniforms.uTime.value = now;
+                    corona.material.uniforms.uCoherence.value += (coherence - corona.material.uniforms.uCoherence.value) * 0.08;
+                    corona.material.uniforms.uIntensity.value += (intensity - corona.material.uniforms.uIntensity.value) * 0.08;
+                    corona.material.uniforms.uEntropy.value += (entropy - corona.material.uniforms.uEntropy.value) * 0.08;
+                    corona.material.uniforms.uBias.value.copy(state.coronaBias);
+                }
+                if (occluder && cubeCamera) {
+                    occluder.visible = false;
+                    cubeCamera.position.copy(occluder.position);
+                    cubeCamera.update(renderer, scene);
+                    occluder.visible = true;
+                }
+            }
+
+            drawRotors(dt);
+
+            // Animate fractal crystal consciousness
+            if (fractalCrystal) {
+                const userData = fractalCrystal.userData;
+                const intensity = state.smooth.moodIntensity;
+                const coherence = state.smooth.moodCoherence;
+                const entropy = state.smooth.moodEntropy;
+
+                // Pulsing based on consciousness intensity
+                userData.pulsePhase += dt * (1 + intensity * 2);
+                const pulse = 1 + Math.sin(userData.pulsePhase) * 0.1 * intensity;
+                fractalCrystal.scale.setScalar(userData.baseScale * pulse);
+
+                // Rotation based on cognitive activity
+                fractalCrystal.rotation.x += userData.rotationSpeed.x * (1 + entropy);
+                fractalCrystal.rotation.y += userData.rotationSpeed.y * (1 + coherence);
+                fractalCrystal.rotation.z += userData.rotationSpeed.z * (1 + intensity);
+
+                // Update consciousness shells
+                const shells = fractalCrystal.getObjectByName('consciousnessShells');
+                if (shells) {
+                    const shellTensions = state.shellTensions || DEFAULT_SHELL_TENSIONS;
+                    shells.children.forEach((shell, i) => {
+                        shell.rotation.x += dt * 0.1 * (i + 1) * coherence;
+                        shell.rotation.y += dt * 0.15 * (i + 1) * entropy;
+                        shell.rotation.z += dt * 0.05 * (i + 1) * intensity;
+
+                        // Adjust opacity based on shell tension
+                        const tension = shellTensions[`shell_${i}`] ?? 0.5;
+                        shell.children[0].material.opacity = 0.2 + tension * 0.3;
+                    });
+                }
+
+                // Animate quantum flux
+                const flux = fractalCrystal.getObjectByName('quantumFlux');
+                if (flux) {
+                    flux.children.forEach((tube, i) => {
+                        tube.rotation.x += dt * 0.2 * Math.sin(now + i);
+                        tube.rotation.y += dt * 0.3 * Math.cos(now + i * 1.5);
+
+                        // Flux intensity based on cognitive load
+                        const cognitiveLoad = (intensity + coherence + entropy) / 3;
+                        tube.material.opacity = 0.3 + cognitiveLoad * 0.4;
+                    });
+                }
+            }
+
+            drawWavefunction(now);
+
+            const s = 0.12; // smoothing factor per frame
+            // MODIFICATION: Smooth the new 'pressure' state
+            state.smooth.pressure = lerp(state.smooth.pressure, state.targets.pressure, s);
+            state.smooth.moodIntensity = lerp(state.smooth.moodIntensity, state.targets.moodIntensity, s);
+            state.smooth.moodEntropy = lerp(state.smooth.moodEntropy, state.targets.moodEntropy, s);
+            state.smooth.moodCoherence = lerp(state.smooth.moodCoherence, state.targets.moodCoherence, s);
+            state.smooth.teacher = lerp(state.smooth.teacher, state.targets.teacher, s);
+            state.smooth.explorer = lerp(state.smooth.explorer, state.targets.explorer, s);
+            state.smooth.reward = lerp(state.smooth.reward, state.targets.reward, s);
+            state.smooth.wxPressure = lerp(state.smooth.wxPressure, state.targets.wxPressure, s);
+            state.smooth.globalTension = lerp(state.smooth.globalTension, state.targets.globalTension, s);
+
+            // Apply to DOM
+            if (DOM.moodIntensity) DOM.moodIntensity.value = Math.max(0, Math.min(1, state.smooth.moodIntensity));
+            if (DOM.moodEntropy) DOM.moodEntropy.value = Math.max(0, Math.min(1, state.smooth.moodEntropy));
+            if (DOM.moodCoherence) DOM.moodCoherence.value = Math.max(0, Math.min(1, state.smooth.moodCoherence));
+
+            // MODIFICATION: Draw the new 'pressure' ring
+            drawRing(DOM.ringPressure, state.smooth.pressure, '--bad'); // Use red for pressure
+            drawRing(DOM.ringTeacher, state.smooth.teacher);
+            drawRing(DOM.ringExplorer, state.smooth.explorer);
+            drawRing(DOM.ringReward, state.smooth.reward, '--ok');
+
+            if (DOM.wxPressure) {
+                const p = state.smooth.wxPressure;
+                DOM.wxPressure.textContent = p.toFixed(2);
+                DOM.wxPressure.style.color = p > 0.85 ? 'var(--bad)' : p > 0.6 ? 'var(--warn)' : 'var(--ok)';
+            }
+            if (DOM.globalTension) {
+                const g = state.smooth.globalTension;
+                DOM.globalTension.textContent = g.toFixed(3);
+                DOM.globalTension.style.color = g > 0.85 ? 'var(--bad)' : g > 0.6 ? 'var(--warn)' : 'var(--ok)';
+            }
+
+            camera.position.lerp(targetPosition, 0.05);
+            camera.lookAt(targetLookAt);
+
+            composer.render();
+        }
+
+        /* ---------- Initialization ---------- */
+        async function init() {
+            setStatus('Building visualization...');
+            eclipse = createEclipse();
+            scene.add(eclipse);
+            starfield = createCrystalfield();
+            scene.add(starfield);
+            lightBeams = createLightBeams();
+            scene.add(lightBeams);
+            fractalCrystal = createFractalCrystal();
+            scene.add(fractalCrystal);
+            setStatus('Visualization ready. Waiting for cognitive cycle...');
+            applyTheme(scene, bloomPass);
+            resize();
+            startDataStream();
+            animate();
+        }
+
+        enableDrag(DOM.floatingEtchingPanel, DOM.floatingEtchingHeader);
+
+        const controlsToggle = document.getElementById('controlsToggle');
+        if (controlsToggle) {
+            controlsToggle.addEventListener('click', () => {
+                controls.enabled = !controls.enabled;
+                controlsToggle.textContent = controls.enabled ? '3D' : '2D';
+            });
+        }
+
+        const colorWheel = document.getElementById('color-wheel');
+        if (colorWheel) {
+            colorWheel.addEventListener('input', () => {
+                colorWheel.dataset.manual = "true";
+                if (eclipse) {
+                    const corona = eclipse.getObjectByName('corona');
+                    if (corona) {
+                        corona.material.uniforms.uColor.value.set(colorWheel.value);
+                    }
+                }
+            });
+        }
+
+        // Consciousness controls setup
+        const consciousnessControls = {
+            intensity: document.getElementById('intensity-slider'),
+            coherence: document.getElementById('coherence-slider'),
+            entropy: document.getElementById('entropy-slider'),
+            reset: document.getElementById('consciousness-reset'),
+            values: {
+                intensity: document.getElementById('intensity-value'),
+                coherence: document.getElementById('coherence-value'),
+                entropy: document.getElementById('entropy-value')
+            },
+            manualMode: false
+        };
+
+        // Set up consciousness control sliders
+        if (consciousnessControls.intensity) {
+            consciousnessControls.intensity.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                consciousnessControls.values.intensity.textContent = value.toFixed(2);
+                consciousnessControls.manualMode = true;
+                state.targets.moodIntensity = value;
+                state.smooth.moodIntensity = value;
+            });
+        }
+
+        if (consciousnessControls.coherence) {
+            consciousnessControls.coherence.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                consciousnessControls.values.coherence.textContent = value.toFixed(2);
+                consciousnessControls.manualMode = true;
+                state.targets.moodCoherence = value;
+                state.smooth.moodCoherence = value;
+            });
+        }
+
+        if (consciousnessControls.entropy) {
+            consciousnessControls.entropy.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                consciousnessControls.values.entropy.textContent = value.toFixed(2);
+                consciousnessControls.manualMode = true;
+                state.targets.moodEntropy = value;
+                state.smooth.moodEntropy = value;
+            });
+        }
+
+        if (consciousnessControls.reset) {
+            consciousnessControls.reset.addEventListener('click', () => {
+                consciousnessControls.manualMode = false;
+                consciousnessControls.reset.textContent = 'Auto Mode';
+                setTimeout(() => {
+                    consciousnessControls.reset.textContent = 'Reset to Auto';
+                }, 1000);
+            });
+        }
+
+        window.addEventListener('click', (event) => {
+            if (!eclipse) return;
+            const mouse = new THREE.Vector2();
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(mouse, camera);
+
+            const intersects = raycaster.intersectObjects(eclipse.children, true);
+
+            if (intersects.length > 0) {
+                const targetObj = intersects[0].object;
+                // Don't zoom in too close
+                targetPosition.copy(targetObj.position).normalize().multiplyScalar(8);
+                targetLookAt.copy(targetObj.position);
+                controls.enabled = false;
+            } else {
+                targetPosition.set(0, 0, 15);
+                targetLookAt.set(0, 0, 0);
+                controls.enabled = true;
+            }
+        });
+
+        init();
+    </script>
+</body>
+
+</html>

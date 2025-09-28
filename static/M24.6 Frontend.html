@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>E8 Mind-Crystal (Live HUD) — M15.3 Frontend</title>
+    <title>E8 Mind-Crystal (Live HUD) — M30 Frontend</title>
     <style>
         :root {
             --bg: #0b0f17;
@@ -387,7 +387,7 @@
 
     <div class="ui-overlay">
         <header>
-            <div class="brand">E8 Mind-Crystal <span>// Live HUD</span></div>
+            <div class="brand">E8 Mind-Crystal <span>// M30 Live HUD</span></div>
             <div style="display:flex; align-items:center; gap:16px;">
                 <div class="status-tag" id="runTag" title="Data link status">OFFLINE</div>
                 <button id="themeToggle" class="theme-toggle-btn" title="Toggle Theme">☀️</button>
@@ -534,8 +534,6 @@
             lastMemoryCount: 0,
             currentTelemetry: {},
             shellSparklines: new Map(),
-            coronaBias: new THREE.Vector2(0, 0),
-            targetCoronaBias: new THREE.Vector2(0, 0),
             smooth: {
                 // MODIFICATION: Removed 'dream' and added 'pressure'
                 pressure: 0,
@@ -562,7 +560,15 @@
             },
         };
         let clock = new THREE.Clock();
-        let eclipse, cubeCamera;
+        let blackHole;
+        const cameraRig = {
+            targetRadius: 15,
+            currentRadius: 15,
+        };
+        const scratch = {
+            targetVec: new THREE.Vector3(),
+            dirVec: new THREE.Vector3(),
+        };
         let etchingScene, etchingCamera, etchingRenderer, etchingGrid, etchingComposer, etchingBloomPass;
         const ETCHING_BOUNDS = 10;
 
@@ -727,10 +733,27 @@
             if (etchingBloomPass) { etchingBloomPass.strength = isLight ? 0.28 : 0.35; etchingBloomPass.threshold = 0.85; etchingBloomPass.radius = 0.55; }
             bloomPass.radius = 0.5;
 
-            if (eclipse) {
-                const corona = eclipse.getObjectByName('corona');
-                if (corona) {
-                    corona.material.uniforms.uColor.value.set(isLight ? 0x000000 : 0xffdcb5);
+            if (blackHole) {
+                const horizonColor = isLight ? '#0b1633' : '#040810';
+                const highlightColor = isLight ? '#1f3f8c' : '#2656c5';
+                blackHole.horizon.uniforms.uTint.value.set(horizonColor);
+                blackHole.horizon.uniforms.uHighlight.value.set(highlightColor);
+
+                const innerDisk = isLight ? '#ff9f5a' : '#ffc98a';
+                const outerDisk = isLight ? '#3a6bff' : '#1f3ce6';
+                blackHole.disk.uniforms.uColorInner.value.set(innerDisk);
+                blackHole.disk.uniforms.uColorOuter.value.set(outerDisk);
+
+                blackHole.photonRing.material.color.set(isLight ? 0xffc27d : 0xffe2af);
+                blackHole.photonRing.material.opacity = isLight ? 0.68 : 0.82;
+                blackHole.jets.forEach((jet) => {
+                    jet.uniforms.uColor.value.set(isLight ? 0x3fb4ff : 0x7dd9ff);
+                });
+                if (blackHole.starField?.material) {
+                    blackHole.starField.material.opacity = isLight ? 0.55 : 0.85;
+                }
+                if (blackHole.lights?.ambient) {
+                    blackHole.lights.ambient.intensity = isLight ? 0.12 : 0.08;
                 }
             }
 
@@ -759,8 +782,32 @@
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 2000);
         const controls = new OrbitControls(camera, renderer.domElement);
-        controls.enabled = false;
-        camera.position.set(0, 0, 15);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.06;
+        controls.enablePan = false;
+        controls.minDistance = 6;
+        controls.maxDistance = 36;
+        controls.autoRotate = true;
+        controls.autoRotateSpeed = 0.22;
+        camera.position.set(0, 2.5, 18);
+        controls.target.set(0, 0, 0);
+        cameraRig.targetRadius = camera.position.distanceTo(controls.target);
+        cameraRig.currentRadius = cameraRig.targetRadius;
+        let isUserInteracting = false;
+        controls.addEventListener('start', () => { isUserInteracting = true; });
+        controls.addEventListener('end', () => {
+            isUserInteracting = false;
+            cameraRig.targetRadius = camera.position.distanceTo(controls.target);
+            cameraRig.currentRadius = cameraRig.targetRadius;
+        });
+        window.addEventListener('keydown', (event) => {
+            if (event.key.toLowerCase() === 'r') {
+                controls.reset();
+                camera.position.set(0, 2.5, 18);
+                cameraRig.targetRadius = camera.position.distanceTo(controls.target);
+                cameraRig.currentRadius = cameraRig.targetRadius;
+            }
+        });
         const composer = new EffectComposer(renderer);
         composer.addPass(new RenderPass(scene, camera));
         const bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.3, 0.5, 0.9);
@@ -777,78 +824,248 @@
         }
         new ResizeObserver(resize).observe(DOM.sceneCanvas);
 
-        /* ---------------- Lensed Ring Visualization ---------------- */
-        function createEclipse() {
-            const eclipseGroup = new THREE.Group();
-            const cubeRenderTarget = new THREE.WebGLCubeRenderTarget(256, { format: THREE.RGBAFormat, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
-            cubeCamera = new THREE.CubeCamera(1, 1000, cubeRenderTarget);
-            const occluderGeo = new THREE.TorusGeometry(2.5, 0.05, 64, 100);
-            const occluderMat = new THREE.MeshPhysicalMaterial({ roughness: 0.0, transmission: 1.0, thickness: 0.2, ior: 1.1, envMap: cubeRenderTarget.texture, side: THREE.DoubleSide, specularIntensity: 0.0 });
-            const occluder = new THREE.Mesh(occluderGeo, occluderMat);
-            occluder.position.z = 0.1;
-            eclipseGroup.add(occluder);
-            const particleCount = 100000;
-            const positions = new Float32Array(particleCount * 3);
-            const randoms = new Float32Array(particleCount * 3);
-            for (let i = 0; i < particleCount; i++) {
-                const i3 = i * 3;
-                randoms[i3 + 0] = Math.pow(Math.random(), 2.0);
-                randoms[i3 + 1] = Math.random() * Math.PI * 2;
-                randoms[i3 + 2] = Math.random() * Math.PI * 2;
-                positions[i3 + 2] = (Math.random() - 0.5) * 0.5;
-            }
-            const coronaGeo = new THREE.BufferGeometry();
-            coronaGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3).setUsage(THREE.DynamicDrawUsage));
-            coronaGeo.setAttribute('aRandom', new THREE.BufferAttribute(randoms, 3));
-            const coronaMat = new THREE.ShaderMaterial({
-                uniforms: {
-                    uTime: { value: 0 },
-                    uCoherence: { value: 1.0 },
-                    uColor: { value: new THREE.Color(0xffdcb5) },
-                    uBias: { value: new THREE.Vector2(0, 0) }
-                },
-                vertexShader: `
-            attribute vec3 aRandom;
+        /* ---------------- Kerr Black Hole Visualization ---------------- */
+        function createKerrBlackHole() {
+            const group = new THREE.Group();
+            group.name = 'kerrBlackHole';
+
+            const horizonUniforms = {
+                uTime: { value: 0 },
+                uSpin: { value: 0.9 },
+                uFalloff: { value: 2.2 },
+                uTint: { value: new THREE.Color('#04060d') },
+                uHighlight: { value: new THREE.Color('#162447') },
+            };
+            const horizon = new THREE.Mesh(
+                new THREE.SphereGeometry(1.9, 96, 96),
+                new THREE.ShaderMaterial({
+                    uniforms: horizonUniforms,
+                    vertexShader: `
+                varying vec3 vNormal;
+                varying vec3 vPos;
+                void main() {
+                    vNormal = normalize(normalMatrix * normal);
+                    vPos = position;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }`,
+                    fragmentShader: `
+                uniform float uTime;
+                uniform float uSpin;
+                uniform float uFalloff;
+                uniform vec3 uTint;
+                uniform vec3 uHighlight;
+                varying vec3 vNormal;
+                varying vec3 vPos;
+                void main() {
+                    float r = length(vPos);
+                    float angle = atan(vPos.z, vPos.x);
+                    float swirl = sin((angle + uTime * uSpin) * 4.0) * 0.15;
+                    float horizon = smoothstep(1.9, uFalloff, r + swirl);
+                    float fresnel = pow(1.0 - abs(dot(vNormal, vec3(0.0, 1.0, 0.0))), 2.0);
+                    vec3 color = mix(uTint, uHighlight, fresnel);
+                    color *= 0.55 + horizon * 0.45;
+                    gl_FragColor = vec4(color, 1.0);
+                }`,
+                    depthWrite: true,
+                })
+            );
+            group.add(horizon);
+
+            const diskUniforms = {
+                uTime: { value: 0 },
+                uLuminosity: { value: 0.5 },
+                uHeat: { value: 0.5 },
+                uColorInner: { value: new THREE.Color('#ffbb73') },
+                uColorOuter: { value: new THREE.Color('#2f5fff') },
+            };
+            const diskGeometry = new THREE.RingGeometry(2.6, 8.8, 320, 1);
+            diskGeometry.rotateX(-Math.PI / 2);
+            const disk = new THREE.Mesh(
+                diskGeometry,
+                new THREE.ShaderMaterial({
+                    uniforms: diskUniforms,
+                    vertexShader: `
+                varying vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }`,
+                    fragmentShader: `
+                uniform float uTime;
+                uniform float uLuminosity;
+                uniform float uHeat;
+                uniform vec3 uColorInner;
+                uniform vec3 uColorOuter;
+                varying vec2 vUv;
+                void main() {
+                    float radius = vUv.y;
+                    float theta = vUv.x * 6.28318;
+                    float swirl = theta * 6.0 + uTime * (1.2 + uHeat * 2.0);
+                    float turbulence = sin(swirl + radius * 22.0) * 0.5 + 0.5;
+                    float sparks = sin(swirl * 3.0 + uTime * 4.0) * 0.5 + 0.5;
+                    vec3 baseColor = mix(uColorOuter, uColorInner, pow(radius, 0.35));
+                    vec3 color = baseColor + (turbulence * uLuminosity) * vec3(1.4, 1.0, 0.6);
+                    color += (sparks * uHeat) * vec3(1.4, 0.6, 0.2);
+                    float alpha = smoothstep(0.02, 0.12, radius) * (1.0 - smoothstep(0.92, 1.0, radius));
+                    alpha *= 0.55 + uLuminosity * 0.5;
+                    if (alpha < 0.015) discard;
+                    gl_FragColor = vec4(color, alpha);
+                }`,
+                    transparent: true,
+                    side: THREE.DoubleSide,
+                    blending: THREE.AdditiveBlending,
+                    depthWrite: false,
+                })
+            );
+            disk.position.y = 0.05;
+            group.add(disk);
+
+            const photonRing = new THREE.Mesh(
+                new THREE.TorusGeometry(2.25, 0.12, 48, 320),
+                new THREE.MeshBasicMaterial({ color: 0xffd7a4, transparent: true, opacity: 0.75, blending: THREE.AdditiveBlending })
+            );
+            photonRing.name = 'photonRing';
+            group.add(photonRing);
+
+            const jetGeometry = new THREE.CylinderGeometry(0.4, 0.08, 14, 32, 1, true);
+            const jetUniformTemplate = {
+                uTime: { value: 0 },
+                uStrength: { value: 0.3 },
+                uColor: { value: new THREE.Color('#6bd3ff') },
+            };
+            const jetVertexShader = `
+            varying float vPosY;
+            void main() {
+                vPosY = position.y;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }`;
+            const jetFragmentShader = `
             uniform float uTime;
-            uniform float uCoherence;
-            uniform vec2 uBias;
-            varying float vDistance;
-            void main() {
-                vec2 baseDir = vec2(cos(aRandom.y), sin(aRandom.y));
-                vec2 biasedDir = normalize(baseDir + uBias);
-                float particleRadius = 3.0 + aRandom.x * 3.0;
-                vec3 pos = vec3(biasedDir * particleRadius, position.z);
-                
-                float radius = length(pos.xy);
-                float displacement = (1.0 - uCoherence) * 2.5;
-                float flare = sin(pos.x * 2.0 + uTime * aRandom.x * 0.5 + aRandom.z) * cos(pos.y * 2.5 + aRandom.z);
-                pos.xy *= 1.0 + (flare * displacement * (radius / 4.0));
-                
-                vec4 modelPosition = modelMatrix * vec4(pos, 1.0);
-                vec4 viewPosition = viewMatrix * modelPosition;
-                vec4 projectedPosition = projectionMatrix * viewPosition;
-                
-                gl_Position = projectedPosition;
-                gl_PointSize = (aRandom.y * 30.0) / -viewPosition.z;
-                vDistance = radius;
-            }`,
-                fragmentShader: `
+            uniform float uStrength;
             uniform vec3 uColor;
-            uniform float uCoherence;
-            varying float vDistance;
+            varying float vPosY;
             void main() {
-                float dist = length(gl_PointCoord - vec2(0.5));
-                float opacity = 1.0 - smoothstep(0.4, 0.5, dist);
-                opacity *= 1.0 - smoothstep(3.0, 6.5, vDistance);
-                opacity += (1.0 - smoothstep(0.8, 1.0, uCoherence)) * 0.2;
-                gl_FragColor = vec4(uColor, opacity * 0.5);
-            }`,
-                transparent: true, blending: THREE.AdditiveBlending, depthWrite: false
+                float band = 1.0 - abs(vPosY) / 7.0;
+                band = clamp(band, 0.0, 1.0);
+                float pulse = sin(uTime * 5.0 + vPosY * 2.2) * 0.5 + 0.5;
+                float alpha = pow(band, 1.8) * (uStrength * 1.1) * (0.6 + pulse * 0.6);
+                if (alpha < 0.02) discard;
+                vec3 color = uColor * (0.7 + pulse * 0.6);
+                gl_FragColor = vec4(color, alpha);
+            }`;
+            const createJetMaterial = () => new THREE.ShaderMaterial({
+                uniforms: THREE.UniformsUtils.clone(jetUniformTemplate),
+                vertexShader: jetVertexShader,
+                fragmentShader: jetFragmentShader,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
             });
-            const corona = new THREE.Points(coronaGeo, coronaMat);
-            corona.name = 'corona';
-            eclipseGroup.add(corona);
-            return eclipseGroup;
+            const jetTop = new THREE.Mesh(jetGeometry, createJetMaterial());
+            jetTop.position.y = 7.5;
+            const jetBottom = new THREE.Mesh(jetGeometry, createJetMaterial());
+            jetBottom.position.y = -7.5;
+            jetBottom.rotation.x = Math.PI;
+            group.add(jetTop, jetBottom);
+
+            const starCount = 4000;
+            const starPositions = new Float32Array(starCount * 3);
+            const starColors = new Float32Array(starCount * 3);
+            for (let i = 0; i < starCount; i++) {
+                const i3 = i * 3;
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.acos(2 * Math.random() - 1);
+                const radius = 80 + Math.random() * 80;
+                const x = radius * Math.sin(phi) * Math.cos(theta);
+                const y = radius * Math.cos(phi);
+                const z = radius * Math.sin(phi) * Math.sin(theta);
+                starPositions[i3 + 0] = x;
+                starPositions[i3 + 1] = y;
+                starPositions[i3 + 2] = z;
+                const c = 0.75 + Math.random() * 0.25;
+                starColors[i3 + 0] = c;
+                starColors[i3 + 1] = c;
+                starColors[i3 + 2] = 1.0;
+            }
+            const starGeometry = new THREE.BufferGeometry();
+            starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+            starGeometry.setAttribute('color', new THREE.BufferAttribute(starColors, 3));
+            const starMaterial = new THREE.PointsMaterial({
+                size: 0.8,
+                transparent: true,
+                opacity: 0.85,
+                vertexColors: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+                sizeAttenuation: true,
+            });
+            const starField = new THREE.Points(starGeometry, starMaterial);
+            starField.frustumCulled = false;
+            group.add(starField);
+
+            const rimLight = new THREE.PointLight(0xffb37a, 3.4, 180);
+            rimLight.position.set(9, 6, 4);
+            const coolLight = new THREE.PointLight(0x4c7fff, 2.2, 180);
+            coolLight.position.set(-10, -4, -6);
+            const ambient = new THREE.AmbientLight(0xffffff, 0.08);
+            group.add(rimLight, coolLight, ambient);
+
+            return {
+                group,
+                horizon: { mesh: horizon, uniforms: horizonUniforms },
+                disk: { mesh: disk, uniforms: diskUniforms },
+                photonRing,
+                jets: [
+                    { mesh: jetTop, uniforms: jetTop.material.uniforms },
+                    { mesh: jetBottom, uniforms: jetBottom.material.uniforms },
+                ],
+                starField: { mesh: starField, material: starMaterial },
+                lights: { rimLight, coolLight, ambient },
+            };
+        }
+
+        function updateKerrBlackHole(dt, time) {
+            if (!blackHole) return;
+
+            const pressure = state.smooth.pressure;
+            const reward = state.smooth.reward;
+            const teacher = state.smooth.teacher;
+            const explorer = state.smooth.explorer;
+            const moodIntensity = state.smooth.moodIntensity;
+            const moodEntropy = state.smooth.moodEntropy;
+            const moodCoherence = state.smooth.moodCoherence;
+            const tension = state.smooth.globalTension;
+
+            const diff = THREE.MathUtils.clamp((teacher - explorer) * 0.5 + 0.5, 0, 1); // 0..1 tilt bias
+
+            blackHole.horizon.uniforms.uTime.value = time;
+            blackHole.horizon.uniforms.uSpin.value = THREE.MathUtils.lerp(0.6, 2.6, moodCoherence);
+            blackHole.horizon.uniforms.uFalloff.value = THREE.MathUtils.lerp(1.7, 2.5, 1 - moodIntensity);
+
+            blackHole.disk.uniforms.uTime.value = time;
+            blackHole.disk.uniforms.uLuminosity.value = THREE.MathUtils.lerp(0.25, 1.8, pressure);
+            blackHole.disk.uniforms.uHeat.value = THREE.MathUtils.lerp(0.15, 1.2, pressure);
+
+            blackHole.photonRing.material.opacity = THREE.MathUtils.lerp(0.35, 0.9, pressure);
+            const ringHue = THREE.MathUtils.lerp(0.06, 0.12, pressure);
+            const ringSat = THREE.MathUtils.lerp(0.78, 1.0, reward);
+            const ringLight = THREE.MathUtils.lerp(0.55, 0.82, pressure);
+            blackHole.photonRing.material.color.setHSL(ringHue, ringSat, ringLight);
+
+            blackHole.jets.forEach((jet, idx) => {
+                jet.uniforms.uTime.value = time + idx * 0.5;
+                jet.uniforms.uStrength.value = THREE.MathUtils.lerp(0.05, 1.35, reward);
+            });
+
+            blackHole.starField.mesh.rotation.y += dt * THREE.MathUtils.lerp(0.01, 0.05, moodEntropy);
+
+            const wobble = (Math.sin(time * 0.35) * 0.12 + (diff - 0.5) * 0.4) * (0.4 + tension * 0.6);
+            blackHole.group.rotation.x = THREE.MathUtils.lerp(blackHole.group.rotation.x, wobble, 0.08);
+            blackHole.group.rotation.z = THREE.MathUtils.lerp(blackHole.group.rotation.z, (diff - 0.5) * 0.6, 0.08);
+            blackHole.group.rotation.y += dt * THREE.MathUtils.lerp(0.15, 0.55, moodCoherence);
+
+            controls.autoRotateSpeed = THREE.MathUtils.lerp(0.12, 0.65, moodEntropy);
+            cameraRig.targetRadius = THREE.MathUtils.lerp(9, 24, 1 - moodIntensity);
         }
 
         /* ---------------- 2D Rotor Visualization ---------------- */
@@ -1176,12 +1393,6 @@
                         state.currentTelemetry = telemetry;
                         updateUI(telemetry);
                         if (telemetry.shells) updateRotorState(telemetry.shells);
-                        if (telemetry.mood) {
-                            const intensity = telemetry.mood.intensity ?? 0.5;
-                            const coherence = telemetry.mood.coherence ?? 0.5;
-                            const entropy = telemetry.mood.entropy ?? 0.5;
-                            state.targetCoronaBias.set((coherence - 0.5) * 2.0 * intensity, (entropy - 0.5) * 2.0 * intensity);
-                        }
                         const currentMemoryCount = telemetry.memory_count ?? state.lastMemoryCount;
                         if (currentMemoryCount > state.lastMemoryCount) { triggerEtchingAnimation(currentMemoryCount - state.lastMemoryCount); }
                         state.lastMemoryCount = currentMemoryCount;
@@ -1211,24 +1422,9 @@
             requestAnimationFrame(animate);
             const dt = clock.getDelta();
             const now = clock.getElapsedTime();
-            controls.update();
 
-            if (eclipse) {
-                state.coronaBias.lerp(state.targetCoronaBias, 0.05);
-                const corona = eclipse.getObjectByName('corona');
-                const occluder = eclipse.children[0];
-                if (corona) {
-                    const coherence = state.currentTelemetry.mood?.coherence ?? 1.0;
-                    corona.material.uniforms.uTime.value = now;
-                    corona.material.uniforms.uCoherence.value += (coherence - corona.material.uniforms.uCoherence.value) * 0.1;
-                    corona.material.uniforms.uBias.value.copy(state.coronaBias);
-                }
-                if (occluder && cubeCamera) {
-                    occluder.visible = false;
-                    cubeCamera.position.copy(occluder.position);
-                    cubeCamera.update(renderer, scene);
-                    occluder.visible = true;
-                }
+            if (blackHole) {
+                updateKerrBlackHole(dt, now);
             }
 
             drawRotors(dt);
@@ -1270,6 +1466,19 @@
                 DOM.globalTension.style.color = g > 0.85 ? 'var(--bad)' : g > 0.6 ? 'var(--warn)' : 'var(--ok)';
             }
 
+            if (!isUserInteracting) {
+                scratch.targetVec.set(0, THREE.MathUtils.lerp(-1.0, 2.8, state.smooth.moodEntropy), 0);
+                controls.target.lerp(scratch.targetVec, 0.05);
+                scratch.dirVec.copy(camera.position).sub(controls.target);
+                const currentDistance = scratch.dirVec.length();
+                cameraRig.currentRadius = THREE.MathUtils.lerp(currentDistance, cameraRig.targetRadius, 0.04);
+                cameraRig.currentRadius = THREE.MathUtils.clamp(cameraRig.currentRadius, controls.minDistance, controls.maxDistance);
+                scratch.dirVec.setLength(cameraRig.currentRadius);
+                camera.position.copy(controls.target).add(scratch.dirVec);
+            }
+
+            controls.update();
+
             composer.render();
             if (etchingComposer) { etchingComposer.render(); } else if (etchingRenderer) { etchingRenderer.render(etchingScene, etchingCamera); }
         }
@@ -1277,8 +1486,8 @@
         /* ---------- Initialization ---------- */
         async function init() {
             setStatus('Building visualization...');
-            eclipse = createEclipse();
-            scene.add(eclipse);
+            blackHole = createKerrBlackHole();
+            scene.add(blackHole.group);
             initEtchingScene();
             setStatus('Visualization ready. Waiting for cognitive cycle...');
             applyTheme(scene, bloomPass);

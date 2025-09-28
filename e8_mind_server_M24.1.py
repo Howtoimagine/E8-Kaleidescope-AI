@@ -1015,8 +1015,8 @@ E8_VAE_LATENT = int(os.getenv("E8_VAE_LATENT", "8"))  # Latent dimension
 E8_VAE_BUFFER_SIZE = int(os.getenv("E8_VAE_BUFFER_SIZE", "4096"))  # Training buffer size
 E8_VAE_BATCH = int(os.getenv("E8_VAE_BATCH", "64"))  # Training batch size
 E8_VAE_MIN_BUFFER = int(os.getenv("E8_VAE_MIN_BUFFER", "256"))  # Minimum buffer size before training
-E8_VAE_TRAIN_EVERY = int(os.getenv("E8_VAE_TRAIN_EVERY", "5"))  # Train every N steps
-E8_VAE_TRAIN_PARTIAL = bool(int(os.getenv("E8_VAE_TRAIN_PARTIAL", "1")))  # Allow partial batch training
+E8_VAE_TRAIN_EVERY = int(os.getenv("E8_VAE_TRAIN_EVERY", "1"))  # Train every N steps
+E8_VAE_TRAIN_PARTIAL = bool(int(os.getenv("E8_VAE_TRAIN_PARTIAL", "0")))  # Allow partial batch training
 
 # Enhanced VAE settings (M24 improvements)
 E8_VAE_KL_WARMUP_STEPS = int(os.getenv("E8_VAE_KL_WARMUP_STEPS", "1000"))  # Steps for KL warmup (0→0.5)
@@ -1664,104 +1664,9 @@ def deterministic_embedding_stub(text: str, dim: int, master_seed: int) -> np.nd
 DATA_SOURCES: Dict[str, Any] = {
     # --- Core Topics: Neurology, Consciousness, and AI ---
 
-    # General Neuroscience and AI Intersection
-    "arxiv_neuro_ai": {
-        "type": "arxiv_api",
-        "url": (
-            "http://export.arxiv.org/api/query?"
-            "search_query=(cat:q-bio.NC+OR+cat:cs.AI)+AND+"
-            "(all:neurology+OR+all:brain+OR+all:consciousness+OR+all:cognition)"
-            "&sortBy=submittedDate&sortOrder=descending&max_results=10"
-        ),
-        "schedule_minutes": 20,
-    },
-
-    # Biophysics of Neural Systems
-    "arxiv_biophysics_neural": {
-        "type": "arxiv_api",
-        "url": (
-            "http://export.arxiv.org/api/query?"
-            "search_query=(cat:physics.bio-ph)+AND+"
-            "(all:neural+OR+all:neuron+OR+all:synaptic+OR+all:brain+OR+all:biophysics)"
-            "&sortBy=submittedDate&sortOrder=descending&max_results=10"
-        ),
-        "schedule_minutes": 30,
-    },
-
-    # Consciousness Studies (from multiple disciplines)
-    "arxiv_consciousness": {
-        "type": "arxiv_api",
-        "url": (
-            "http://export.arxiv.org/api/query?"
-            "search_query=(cat:cs.AI+OR+cat:q-bio.NC+OR+cat:nlin.AO)+AND+"
-            "(all:consciousness+OR+all:%22global+workspace%22+OR+all:%22integrated+information+theory%22)"
-            "&sortBy=submittedDate&sortOrder=descending&max_results=10"
-        ),
-        "schedule_minutes": 20,
-    },
-
-    # Psychology, Ego, and Identity in AI and Cognitive Science
-    "arxiv_psychology_identity_ai": {
-        "type": "arxiv_api",
-        "url": (
-            "http://export.arxiv.org/api/query?"
-            "search_query=(cat:cs.AI+OR+cat:cs.HC)+AND+"
-            "(all:psychology+OR+all:ego+OR+all:identity+OR+all:%22self-awareness%22+OR+all:%22theory+of+mind%22)"
-            "&sortBy=submittedDate&sortOrder=descending&max_results=10"
-        ),
-        "schedule_minutes": 30,
-    },
-
-    # --- PubMed for Broader Medical and Psychological Research ---
-
-    # Neurology and Brain Disorders
-    "pubmed_neurology": {
-        "type": "pubmed_api",
-        "url": (
-            "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?"
-            "db=pubmed&retmode=json&retmax=2&sort=date&"
-            "term=(neurology[MeSH+Major+Topic])+AND+(brain[Title/Abstract])"
-        ),
-        "schedule_minutes": 20,
-    },
-
-    # Consciousness Research in Medical Literature
-    "pubmed_consciousness": {
-        "type": "pubmed_api",
-        "url": (
-            "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?"
-            "db=pubmed&retmode=json&retmax=2&sort=date&"
-            "term=(consciousness[MeSH+Major+Topic])+OR+(consciousness[Title/Abstract])"
-        ),
-        "schedule_minutes": 30,
-    },
-
-    # Psychology of Self, Ego, and Identity
-    "pubmed_psychology_self": {
-        "type": "pubmed_api",
-        "url": (
-            "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?"
-            "db=pubmed&retmode=json&retmax=2&sort=date&"
-            "term=((psychology[MeSH+Major+Topic])+AND+(ego[Title/Abstract]+OR+identity[Title/Abstract]+OR+self[Title/Abstract]))"
-        ),
-        "schedule_minutes": 20,
-    },
     
-    # --- Connecting Fields & Local Ingestion ---
-
-    # AI Models of Cognition and Brain Function
-    "arxiv_ai_brain_models": {
-        "type": "arxiv_api",
-        "url": (
-            "http://export.arxiv.org/api/query?"
-            "search_query=(cat:cs.AI+OR+cat:cs.LG)+AND+"
-            "(all:%22cognitive+architecture%22+OR+all:%22brain+modeling%22+OR+all:%22neural+computation%22)"
-            "&sortBy=submittedDate&sortOrder=descending&max_results=10"
-        ),
-        "schedule_minutes": 30,
-    },
-
     # Local docs / ingestion
+    "research_local": {"type": "research_local", "max_total": 60, "schedule_minutes": 30},
     "research_ingest": {"type": "research_ingest", "max_total": 60, "schedule_minutes": 30},
 }
 
@@ -29522,6 +29427,62 @@ async def handle_get_telemetry(request):
 async def handle_get_blueprint(request):
     return web.json_response(request.app['mind'].blueprint)
 
+async def handle_get_lattice(request):
+    """GET /api/lattice - Return E8 lattice roots and active highlights for frontend visualization."""
+    mind = request.app['mind']
+    try:
+        # Get lattice data from the physics module
+        lattice_data = {
+            "roots": [],
+            "active_roots": [],
+            "tetrahedron": [],
+            "meta": {
+                "step": getattr(mind, 'step_num', 0),
+                "energy": 0.0,
+                "active_dimension": 8
+            }
+        }
+        
+        # Extract E8 roots from physics if available
+        if hasattr(mind, 'physics') and hasattr(mind.physics, 'roots_unit'):
+            roots_unit = mind.physics.roots_unit
+            if roots_unit is not None and len(roots_unit) > 0:
+                # Convert to list of 3D projected positions for frontend
+                import math
+                for i, root in enumerate(roots_unit[:240]):  # Limit to reasonable count
+                    # Simple 8D to 3D projection using first 3 components with scaling
+                    if len(root) >= 3:
+                        x, y, z = root[0], root[1], root[2] if len(root) > 2 else 0
+                        # Apply some rotation and scaling for visual appeal
+                        scale = 5.0
+                        lattice_data["roots"].append({
+                            "id": i,
+                            "position": [x * scale, y * scale, z * scale],
+                            "energy": float(np.linalg.norm(root[:3]) if len(root) >= 3 else 1.0),
+                            "type": "type1" if i < 112 else "type2"  # E8 has 112 type-1 and 128 type-2 roots
+                        })
+                
+                # Highlight some active roots based on current state
+                active_count = min(8, len(lattice_data["roots"]))
+                step = getattr(mind, 'step_num', 0)
+                for i in range(active_count):
+                    # Cycle through roots based on step for animation
+                    idx = (step + i * 13) % len(lattice_data["roots"])
+                    lattice_data["active_roots"].append(idx)
+                
+                # Create tetrahedron from first 4 roots
+                if len(lattice_data["roots"]) >= 4:
+                    lattice_data["tetrahedron"] = [0, 1, 2, 3]
+                
+                # Add meta information
+                lattice_data["meta"]["energy"] = float(getattr(mind, 'last_insight_reward', 0.5))
+                lattice_data["meta"]["total_roots"] = len(lattice_data["roots"])
+        
+        return web.json_response(lattice_data, dumps=lambda d: json.dumps(d, cls=NumpyEncoder))
+    except Exception as e:
+        console.log(f"[Lattice API Error] {e}")
+        return web.json_response({"error": "Failed to generate lattice data"}, status=500)
+
 async def handle_get_bh_panel(request):
     """GET /api/bh/panel - Return latest BH console panel data."""
     mind = request.app['mind']
@@ -29878,6 +29839,7 @@ async def main():
     app.router.add_get("/api/graph", handle_get_graph)
     app.router.add_get("/api/graph/summary", handle_get_graph_summary)
     app.router.add_get("/api/node/{node_id}", handle_get_node)
+    app.router.add_get("/api/lattice", handle_get_lattice)
     app.router.add_get("/api/bh/panel", handle_get_bh_panel)
     app.router.add_get("/api/metrics/recent", handle_get_metrics_recent)
     app.router.add_post("/api/concept/add", handle_add_concept)
@@ -30015,3 +29977,72 @@ if __name__ == "__main__":
     except Exception as e:
         console.log(f"[bold red]CRITICAL ERROR in main: {e}[/bold red]")
         console.print_exception()
+
+# --- Modular Physics Overrides (deduplication) ---
+# These imports deliberately rebind legacy symbols to the modular implementations
+# to avoid code drift. They are placed at the end so they override earlier
+# legacy class/function definitions without risky large deletions.
+try:
+    from e8_mind.physics.mantle import HyperdimensionalFieldMantle as _MantleImpl
+    from e8_mind.physics.horizon import (
+        HorizonLayer as _HorizonLayerImpl,
+        HorizonManager as _HorizonManagerImpl,
+        build_e8_horizon as _build_e8_horizon_impl,
+        build_cross_horizon_kernel as _build_cross_horizon_kernel_impl,
+    )
+    from e8_mind.physics.quantum import (
+        QuantumConfig as _QuantumConfigImpl,
+        QuantumEngine as _QuantumEngineImpl,
+    )
+
+    HyperdimensionalFieldMantle = _MantleImpl
+    HorizonLayer = _HorizonLayerImpl
+    HorizonManager = _HorizonManagerImpl
+
+try:
+    from e8_mind.memory import (
+        MemoryManager as _MemoryManagerImpl,
+        DimensionalShell as _DimensionalShellImpl,
+        ProximityEngine as _ProximityEngineImpl,
+        PathAsset as _PathAssetImpl,
+        VariationalAutoencoder as _VAEImpl,
+    )
+    MemoryManager = _MemoryManagerImpl
+    DimensionalShell = _DimensionalShellImpl
+    ProximityEngine = _ProximityEngineImpl
+    PathAsset = _PathAssetImpl
+    VariationalAutoencoder = _VAEImpl
+except Exception:
+    pass
+
+    build_e8_horizon = _build_e8_horizon_impl
+    build_cross_horizon_kernel = _build_cross_horizon_kernel_impl
+    QuantumConfig = _QuantumConfigImpl
+    QuantumEngine = _QuantumEngineImpl
+except Exception:
+    # If modular imports fail, fall back to legacy definitions above.
+    pass
+
+# --- Modular Cognitive Overrides (deduplication) ---
+try:
+    from e8_mind.cognitive import (
+        DreamEngine as _DreamEngineImpl,
+        MoodEngine as _MoodEngineImpl,
+        SubconsciousLayer as _SubconsciousLayerImpl,
+        GoalField as _GoalFieldImpl,
+        CognitiveScheduler as _CognitiveSchedulerImpl,
+        SACMPOAgent as _SACMPOAgentImpl,
+        SocietyOfMind as _SocietyOfMindImpl,
+        BaseAgentAdapter as _BaseAgentAdapterImpl,
+    )
+    DreamEngine = _DreamEngineImpl
+    MoodEngine = _MoodEngineImpl
+    SubconsciousLayer = _SubconsciousLayerImpl
+    GoalField = _GoalFieldImpl
+    CognitiveScheduler = _CognitiveSchedulerImpl
+    SACMPOAgent = _SACMPOAgentImpl
+    SocietyOfMind = _SocietyOfMindImpl
+    BaseAgentAdapter = _BaseAgentAdapterImpl
+except Exception:
+    # If modular imports fail, keep legacy definitions untouched.
+    pass

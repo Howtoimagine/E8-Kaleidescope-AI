@@ -16,6 +16,11 @@ GLOBAL_SEED = int(os.getenv("E8_SEED", "42"))
 EMBED_DIM = int(os.getenv("E8_EMBED_DIM", "1536"))
 RUNTIME_DIR = os.getenv("E8_RUNTIME_DIR", "runtime")
 
+# Field Mantle logging flags (physics subsystem)
+E8_LOG_FIELDMANTLE_THERMOSTAT = _env_true("E8_LOG_FIELDMANTLE_THERMOSTAT", default=False)
+E8_LOG_FIELDMANTLE_METRIC = _env_true("E8_LOG_FIELDMANTLE_METRIC", default=False)
+E8_LOG_FIELDMANTLE_INV = _env_true("E8_LOG_FIELDMANTLE_INV", default=False)
+
 @dataclass
 class AppConfig:
     """Application configuration container."""
