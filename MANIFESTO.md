@@ -51,7 +51,7 @@ The project therefore serves two audiences: scientists seeking new cognitive for
 
 ## 6 · About the Author
 
-**Skye Malone**, Award winning experimental dancer, symbolic systems designer, Eagle Scout,and Co-founder of *33 Collesvtive* in Bielefeld, Germany. My work explores the continuity between embodied movement, perception, and computation. Influenced by the spiritual humanism of Ram Dass, the linguistic fluidity of Alan Watts, and the cognitive adventurousness of Terence McKenna, I treat technology as a mirror for consciousness rather than its imitation.
+**Skye Malone**, Award winning experimental dancer, symbolic systems designer, Eagle Scout, and Co-founder of *33 Collesvtive* in Bielefeld, Germany. My work explores the continuity between embodied movement, perception, and computation. Influenced by the spiritual humanism of Ram Dass, the guidance of Larry Feldman, the linguistic fluidity of Alan Watts, and the cognitive adventurousness of Terence McKenna, I treat technology as a mirror for consciousness rather than its imitation.
 
 *Kaleidoscope* is not a career product; it is an ontological experiment, a geometry of attention built to test whether meaning itself can self stabilize.
 
