@@ -1,0 +1,2999 @@
+<!DOCTYPE html>
+<!--
+  E8 Mind Observatory - Standalone & Server-Compatible UI
+  
+  This file can be opened directly (file://) or served from the E8 Mind server.
+  
+  When opened as a file:
+  - Automatically connects to http://localhost:7871
+  - Requires the E8 Mind server to be running
+  - Start the server with: start_kaleidoscope_monolith.bat
+  
+  When served from the server:
+  - Uses relative URLs to the hosting server
+  - Automatically works with any server configuration
+-->
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>E8 Mind Observatory</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap');
+        :root {
+            --bg: #040616;
+            --fg: #eef3ff;
+            --muted: rgba(222, 232, 255, 0.72);
+            --panel-bg: rgba(13, 18, 36, 0.78);
+            --panel-border: rgba(130, 150, 255, 0.18);
+            --accent: #6f9bff;
+            --accent-2: #8f5cff;
+            --success: #5eead4;
+            --danger: #f87171;
+            --warning: #facc15;
+            --badge-bg: rgba(255, 255, 255, 0.08);
+            --badge-fg: #cdd8ff;
+            --shadow: 0 24px 70px rgba(5, 9, 24, 0.65);
+            --radius-lg: 20px;
+            --radius-md: 14px;
+            --radius-sm: 10px;
+            --code-bg: rgba(5, 9, 24, 0.6);
+        }
+
+        *, *::before, *::after { box-sizing: border-box; }
+        html, body { height: 100%; }
+        body {
+            margin: 0;
+            padding: 32px 24px 48px;
+            font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+            color: var(--fg);
+            background: radial-gradient(circle at 20% -10%, rgba(111, 155, 255, 0.35), transparent 55%),
+                        radial-gradient(circle at 80% 0%, rgba(143, 92, 255, 0.25), transparent 48%),
+                        #020409;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            overflow-y: auto;
+        }
+
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            background: radial-gradient(circle at 50% 120%, rgba(94, 234, 212, 0.08), transparent 55%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .cosmic-grid {
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+            background-size: 80px 80px, 80px 80px;
+            -webkit-mask-image: radial-gradient(circle at 50% 50%, rgba(0,0,0,0.95), transparent 70%);
+            mask-image: radial-gradient(circle at 50% 50%, rgba(0,0,0,0.95), transparent 70%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .app-shell {
+            position: relative;
+            z-index: 1;
+            width: min(1440px, 100%);
+            display: flex;
+            flex-direction: column;
+            gap: 28px;
+        }
+
+        .top-bar {
+            background: linear-gradient(135deg, rgba(21, 30, 58, 0.92), rgba(19, 26, 52, 0.72));
+            border: 1px solid var(--panel-border);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow);
+            padding: 22px 28px;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 24px;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+        }
+        
+        .brand-badge {
+            width: 48px;
+            height: 48px;
+            border-radius: 16px;
+            background: linear-gradient(145deg, rgba(111,155,255,0.45), rgba(143,92,255,0.55));
+            display: grid;
+            place-items: center;
+            font-family: 'Space Grotesk', sans-serif;
+            font-weight: 700;
+            font-size: 18px;
+            letter-spacing: 1px;
+            color: #0b1020;
+            box-shadow: 0 12px 30px rgba(111,155,255,0.22);
+        }
+
+        .brand-text h1 {
+            margin: 0;
+            font-family: 'Space Grotesk', sans-serif;
+            font-weight: 600;
+            font-size: 24px;
+            letter-spacing: 0.8px;
+        }
+
+        .brand-text p {
+            margin: 4px 0 0;
+            font-size: 14px;
+            color: var(--muted);
+        }
+
+        .status-capsules {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: center;
+        }
+        .capsule {
+            padding: 12px 18px;
+            border-radius: 999px;
+            border: 1px solid rgba(255,255,255,0.08);
+            background: rgba(10, 15, 30, 0.55);
+            min-width: 140px;
+            display: grid;
+            gap: 4px;
+        }
+
+        .capsule .label {
+            text-transform: uppercase;
+            font-size: 10px;
+            letter-spacing: 0.18em;
+            color: var(--muted);
+        }
+
+        .capsule .value {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 16px;
+        }
+
+        .capsule .value.ok { color: var(--success); }
+        .capsule .value.err { color: var(--danger); }
+
+        .layout {
+            display: grid;
+            grid-template-columns: minmax(300px, 0.9fr) minmax(420px, 1.2fr) minmax(300px, 0.9fr);
+            gap: 24px;
+        }
+
+        .column {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            min-height: 0;
+        }
+
+        .panel {
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            border-radius: var(--radius-lg);
+            padding: 22px 24px 24px;
+            box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            min-height: 0;
+            -webkit-backdrop-filter: blur(18px) saturate(140%);
+            backdrop-filter: blur(18px) saturate(140%);
+        }
+
+        .panel h2, .panel h3, .panel h4 {
+            margin: 0;
+            font-family: 'Space Grotesk', sans-serif;
+            letter-spacing: 0.04em;
+        }
+
+        .panel h2 { font-size: 20px; }
+        .panel h3 { font-size: 16px; color: var(--muted); }
+        .panel h4 { font-size: 14px; color: var(--muted); text-transform: uppercase; }
+
+        .panel-intro {
+            font-size: 13px;
+            color: var(--muted);
+        }
+
+        .field {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .field.actions {
+            flex-direction: row;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .field-label {
+            font-size: 12px;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+
+        textarea, input[type="text"] {
+            width: 100%;
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(255,255,255,0.12);
+            background: rgba(8,12,26,0.6);
+            color: var(--fg);
+            padding: 12px 14px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        textarea:focus, input[type="text"]:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(111,155,255,0.25);
+        }
+
+        textarea::placeholder, input::placeholder {
+            color: rgba(220,230,255,0.45);
+        }
+
+        button {
+            border: none;
+            border-radius: 999px;
+            font-family: 'Space Grotesk', sans-serif;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            padding: 12px 22px;
+            cursor: pointer;
+            color: #050914;
+            background: linear-gradient(135deg, #6f9bff, #8f5cff);
+            box-shadow: 0 12px 30px rgba(111,155,255,0.35);
+            transition: transform 0.15s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+        }
+
+        button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 16px 36px rgba(111,155,255,0.4);
+        }
+
+        button:active:not(:disabled) {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .ghost-btn {
+            background: transparent;
+            color: var(--fg);
+            border: 1px solid rgba(255,255,255,0.24);
+            box-shadow: none;
+        }
+
+        .ghost-btn:hover:not(:disabled) {
+            background: rgba(111,155,255,0.12);
+        }
+
+        .microcopy {
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .divider {
+            width: 100%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+            margin: 4px 0;
+        }
+
+        .list-block {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-height: 220px;
+            overflow: auto;
+            padding-right: 4px;
+        }
+
+        .list-block.dense { gap: 6px; }
+
+        .list-item {
+            padding: 10px 12px;
+            background: rgba(12, 18, 32, 0.72);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+        }
+
+        .list-item .badge {
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: var(--badge-bg);
+            color: var(--badge-fg);
+            font-size: 11px;
+        }
+        .log-window {
+            background: var(--code-bg);
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(111,155,255,0.18);
+            padding: 16px;
+            font-family: 'JetBrains Mono', 'SFMono-Regular', Menlo, monospace;
+            font-size: 12px;
+            line-height: 1.5;
+            height: 320px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .log-line {
+            display: flex;
+            gap: 12px;
+            align-items: baseline;
+            color: rgba(226,236,255,0.88);
+        }
+
+        .log-line .log-time {
+            color: rgba(226,236,255,0.45);
+            font-size: 11px;
+            min-width: 54px;
+        }
+
+        .log-line.success .log-text { color: var(--success); }
+        .log-line.error .log-text { color: var(--danger); }
+        .log-line.warn .log-text { color: var(--warning); }
+
+        .curvature {
+            background: rgba(13,20,38,0.75);
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(111,155,255,0.16);
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .curvature-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .toggle {
+            position: relative;
+            width: 46px;
+            height: 24px;
+        }
+
+        .toggle input {
+            appearance: none;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            cursor: pointer;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            inset: 0;
+            background: rgba(255,255,255,0.16);
+            border-radius: 999px;
+            transition: background 0.2s ease;
+        }
+
+        .toggle-slider::after {
+            content: "";
+            position: absolute;
+            top: 3px;
+            left: 4px;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #fff;
+            transition: transform 0.2s ease;
+        }
+
+        .toggle input:checked + .toggle-slider {
+            background: linear-gradient(135deg, #6f9bff, #8f5cff);
+        }
+
+        .toggle input:checked + .toggle-slider::after {
+            transform: translateX(20px);
+        }
+
+        #curvCanvas {
+            width: 100%;
+            height: 180px;
+            display: none;
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(111,155,255,0.2);
+            background: rgba(5,9,24,0.75);
+        }
+
+        .panel--lattice .panel-intro {
+            margin-bottom: 4px;
+        }
+
+        .lattice-viewport {
+            position: relative;
+            width: 100%;
+            height: 320px;
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(111,155,255,0.16);
+            background: rgba(7, 11, 25, 0.8);
+            overflow: hidden;
+        }
+
+        .lattice-viewport canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        .lattice-alert {
+            position: absolute;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            font-size: 13px;
+            color: rgba(226,236,255,0.7);
+            -webkit-backdrop-filter: blur(6px);
+            backdrop-filter: blur(6px);
+        }
+
+        .lattice-meta {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .lattice-meta .item {
+            display: grid;
+            gap: 4px;
+        }
+
+        .lattice-meta .label {
+            text-transform: uppercase;
+            font-size: 10px;
+            letter-spacing: 0.18em;
+            color: var(--muted);
+        }
+
+        .lattice-meta .value {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 16px;
+        }
+
+        .quasicrystal-wrapper {
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 8px;
+            background: rgba(8, 12, 26, 0.65);
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+
+        #qcMemoryCanvas {
+            width: 100%;
+            max-width: 380px;
+            height: auto;
+            display: block;
+        }
+
+        .quasicrystal-summary {
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .qc-tooltip {
+            position: absolute;
+            background: rgba(12,18,36,0.95);
+            border: 1px solid rgba(111,155,255,0.4);
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 11px;
+            color: rgba(239,246,255,0.9);
+            pointer-events: none;
+            display: none;
+            z-index: 100;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 14px;
+        }
+
+        .stat-card {
+            background: rgba(12, 18, 36, 0.65);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: var(--radius-md);
+            padding: 14px 16px;
+            display: grid;
+            gap: 6px;
+        }
+
+        .stat-card .label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.18em;
+            color: var(--muted);
+        }
+
+        .stat-card .value {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 18px;
+        }
+
+        .stat-card .meta {
+            font-size: 11px;
+            color: rgba(226,236,255,0.55);
+        }
+        .countdown-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .countdown-pill {
+            border-radius: 999px;
+            border: 1px solid rgba(255,255,255,0.14);
+            padding: 8px 14px;
+            background: rgba(12,18,36,0.6);
+            font-size: 12px;
+            letter-spacing: 0.04em;
+            color: var(--muted);
+        }
+
+        .countdown-pill span {
+            color: var(--fg);
+            font-family: 'Space Grotesk', sans-serif;
+            margin-left: 6px;
+        }
+
+        .metric-section {
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+
+        .metric-block {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .metric-block h4 {
+            font-size: 12px;
+            letter-spacing: 0.14em;
+            color: var(--muted);
+        }
+
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+        }
+
+        .metric-card {
+            background: rgba(12, 18, 36, 0.65);
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(255,255,255,0.08);
+            padding: 12px 14px;
+            display: grid;
+            gap: 4px;
+            font-size: 12px;
+        }
+
+        .metric-card .metric-label {
+            text-transform: uppercase;
+            font-size: 10px;
+            letter-spacing: 0.16em;
+            color: var(--muted);
+        }
+
+        .metric-card .metric-value {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 16px;
+        }
+
+        .blueprint-block {
+            min-height: 120px;
+            border-radius: var(--radius-md);
+            border: 1px dashed rgba(255,255,255,0.18);
+            background: rgba(8, 12, 26, 0.55);
+            padding: 14px 16px;
+            font-size: 13px;
+            color: var(--muted);
+        }
+
+        .feed-grid {
+            display: grid;
+            gap: 12px;
+        }
+
+        .feed-grid .feed {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .dialogue-grid {
+            display: grid;
+            gap: 12px;
+        }
+
+        .dialogue-card {
+            background: rgba(12, 18, 36, 0.6);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: var(--radius-md);
+            padding: 16px;
+            display: grid;
+            gap: 8px;
+        }
+
+        .dialogue-card h3 {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.22em;
+            color: var(--muted);
+        }
+
+        .dialogue-card p {
+            margin: 0;
+            font-size: 14px;
+            color: rgba(230, 238, 255, 0.9);
+            line-height: 1.5;
+        }
+
+        .dialogue-card.empty p {
+            color: rgba(230, 238, 255, 0.45);
+        }
+
+        .actions-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .search-results {
+            max-height: 180px;
+            overflow-y: auto;
+            padding-right: 4px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .search-item {
+            border-radius: var(--radius-md);
+            padding: 10px 12px;
+            background: rgba(12, 18, 36, 0.6);
+            border: 1px solid rgba(255,255,255,0.08);
+            display: grid;
+            gap: 4px;
+        }
+
+        .search-item .title { font-weight: 600; }
+
+        .search-item .meta {
+            font-size: 11px;
+            color: var(--muted);
+        }
+
+        ::-webkit-scrollbar { width: 10px; height: 10px; }
+        ::-webkit-scrollbar-track { background: rgba(5,9,24,0.35); border-radius: 999px; }
+        ::-webkit-scrollbar-thumb { background: rgba(111,155,255,0.35); border-radius: 999px; }
+
+        @media (max-width: 1280px) {
+            body { padding: 24px 18px 36px; }
+            .layout {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+            .column:last-child {
+                grid-column: 1 / -1;
+            }
+        }
+
+        @media (max-width: 900px) {
+            .layout { grid-template-columns: 1fr; }
+            .top-bar { flex-direction: column; align-items: flex-start; }
+            .log-window { height: 260px; }
+            .lattice-viewport { height: 260px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="cosmic-grid"></div>
+    <div class="app-shell">
+        <header class="top-bar">
+            <div class="brand">
+                <div class="brand-badge">E8</div>
+                <div class="brand-text">
+                    <h1>Mind Observatory</h1>
+                    <p>Quantum cognition telemetry and emergent insight console</p>
+                </div>
+            </div>
+            <div class="status-capsules">
+                <div class="capsule">
+                    <span class="label">Stream</span>
+                    <span class="value" id="sseStatus">Connecting...</span>
+                </div>
+                <div class="capsule">
+                    <span class="label">Step</span>
+                    <span class="value" id="stepNum">-</span>
+                </div>
+                <div class="capsule">
+                    <span class="label">Concepts</span>
+                    <span class="value" id="conceptCount">-</span>
+                </div>
+                <div class="capsule">
+                    <span class="label">Environment</span>
+                    <span class="value" id="regionVal">-</span>
+                </div>
+            </div>
+        </header>
+
+        <div class="layout">
+            <div class="column column--left">
+                <section class="panel panel--form">
+                    <h2>Concept Forge</h2>
+                    <p class="panel-intro">Seed the lattice with fresh ideas. Concepts are routed through synthesis, validation, and the quasicrystal window.</p>
+                    <label class="field">
+                        <span class="field-label">New concept</span>
+                        <textarea id="conceptText" rows="4" placeholder="Describe a concept, hypothesis, or observation..."></textarea>
+                    </label>
+                    <div class="field actions">
+                        <button id="addBtn">Submit Concept</button>
+                        <span id="addStatus" class="microcopy"></span>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <h3>Memory Lookup</h3>
+                    <div class="actions-row">
+                        <input type="text" id="searchQ" placeholder="Search the knowledge graph..."/>
+                        <button id="searchBtn" class="ghost-btn">Search</button>
+                    </div>
+                    <div id="searchResults" class="search-results microcopy"></div>
+
+                    <div class="divider"></div>
+
+                    <h3>Recent Concepts</h3>
+                    <div id="recentConcepts" class="list-block"></div>
+                </section>
+
+                <section class="panel panel--feeds">
+                    <h2>Signal Feeds</h2>
+                    <div class="feed-grid">
+                        <div class="feed">
+                            <h3>Ingestion Stream</h3>
+                            <div id="ingestionFeed" class="list-block dense"></div>
+                        </div>
+                        <div class="feed">
+                            <h3>Validation Lab</h3>
+                            <div id="validationFeed" class="list-block dense"></div>
+                        </div>
+                        <div class="feed">
+                            <h3>Insight Holocron</h3>
+                            <div id="holocronFeed" class="list-block dense"></div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+            <div class="column column--center">
+                <section class="panel panel--lattice">
+                    <div>
+                        <h2>E8 Lattice Geometry</h2>
+                        <p class="panel-intro">3D projection with symmetry groups. Drag to rotate, scroll/pinch to zoom. Keys: R=reset | C=connections | A=auto-rotate | G=grid | P=particles | M=color-mode | +/- zoom | arrows=rotate</p>
+                    </div>
+                    <div id="latticeViewport" class="lattice-viewport">
+                        <div id="latticeFallback" class="lattice-alert">Initializing lattice renderer…</div>
+                    </div>
+                    <div class="lattice-meta">
+                        <div class="item">
+                            <span class="label">Roots</span>
+                            <span class="value" id="latticeMetaRoots">-</span>
+                        </div>
+                        <div class="item">
+                            <span class="label">Energy</span>
+                            <span class="value" id="latticeMetaEnergy">-</span>
+                        </div>
+                        <div class="item">
+                            <span class="label">Step</span>
+                            <span class="value" id="latticeMetaStep">-</span>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="panel panel--activity">
+                    <h2>Signal Stream</h2>
+                    <p class="panel-intro">Live narration of emergent behaviour, structural adjustments, and telemetry anomalies.</p>
+                    <div id="log" class="log-window"></div>
+                    <div class="curvature">
+                        <div class="curvature-header">
+                            <div>
+                                <h3>Curvature Overlay</h3>
+                                <p class="microcopy">Visualise curvature deviations across the causal manifold.</p>
+                            </div>
+                            <label class="toggle" aria-label="Toggle curvature overlay">
+                                <input type="checkbox" id="curvToggle" aria-label="Enable curvature overlay"/>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <canvas id="curvCanvas" width="720" height="180"></canvas>
+                    </div>
+                </section>
+
+                <section class="panel panel--dialogue">
+                    <h2>Dialogue and Narrative</h2>
+                    <div class="dialogue-grid">
+                        <div class="dialogue-card" id="hypothesisCard">
+                            <h3>Active Hypothesis</h3>
+                            <p id="hypothesisText">No hypothesis registered.</p>
+                        </div>
+                        <div class="dialogue-card" id="teacherCard">
+                            <h3>Teacher Prompt</h3>
+                            <p id="teacherQuestion">Awaiting next cadence...</p>
+                        </div>
+                        <div class="dialogue-card" id="explorerCard">
+                            <h3>Explorer Response</h3>
+                            <p id="explorerAnswer">No explorer output captured yet.</p>
+                        </div>
+                        <div class="dialogue-card" id="subconsciousCard">
+                            <h3>Subconscious Narrative</h3>
+                            <p id="subconsciousText">Silent subconscious layer.</p>
+                        </div>
+                        <div class="dialogue-card" id="goalsCard">
+                            <h3>Goal Field</h3>
+                            <div id="goalsList" class="list-block dense"></div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+            <div class="column column--right">
+                <section class="panel panel--quasicrystal">
+                    <h2>Quasicrystal Memory</h2>
+                    <p class="panel-intro">Penrose-style tiling with dimensional shells. Drag to pan, scroll to zoom, double-click to reset. Keys: Q=auto-rotate | L=labels | N=connections | B=particles | K=color-scheme</p>
+                    <div class="quasicrystal-wrapper">
+                        <canvas id="qcMemoryCanvas" width="400" height="400"></canvas>
+                        <div id="qcTooltip" class="qc-tooltip"></div>
+                    </div>
+                    <div class="quasicrystal-summary" id="quasicrystalSummary">Awaiting telemetry…</div>
+                </section>
+
+                <section class="panel panel--insights">
+                    <h2>Telemetry</h2>
+                    <div class="stat-grid">
+                        <div class="stat-card">
+                            <span class="label">Memory</span>
+                            <span class="value" id="memoryCountVal">-</span>
+                            <span class="meta">nodes</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="label">Novelty</span>
+                            <span class="value" id="noveltyVal">-</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="label">Compression</span>
+                            <span class="value" id="compressionGainVal">-</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="label">Disagreement</span>
+                            <span class="value" id="disagreementVal">-</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="label">Global Tension</span>
+                            <span class="value" id="globalTensionVal">-</span>
+                        </div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <h3>Cadence</h3>
+                    <div class="countdown-grid">
+                        <div class="countdown-pill">Teacher in<span id="teacherCountdown">-</span></div>
+                        <div class="countdown-pill">Explorer in<span id="explorerCountdown">-</span></div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <h3>Quantum Envelope</h3>
+                    <div id="quantumMetrics" class="metric-grid"></div>
+
+                    <div class="divider"></div>
+
+                    <h3>Quasicrystal Window</h3>
+                    <div id="qcMetrics" class="metric-grid"></div>
+
+                    <div class="divider"></div>
+
+                    <h3>Phi Log-Periodic</h3>
+                    <div id="phiConfig" class="list-block dense"></div>
+
+                    <div class="divider"></div>
+
+                    <h3>Metric Summary</h3>
+                    <div id="metrics" class="metric-section"></div>
+
+                    <div class="divider"></div>
+
+                    
+                    <div class="divider"></div>
+
+                    <h3>M25 Compression Router</h3>
+                    <div class="metric-grid">
+                      <div class="stat-card"><span class="label">E8 route</span><span class="value" id="m25RouteE8">-</span></div>
+                      <div class="stat-card"><span class="label">Boundary route</span><span class="value" id="m25RouteBoundary">-</span></div>
+                      <div class="stat-card"><span class="label">Leech route</span><span class="value" id="m25RouteLeech">-</span></div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <h3>M25 Invariance Check</h3>
+                    <div class="metric-grid">
+                      <div class="stat-card"><span class="label">Pre-MSE</span><span class="value" id="m25PreMSE">-</span></div>
+                      <div class="stat-card"><span class="label">Post-MSE</span><span class="value" id="m25PostMSE">-</span></div>
+                      <div class="stat-card"><span class="label">Gain (×)</span><span class="value" id="m25GainRatio">-</span></div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <h3>M25 Codeword Consensus</h3>
+                    <div class="metric-grid">
+                      <div class="stat-card"><span class="label">Lock Jaccard</span><span class="value" id="m25LockJaccard">-</span></div>
+                      <div class="stat-card"><span class="label">Codeword Agree</span><span class="value" id="m25CodewordAgree">-</span></div>
+                      <div class="stat-card"><span class="label">Glyph Jaccard</span><span class="value" id="m25GlyphJaccard">-</span></div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <h3>M27 Field Dynamics</h3>
+                    <div class="metric-grid">
+                      <div class="stat-card"><span class="label">Gravity Steps</span><span class="value" id="m27GravitySteps">-</span></div>
+                      <div class="stat-card"><span class="label">Strong Steps</span><span class="value" id="m27StrongSteps">-</span></div>
+                      <div class="stat-card"><span class="label">Weak Events</span><span class="value" id="m27WeakEvents">-</span></div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <h3>M27 Field Mantle Status</h3>
+                    <div class="metric-grid">
+                      <div class="stat-card"><span class="label">Gravity ETA</span><span class="value" id="m27GravityETA">-</span></div>
+                      <div class="stat-card"><span class="label">Strong Binding</span><span class="value" id="m27StrongBinding">-</span></div>
+                      <div class="stat-card"><span class="label">Weak Flavor</span><span class="value" id="m27WeakFlavor">-</span></div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <h3>M27 Consciousness Control</h3>
+                    <div class="metric-grid">
+                      <div class="stat-card"><span class="label">DMN Proxy</span><span class="value" id="m27DMNProxy">-</span></div>
+                      <div class="stat-card"><span class="label">PFC Proxy</span><span class="value" id="m27PFCProxy">-</span></div>
+                      <div class="stat-card"><span class="label">Blend Alpha</span><span class="value" id="m27BlendAlpha">-</span></div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <h3>M27 Router & Promotion</h3>
+                    <div class="metric-grid">
+                      <div class="stat-card"><span class="label">Promotions</span><span class="value" id="m27Promotions">-</span></div>
+                      <div class="stat-card"><span class="label">Rejections</span><span class="value" id="m27Rejections">-</span></div>
+                      <div class="stat-card"><span class="label">Lock Events</span><span class="value" id="m27LockEvents">-</span></div>
+                    </div>
+
+<h3>Blueprint Snapshot</h3>
+                    <div id="blueprint" class="blueprint-block">No blueprint data yet.</div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+    <script>
+    (function(){
+        // Auto-detect base URL: use localhost:7871 if opened as file://, otherwise use relative URLs
+        const API_BASE = (window.location.protocol === 'file:') 
+            ? 'http://localhost:7871' 
+            : window.location.origin;
+        
+        // Helper to build API URLs
+        function apiUrl(path) {
+            return API_BASE + path;
+        }
+        
+        const dom = {
+            log: document.getElementById('log'),
+            sseStatus: document.getElementById('sseStatus'),
+            stepNum: document.getElementById('stepNum'),
+            conceptCount: document.getElementById('conceptCount'),
+            memoryCountVal: document.getElementById('memoryCountVal'),
+            regionVal: document.getElementById('regionVal'),
+            noveltyVal: document.getElementById('noveltyVal'),
+            compressionGainVal: document.getElementById('compressionGainVal'),
+            disagreementVal: document.getElementById('disagreementVal'),
+            globalTensionVal: document.getElementById('globalTensionVal'),
+            teacherCountdown: document.getElementById('teacherCountdown'),
+            explorerCountdown: document.getElementById('explorerCountdown'),
+            quantumMetrics: document.getElementById('quantumMetrics'),
+            qcMetrics: document.getElementById('qcMetrics'),
+            phiConfig: document.getElementById('phiConfig'),
+            metrics: document.getElementById('metrics'),
+            blueprint: document.getElementById('blueprint'),
+            recentConcepts: document.getElementById('recentConcepts'),
+            ingestionFeed: document.getElementById('ingestionFeed'),
+            validationFeed: document.getElementById('validationFeed'),
+            holocronFeed: document.getElementById('holocronFeed'),
+            goalsList: document.getElementById('goalsList'),
+            hypothesisText: document.getElementById('hypothesisText'),
+            teacherQuestion: document.getElementById('teacherQuestion'),
+            explorerAnswer: document.getElementById('explorerAnswer'),
+            subconsciousText: document.getElementById('subconsciousText'),
+            searchBtn: document.getElementById('searchBtn'),
+            searchQ: document.getElementById('searchQ'),
+            searchResults: document.getElementById('searchResults'),
+            addBtn: document.getElementById('addBtn'),
+            conceptText: document.getElementById('conceptText'),
+            addStatus: document.getElementById('addStatus'),
+            curvToggle: document.getElementById('curvToggle'),
+            curvCanvas: document.getElementById('curvCanvas'),
+            latticeViewport: document.getElementById('latticeViewport'),
+            latticeFallback: document.getElementById('latticeFallback'),
+            latticeRoots: document.getElementById('latticeMetaRoots'),
+            latticeEnergy: document.getElementById('latticeMetaEnergy'),
+            latticeStep: document.getElementById('latticeMetaStep'),
+            qcCanvas: document.getElementById('qcMemoryCanvas'),
+            qcSummary: document.getElementById('quasicrystalSummary'),
+            qcTooltip: document.getElementById('qcTooltip'),
+            m25RouteE8: document.getElementById('m25RouteE8'),
+            m25RouteBoundary: document.getElementById('m25RouteBoundary'),
+            m25RouteLeech: document.getElementById('m25RouteLeech'),
+            m25PreMSE: document.getElementById('m25PreMSE'),
+            m25PostMSE: document.getElementById('m25PostMSE'),
+            m25GainRatio: document.getElementById('m25GainRatio'),
+            m25LockJaccard: document.getElementById('m25LockJaccard'),
+            m25CodewordAgree: document.getElementById('m25CodewordAgree'),
+            m25GlyphJaccard: document.getElementById('m25GlyphJaccard'),
+            // M27 Field Dynamics elements
+            m27GravitySteps: document.getElementById('m27GravitySteps'),
+            m27StrongSteps: document.getElementById('m27StrongSteps'),
+            m27WeakEvents: document.getElementById('m27WeakEvents'),
+            m27GravityETA: document.getElementById('m27GravityETA'),
+            m27StrongBinding: document.getElementById('m27StrongBinding'),
+            m27WeakFlavor: document.getElementById('m27WeakFlavor'),
+            m27DMNProxy: document.getElementById('m27DMNProxy'),
+            m27PFCProxy: document.getElementById('m27PFCProxy'),
+            m27BlendAlpha: document.getElementById('m27BlendAlpha'),
+            m27Promotions: document.getElementById('m27Promotions'),
+            m27Rejections: document.getElementById('m27Rejections'),
+            m27LockEvents: document.getElementById('m27LockEvents')
+        };
+
+        const curvCtx = dom.curvCanvas ? dom.curvCanvas.getContext('2d') : null;
+        let eventSource = null;
+        let reconnectTimer = null;
+        const LOG_LIMIT = 350;
+
+        // M25 state tracking
+        const m25State = {
+            routeCounts: { E8: 0, BOUNDARY: 0, LEECH: 0 },
+            compressionStats: { preMSE: [], postMSE: [] },
+            invarianceTests: { lockJaccard: null, codewordAgree: null, glyphJaccard: null },
+            recentConsolidations: [],
+            recentProximityAlerts: []
+        };
+
+        // M27 Field Dynamics state tracking
+        const m27State = {
+            gravitySteps: 0,
+            strongSteps: 0,
+            weakEvents: 0,
+            promotions: 0,
+            rejections: 0,
+            lockEvents: 0,
+            latestGravityETA: null,
+            latestStrongBinding: null,
+            latestWeakFlavor: 'UNKNOWN',
+            latestDMNProxy: null,
+            latestPFCProxy: null,
+            latestBlendAlpha: null,
+            routerFeatures: null,
+            fieldDetectorCandidates: [],
+            recentControlBlends: []
+        };
+
+        const latticeState = {
+            hasThree: typeof window.THREE === 'object',
+            renderer: null,
+            scene: null,
+            camera: null,
+            group: null,
+            points: null,
+            tetra: null,
+            connections: null,
+            particles: null,
+            trails: [],
+            animationId: 0,
+            momentum: {x: 0, y: 0},
+            dragging: false,
+            lastPointer: {x: 0, y: 0},
+            width: 0,
+            height: 0,
+            zoom: 150,
+            minZoom: 20,
+            maxZoom: 500,
+            autoRotate: true,
+            autoRotateSpeed: 0.004,
+            showConnections: true,
+            showParticles: true,
+            showGrid: true,
+            colorMode: 'gradient', // 'gradient', 'type', 'energy'
+            activeRoots: new Set(),
+            hoveredRoot: null,
+            time: 0,
+            energyPulse: 0
+        };
+
+        const qcState = {
+            ctx: dom.qcCanvas ? dom.qcCanvas.getContext('2d') : null,
+            scale: window.devicePixelRatio || 1,
+            lastShells: {},
+            lastNodes: [],
+            lastQc: {},
+            timeOffset: performance.now(),
+            animationHandle: 0,
+            penroseTiles: [],
+            goldenRatio: (1 + Math.sqrt(5)) / 2,
+            rotation: 0,
+            autoRotate: true,
+            rotationSpeed: 0.001,
+            zoom: 1.0,
+            minZoom: 0.3,
+            maxZoom: 3.0,
+            targetZoom: 1.0,
+            offsetX: 0,
+            offsetY: 0,
+            dragging: false,
+            lastPointer: {x: 0, y: 0},
+            hoveredNode: null,
+            selectedShell: null,
+            showLabels: true,
+            showConnections: true,
+            showParticles: true,
+            colorScheme: 'spectrum', // 'spectrum', 'thermal', 'cool'
+            particleField: [],
+            nodeTrails: [],
+            pulsePhase: 0
+        };
+
+        function escapeHtml(str){
+            if (str == null) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function appendLog(message, tone){
+            if (!dom.log) return;
+            const line = document.createElement('div');
+            line.className = 'log-line' + (tone ? ' ' + tone : '');
+            const time = document.createElement('span');
+            time.className = 'log-time';
+            time.textContent = new Date().toLocaleTimeString('en-US', {hour12: false});
+            const text = document.createElement('span');
+            text.className = 'log-text';
+            text.innerHTML = escapeHtml(message);
+            line.append(time, text);
+            dom.log.appendChild(line);
+            while (dom.log.children.length > LOG_LIMIT) {
+                dom.log.removeChild(dom.log.firstChild);
+            }
+            dom.log.scrollTop = dom.log.scrollHeight;
+        }
+
+        function setSSEState(label, cls){
+            if (!dom.sseStatus) return;
+            dom.sseStatus.textContent = label;
+            dom.sseStatus.className = 'value ' + (cls || '');
+        }
+
+        function renderList(container, values, emptyMessage){
+            if (!container) return;
+            container.innerHTML = '';
+            const items = Array.isArray(values) ? values : [];
+            if (!items.length) {
+                if (emptyMessage) {
+                    const placeholder = document.createElement('div');
+                    placeholder.className = 'microcopy';
+                    placeholder.textContent = emptyMessage;
+                    container.appendChild(placeholder);
+                }
+                return;
+            }
+            items.forEach(item => {
+                const row = document.createElement('div');
+                row.className = 'list-item';
+                const text = document.createElement('span');
+                text.textContent = item.label || item;
+                row.appendChild(text);
+                if (item.badge != null) {
+                    const badge = document.createElement('span');
+                    badge.className = 'badge';
+                    badge.textContent = item.badge;
+                    row.appendChild(badge);
+                }
+                container.appendChild(row);
+            });
+        }
+
+        function renderKeyValueCards(container, entries){
+            if (!container) return;
+            container.innerHTML = '';
+            entries.forEach(([label, value]) => {
+                const card = document.createElement('div');
+                card.className = 'metric-card';
+                const k = document.createElement('span');
+                k.className = 'metric-label';
+                k.textContent = label;
+                const v = document.createElement('span');
+                v.className = 'metric-value';
+                v.textContent = value;
+                card.append(k, v);
+                container.appendChild(card);
+            });
+        }
+
+        function renderMetricBlocks(container, sections){
+            if (!container) return;
+            container.innerHTML = '';
+            sections.forEach(section => {
+                if (!section.entries.length) return;
+                const block = document.createElement('div');
+                block.className = 'metric-block';
+                const title = document.createElement('h4');
+                title.textContent = section.title;
+                block.appendChild(title);
+                const grid = document.createElement('div');
+                grid.className = 'metric-grid';
+                section.entries.forEach(entry => {
+                    const card = document.createElement('div');
+                    card.className = 'metric-card';
+                    const label = document.createElement('span');
+                    label.className = 'metric-label';
+                    label.textContent = entry.label;
+                    const value = document.createElement('span');
+                    value.className = 'metric-value';
+                    value.textContent = entry.value;
+                    card.append(label, value);
+                    grid.appendChild(card);
+                });
+                block.appendChild(grid);
+                container.appendChild(block);
+            });
+            if (!container.children.length) {
+                const placeholder = document.createElement('div');
+                placeholder.className = 'microcopy';
+                placeholder.textContent = 'No metrics captured yet.';
+                container.appendChild(placeholder);
+            }
+        }
+
+        function formatNumber(value, digits){
+            const num = Number(value);
+            if (!Number.isFinite(num)) {
+                return '--';
+            }
+            return num.toFixed(digits);
+        }
+
+        function hashString(value){
+            const str = String(value ?? '');
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) {
+                hash = ((hash << 5) - hash) + str.charCodeAt(i);
+                hash |= 0;
+            }
+            return Math.abs(hash);
+        }
+        function ensureLatticeScene(){
+            if (!latticeState.hasThree || !dom.latticeViewport) {
+                if (dom.latticeFallback) {
+                    dom.latticeFallback.textContent = 'three.js unavailable — 3D lattice disabled.';
+                }
+                return;
+            }
+            if (latticeState.renderer) {
+                return;
+            }
+            const rect = dom.latticeViewport.getBoundingClientRect();
+            latticeState.width = Math.max(rect.width, 300);
+            latticeState.height = Math.max(rect.height, 260);
+            const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setPixelRatio(window.devicePixelRatio || 1);
+            renderer.setSize(latticeState.width, latticeState.height);
+            dom.latticeViewport.innerHTML = '';
+            dom.latticeViewport.appendChild(renderer.domElement);
+
+            const scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x020409, 0.001);
+            
+            const camera = new THREE.PerspectiveCamera(45, latticeState.width / latticeState.height, 0.1, 1000);
+            camera.position.set(0, 0, 150);
+
+            const group = new THREE.Group();
+            scene.add(group);
+
+            // Enhanced multi-light setup
+            const ambient = new THREE.AmbientLight(0x8fa0ff, 0.4);
+            const directional1 = new THREE.DirectionalLight(0x6f9bff, 1.2);
+            directional1.position.set(40, 60, 80);
+            const directional2 = new THREE.DirectionalLight(0x8f5cff, 0.8);
+            directional2.position.set(-40, -30, -60);
+            const pointLight = new THREE.PointLight(0x5eead4, 0.6, 200);
+            pointLight.position.set(0, 0, 0);
+            scene.add(ambient, directional1, directional2, pointLight);
+
+            // Dynamic grid with visibility toggle
+            const grid = new THREE.PolarGridHelper(180, 24, 12, 96, 0x303c5a, 0x202840);
+            grid.rotation.x = Math.PI / 2;
+            grid.name = 'grid';
+            scene.add(grid);
+            
+            // Add particle field for ambiance
+            const particleCount = 800;
+            const particleGeometry = new THREE.BufferGeometry();
+            const particlePositions = new Float32Array(particleCount * 3);
+            const particleSizes = new Float32Array(particleCount);
+            for (let i = 0; i < particleCount; i++) {
+                particlePositions[i * 3] = (Math.random() - 0.5) * 300;
+                particlePositions[i * 3 + 1] = (Math.random() - 0.5) * 300;
+                particlePositions[i * 3 + 2] = (Math.random() - 0.5) * 300;
+                particleSizes[i] = Math.random() * 0.8 + 0.2;
+            }
+            particleGeometry.setAttribute('position', new THREE.Float32BufferAttribute(particlePositions, 3));
+            particleGeometry.setAttribute('size', new THREE.Float32BufferAttribute(particleSizes, 1));
+            const particleMaterial = new THREE.ShaderMaterial({
+                uniforms: { time: { value: 0 } },
+                vertexShader: `
+                    attribute float size;
+                    uniform float time;
+                    void main() {
+                        vec3 pos = position;
+                        pos.y += sin(time + position.x * 0.1) * 2.0;
+                        vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+                        gl_PointSize = size * (300.0 / -mvPosition.z);
+                        gl_Position = projectionMatrix * mvPosition;
+                    }
+                `,
+                fragmentShader: `
+                    void main() {
+                        float dist = length(gl_PointCoord - vec2(0.5));
+                        if (dist > 0.5) discard;
+                        float alpha = 0.15 * (1.0 - dist * 2.0);
+                        gl_FragColor = vec4(0.6, 0.7, 1.0, alpha);
+                    }
+                `,
+                transparent: true,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending
+            });
+            latticeState.particles = new THREE.Points(particleGeometry, particleMaterial);
+            latticeState.particles.name = 'particles';
+            scene.add(latticeState.particles);
+
+            latticeState.renderer = renderer;
+            latticeState.scene = scene;
+            latticeState.camera = camera;
+            latticeState.group = group;
+
+            const canvas = renderer.domElement;
+            canvas.style.touchAction = 'none';
+            canvas.addEventListener('pointerdown', (event) => {
+                latticeState.dragging = true;
+                latticeState.lastPointer.x = event.clientX;
+                latticeState.lastPointer.y = event.clientY;
+                canvas.setPointerCapture(event.pointerId);
+            });
+            canvas.addEventListener('pointermove', (event) => {
+                if (!latticeState.dragging) return;
+                const dx = (event.clientX - latticeState.lastPointer.x) * 0.005;
+                const dy = (event.clientY - latticeState.lastPointer.y) * 0.005;
+                latticeState.momentum.y += dx;
+                latticeState.momentum.x += dy;
+                latticeState.lastPointer.x = event.clientX;
+                latticeState.lastPointer.y = event.clientY;
+            });
+            canvas.addEventListener('pointerup', (event) => {
+                latticeState.dragging = false;
+                canvas.releasePointerCapture(event.pointerId);
+            });
+            canvas.addEventListener('pointerleave', () => {
+                latticeState.dragging = false;
+            });
+            
+            // Enhanced mouse wheel zoom with smooth interpolation
+            canvas.addEventListener('wheel', (event) => {
+                event.preventDefault();
+                const delta = event.deltaY * -0.08;
+                const targetZoom = Math.max(latticeState.minZoom, Math.min(latticeState.maxZoom, latticeState.zoom + delta));
+                // Smooth zoom transition
+                const smoothZoom = () => {
+                    const diff = targetZoom - latticeState.zoom;
+                    if (Math.abs(diff) > 0.1) {
+                        latticeState.zoom += diff * 0.15;
+                        camera.position.z = latticeState.zoom;
+                    } else {
+                        latticeState.zoom = targetZoom;
+                        camera.position.z = latticeState.zoom;
+                    }
+                };
+                smoothZoom();
+            }, { passive: false });
+            
+            // Pinch zoom for touch devices
+            let lastTouchDistance = 0;
+            canvas.addEventListener('touchstart', (event) => {
+                if (event.touches.length === 2) {
+                    const dx = event.touches[0].clientX - event.touches[1].clientX;
+                    const dy = event.touches[0].clientY - event.touches[1].clientY;
+                    lastTouchDistance = Math.sqrt(dx * dx + dy * dy);
+                }
+            });
+            canvas.addEventListener('touchmove', (event) => {
+                if (event.touches.length === 2) {
+                    event.preventDefault();
+                    const dx = event.touches[0].clientX - event.touches[1].clientX;
+                    const dy = event.touches[0].clientY - event.touches[1].clientY;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    const delta = (distance - lastTouchDistance) * 0.5;
+                    latticeState.zoom = Math.max(latticeState.minZoom, Math.min(latticeState.maxZoom, latticeState.zoom - delta));
+                    camera.position.z = latticeState.zoom;
+                    lastTouchDistance = distance;
+                }
+            }, { passive: false });
+            
+            // Enhanced keyboard controls
+            window.addEventListener('keydown', (event) => {
+                if (!dom.latticeViewport.contains(document.activeElement) && event.target !== document.body) return;
+                
+                switch(event.key.toLowerCase()) {
+                    case 'r':
+                        // Reset view
+                        latticeState.zoom = 150;
+                        camera.position.set(0, 0, 150);
+                        latticeState.group.rotation.set(0, 0, 0);
+                        latticeState.momentum = {x: 0, y: 0};
+                        appendLog('Lattice view reset', 'info');
+                        break;
+                    case 'c':
+                        // Toggle connections
+                        latticeState.showConnections = !latticeState.showConnections;
+                        if (latticeState.connections) {
+                            latticeState.connections.visible = latticeState.showConnections;
+                        }
+                        appendLog('Connections: ' + (latticeState.showConnections ? 'ON' : 'OFF'), 'info');
+                        break;
+                    case 'a':
+                        // Toggle auto-rotate
+                        latticeState.autoRotate = !latticeState.autoRotate;
+                        appendLog('Auto-rotate: ' + (latticeState.autoRotate ? 'ON' : 'OFF'), 'info');
+                        break;
+                    case 'g':
+                        // Toggle grid
+                        latticeState.showGrid = !latticeState.showGrid;
+                        const gridObj = scene.getObjectByName('grid');
+                        if (gridObj) gridObj.visible = latticeState.showGrid;
+                        appendLog('Grid: ' + (latticeState.showGrid ? 'ON' : 'OFF'), 'info');
+                        break;
+                    case 'p':
+                        // Toggle particles
+                        latticeState.showParticles = !latticeState.showParticles;
+                        if (latticeState.particles) {
+                            latticeState.particles.visible = latticeState.showParticles;
+                        }
+                        appendLog('Particles: ' + (latticeState.showParticles ? 'ON' : 'OFF'), 'info');
+                        break;
+                    case 'm':
+                        // Cycle color modes
+                        const modes = ['gradient', 'type', 'energy'];
+                        const currentIdx = modes.indexOf(latticeState.colorMode);
+                        latticeState.colorMode = modes[(currentIdx + 1) % modes.length];
+                        appendLog('Color mode: ' + latticeState.colorMode.toUpperCase(), 'info');
+                        break;
+                    case '=':
+                    case '+':
+                        // Zoom in
+                        latticeState.zoom = Math.max(latticeState.minZoom, latticeState.zoom - 10);
+                        camera.position.z = latticeState.zoom;
+                        break;
+                    case '-':
+                    case '_':
+                        // Zoom out
+                        latticeState.zoom = Math.min(latticeState.maxZoom, latticeState.zoom + 10);
+                        camera.position.z = latticeState.zoom;
+                        break;
+                    case 'arrowup':
+                        // Rotate up
+                        latticeState.group.rotation.x -= 0.1;
+                        break;
+                    case 'arrowdown':
+                        // Rotate down
+                        latticeState.group.rotation.x += 0.1;
+                        break;
+                    case 'arrowleft':
+                        // Rotate left
+                        latticeState.group.rotation.y -= 0.1;
+                        break;
+                    case 'arrowright':
+                        // Rotate right
+                        latticeState.group.rotation.y += 0.1;
+                        break;
+                }
+            });
+
+            const animate = () => {
+                latticeState.animationId = requestAnimationFrame(animate);
+                latticeState.time += 0.016;
+                latticeState.energyPulse = Math.sin(latticeState.time * 0.5) * 0.5 + 0.5;
+                
+                // Momentum decay with smooth easing
+                latticeState.momentum.x *= 0.94;
+                latticeState.momentum.y *= 0.94;
+                
+                if (latticeState.group) {
+                    latticeState.group.rotation.x += latticeState.momentum.x;
+                    const autoSpin = latticeState.autoRotate ? latticeState.autoRotateSpeed : 0;
+                    latticeState.group.rotation.y += latticeState.momentum.y + autoSpin;
+                }
+                
+                // Animate particles
+                if (latticeState.particles && latticeState.particles.material.uniforms) {
+                    latticeState.particles.material.uniforms.time.value = latticeState.time;
+                    latticeState.particles.rotation.y += 0.0002;
+                }
+                
+                // Update point shader time for pulsing effect
+                if (latticeState.points && latticeState.points.material.uniforms) {
+                    latticeState.points.material.uniforms.time.value = latticeState.time;
+                }
+                
+                renderer.render(scene, camera);
+            };
+            animate();
+            resizeLatticeRenderer();
+        }
+
+        function resizeLatticeRenderer(){
+            if (!latticeState.renderer || !dom.latticeViewport) return;
+            const rect = dom.latticeViewport.getBoundingClientRect();
+            const width = Math.max(rect.width, 300);
+            const height = Math.max(rect.height, 260);
+            if (width === latticeState.width && height === latticeState.height) return;
+            latticeState.width = width;
+            latticeState.height = height;
+            latticeState.renderer.setSize(width, height);
+            latticeState.camera.aspect = width / height;
+            latticeState.camera.updateProjectionMatrix();
+        }
+
+        function updateLatticeMeta(meta){
+            if (dom.latticeRoots && meta.total_roots != null) {
+                dom.latticeRoots.textContent = Number(meta.total_roots).toLocaleString();
+            }
+            if (dom.latticeEnergy && typeof meta.energy === 'number') {
+                dom.latticeEnergy.textContent = formatNumber(meta.energy, 3);
+            }
+            if (dom.latticeStep && meta.step != null) {
+                dom.latticeStep.textContent = Number(meta.step).toLocaleString();
+            }
+        }
+
+        function updateLatticeGeometry(data){
+            if (!latticeState.renderer || !latticeState.group || !data) return;
+            const roots = Array.isArray(data.roots) ? data.roots : [];
+            if (!roots.length) return;
+            
+            latticeState.activeRoots = new Set(Array.isArray(data.active_roots) ? data.active_roots : []);
+            
+            // Enhanced point rendering with glow effect
+            const positions = new Float32Array(roots.length * 3);
+            const colors = new Float32Array(roots.length * 3);
+            const sizes = new Float32Array(roots.length);
+            const color = new THREE.Color();
+            
+            roots.forEach((root, idx) => {
+                const pos = Array.isArray(root.position) ? root.position : [0,0,0];
+                positions[idx * 3] = pos[0] || 0;
+                positions[idx * 3 + 1] = pos[1] || 0;
+                positions[idx * 3 + 2] = pos[2] || 0;
+                
+                if (latticeState.activeRoots.has(idx)) {
+                    color.set('#facc15');
+                    sizes[idx] = 3.5;
+                } else if (root.type === 'type1') {
+                    color.set('#6f9bff');
+                    sizes[idx] = 2.0;
+                } else {
+                    color.set('#8f5cff');
+                    sizes[idx] = 2.0;
+                }
+                colors[idx * 3] = color.r;
+                colors[idx * 3 + 1] = color.g;
+                colors[idx * 3 + 2] = color.b;
+            });
+            
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+            geometry.setAttribute('size', new THREE.Float32BufferAttribute(sizes, 1));
+            geometry.computeBoundingSphere();
+            
+            if (latticeState.points) {
+                latticeState.group.remove(latticeState.points);
+                latticeState.points.geometry.dispose();
+                latticeState.points.material.dispose();
+            }
+            
+            const material = new THREE.ShaderMaterial({
+                uniforms: { 
+                    time: { value: 0 },
+                    pulseIntensity: { value: 1.0 }
+                },
+                vertexShader: `
+                    attribute float size;
+                    attribute vec3 color;
+                    uniform float time;
+                    varying vec3 vColor;
+                    varying float vPulse;
+                    void main() {
+                        vColor = color;
+                        vec3 pos = position;
+                        float pulse = sin(time * 2.0 + length(pos) * 0.05) * 0.5 + 0.5;
+                        vPulse = pulse;
+                        vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+                        gl_PointSize = size * (300.0 / -mvPosition.z) * (1.0 + pulse * 0.3);
+                        gl_Position = projectionMatrix * mvPosition;
+                    }
+                `,
+                fragmentShader: `
+                    uniform float time;
+                    varying vec3 vColor;
+                    varying float vPulse;
+                    void main() {
+                        vec2 center = gl_PointCoord - vec2(0.5);
+                        float dist = length(center);
+                        if (dist > 0.5) discard;
+                        
+                        // Radial gradient with glow
+                        float innerGlow = 1.0 - smoothstep(0.0, 0.3, dist);
+                        float outerGlow = 1.0 - smoothstep(0.3, 0.5, dist);
+                        float alpha = innerGlow * 0.95 + outerGlow * 0.4;
+                        
+                        // Add pulsing brightness
+                        vec3 finalColor = vColor * (1.0 + vPulse * 0.3);
+                        
+                        // Subtle sparkle effect
+                        float angle = atan(center.y, center.x);
+                        float sparkle = sin(angle * 8.0 + time * 3.0) * 0.1 + 0.9;
+                        finalColor *= sparkle;
+                        
+                        gl_FragColor = vec4(finalColor, alpha);
+                    }
+                `,
+                transparent: true,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending
+            });
+            
+            latticeState.points = new THREE.Points(geometry, material);
+            latticeState.group.add(latticeState.points);
+
+            // Enhanced connection lines between nearby roots
+            if (latticeState.showConnections) {
+                if (latticeState.connections) {
+                    latticeState.group.remove(latticeState.connections);
+                    latticeState.connections.geometry.dispose();
+                    latticeState.connections.material.dispose();
+                }
+                
+                const connectionPairs = [];
+                const maxDist = 25;
+                for (let i = 0; i < roots.length; i++) {
+                    const posA = roots[i].position || [0,0,0];
+                    for (let j = i + 1; j < Math.min(i + 12, roots.length); j++) {
+                        const posB = roots[j].position || [0,0,0];
+                        const dx = posA[0] - posB[0];
+                        const dy = posA[1] - posB[1];
+                        const dz = posA[2] - posB[2];
+                        const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+                        if (dist < maxDist) {
+                            connectionPairs.push([i, j, dist]);
+                        }
+                    }
+                }
+                
+                const linePositions = new Float32Array(connectionPairs.length * 6);
+                const lineColors = new Float32Array(connectionPairs.length * 6);
+                
+                connectionPairs.forEach(([i, j, dist], idx) => {
+                    const posA = roots[i].position;
+                    const posB = roots[j].position;
+                    linePositions.set(posA, idx * 6);
+                    linePositions.set(posB, idx * 6 + 3);
+                    
+                    const opacity = Math.max(0.1, 1 - dist / maxDist);
+                    const isActive = latticeState.activeRoots.has(i) || latticeState.activeRoots.has(j);
+                    const col = isActive ? [1, 0.8, 0.1] : [0.4, 0.6, 1];
+                    
+                    for (let k = 0; k < 2; k++) {
+                        lineColors[idx * 6 + k * 3] = col[0] * opacity;
+                        lineColors[idx * 6 + k * 3 + 1] = col[1] * opacity;
+                        lineColors[idx * 6 + k * 3 + 2] = col[2] * opacity;
+                    }
+                });
+                
+                const lineGeometry = new THREE.BufferGeometry();
+                lineGeometry.setAttribute('position', new THREE.Float32BufferAttribute(linePositions, 3));
+                lineGeometry.setAttribute('color', new THREE.Float32BufferAttribute(lineColors, 3));
+                
+                const lineMaterial = new THREE.LineBasicMaterial({ 
+                    vertexColors: true, 
+                    transparent: true, 
+                    opacity: 0.6,
+                    blending: THREE.AdditiveBlending
+                });
+                
+                latticeState.connections = new THREE.LineSegments(lineGeometry, lineMaterial);
+                latticeState.group.add(latticeState.connections);
+            }
+
+            // Tetrahedron highlighting
+            if (latticeState.tetra) {
+                latticeState.group.remove(latticeState.tetra);
+                latticeState.tetra.geometry.dispose();
+                latticeState.tetra.material.dispose();
+                latticeState.tetra = null;
+            }
+            const tetra = Array.isArray(data.tetrahedron) ? data.tetrahedron : [];
+            if (tetra.length >= 4) {
+                const edges = [
+                    [tetra[0], tetra[1]], [tetra[0], tetra[2]], [tetra[0], tetra[3]],
+                    [tetra[1], tetra[2]], [tetra[1], tetra[3]], [tetra[2], tetra[3]]
+                ];
+                const linePositions = new Float32Array(edges.length * 6);
+                edges.forEach((pair, idx) => {
+                    const a = roots[pair[0]]?.position || [0,0,0];
+                    const b = roots[pair[1]]?.position || [0,0,0];
+                    linePositions.set(a, idx * 6);
+                    linePositions.set(b, idx * 6 + 3);
+                });
+                const lineGeometry = new THREE.BufferGeometry();
+                lineGeometry.setAttribute('position', new THREE.Float32BufferAttribute(linePositions, 3));
+                const lineMaterial = new THREE.LineBasicMaterial({ color: 0xfacc15, transparent: true, opacity: 0.9, linewidth: 2 });
+                latticeState.tetra = new THREE.LineSegments(lineGeometry, lineMaterial);
+                latticeState.group.add(latticeState.tetra);
+            }
+            
+            if (dom.latticeFallback) {
+                dom.latticeFallback.textContent = '';
+            }
+        }
+        async function refreshLatticeData(){
+            ensureLatticeScene();
+            if (!latticeState.renderer) {
+                return;
+            }
+            try {
+                const res = await fetch(apiUrl('/api/lattice'));
+                if (!res.ok) {
+                    throw new Error('HTTP ' + res.status);
+                }
+                const data = await res.json();
+                updateLatticeGeometry(data);
+                updateLatticeMeta(data.meta || {});
+            } catch (err) {
+                if (dom.latticeFallback && !latticeState.group) {
+                    dom.latticeFallback.textContent = 'Waiting for lattice snapshot…';
+                }
+                appendLog('Lattice fetch warn: ' + err, 'warn');
+            }
+        }
+
+        function resizeQuasicrystalCanvas(){
+            if (!dom.qcCanvas || !qcState.ctx) return;
+            const parent = dom.qcCanvas.parentElement;
+            if (!parent) return;
+            const size = Math.max(240, Math.min(parent.clientWidth, 420));
+            const dpr = window.devicePixelRatio || 1;
+            dom.qcCanvas.width = size * dpr;
+            dom.qcCanvas.height = size * dpr;
+            dom.qcCanvas.style.width = size + 'px';
+            dom.qcCanvas.style.height = size + 'px';
+            qcState.scale = dpr;
+            
+            // Initialize particle field
+            if (qcState.particleField.length === 0) {
+                for (let i = 0; i < 100; i++) {
+                    qcState.particleField.push({
+                        x: Math.random(),
+                        y: Math.random(),
+                        vx: (Math.random() - 0.5) * 0.0005,
+                        vy: (Math.random() - 0.5) * 0.0005,
+                        size: Math.random() * 2 + 0.5,
+                        alpha: Math.random() * 0.3 + 0.1
+                    });
+                }
+            }
+            
+            // Add interactive controls if not already added
+            if (!dom.qcCanvas.dataset.interactive) {
+                dom.qcCanvas.dataset.interactive = 'true';
+                
+                // Mouse drag to pan
+                dom.qcCanvas.addEventListener('mousedown', (event) => {
+                    qcState.dragging = true;
+                    qcState.lastPointer.x = event.clientX;
+                    qcState.lastPointer.y = event.clientY;
+                });
+                
+                dom.qcCanvas.addEventListener('mousemove', (event) => {
+                    const rect = dom.qcCanvas.getBoundingClientRect();
+                    const x = event.clientX - rect.left;
+                    const y = event.clientY - rect.top;
+                    
+                    if (qcState.dragging) {
+                        const dx = event.clientX - qcState.lastPointer.x;
+                        const dy = event.clientY - qcState.lastPointer.y;
+                        qcState.offsetX += dx;
+                        qcState.offsetY += dy;
+                        qcState.lastPointer.x = event.clientX;
+                        qcState.lastPointer.y = event.clientY;
+                    } else {
+                        // Hover detection for shells
+                        const centerX = size / 2;
+                        const centerY = size / 2;
+                        const dx = x - centerX;
+                        const dy = y - centerY;
+                        const dist = Math.sqrt(dx * dx + dy * dy) / qcState.zoom;
+                        const radiusMax = size * 0.44;
+                        
+                        const shellsEntries = Object.entries(qcState.lastShells || {});
+                        let hoveredShell = null;
+                        let shellInfo = null;
+                        
+                        shellsEntries.forEach(([dim, count], idx) => {
+                            const ringCount = shellsEntries.length;
+                            const ratio = Math.pow(idx / ringCount, 0.85);
+                            const radius = ratio * radiusMax;
+                            const prevRatio = idx > 0 ? Math.pow((idx - 1) / ringCount, 0.85) : 0;
+                            const prevRadius = prevRatio * radiusMax;
+                            
+                            if (dist >= prevRadius && dist <= radius) {
+                                hoveredShell = dim;
+                                shellInfo = { dim, count, idx, radius };
+                            }
+                        });
+                        
+                        if (qcState.selectedShell !== hoveredShell) {
+                            qcState.selectedShell = hoveredShell;
+                        }
+                        
+                        // Show tooltip
+                        if (dom.qcTooltip && shellInfo) {
+                            dom.qcTooltip.style.display = 'block';
+                            dom.qcTooltip.style.left = (event.clientX - rect.left + 15) + 'px';
+                            dom.qcTooltip.style.top = (event.clientY - rect.top - 10) + 'px';
+                            const maxOccupancy = shellsEntries.reduce((m, [,c]) => Math.max(m, Number(c) || 0), 0) || 1;
+                            const occupancyPercent = ((Number(shellInfo.count) / maxOccupancy) * 100).toFixed(0);
+                            dom.qcTooltip.innerHTML = `<strong>Dimension ${shellInfo.dim}</strong><br/>` +
+                                `Occupancy: ${shellInfo.count} nodes (${occupancyPercent}%)<br/>` +
+                                `Shell index: ${shellInfo.idx + 1}/${shellsEntries.length}`;
+                        } else if (dom.qcTooltip) {
+                            dom.qcTooltip.style.display = 'none';
+                        }
+                    }
+                });
+                
+                dom.qcCanvas.addEventListener('mouseup', () => {
+                    qcState.dragging = false;
+                });
+                
+                dom.qcCanvas.addEventListener('mouseleave', () => {
+                    qcState.dragging = false;
+                    qcState.selectedShell = null;
+                    if (dom.qcTooltip) {
+                        dom.qcTooltip.style.display = 'none';
+                    }
+                });
+                
+                // Mouse wheel zoom
+                dom.qcCanvas.addEventListener('wheel', (event) => {
+                    event.preventDefault();
+                    const delta = event.deltaY * -0.001;
+                    qcState.targetZoom = Math.max(qcState.minZoom, Math.min(qcState.maxZoom, qcState.targetZoom + delta));
+                }, { passive: false });
+                
+                // Double-click to reset view
+                dom.qcCanvas.addEventListener('dblclick', () => {
+                    qcState.targetZoom = 1.0;
+                    qcState.offsetX = 0;
+                    qcState.offsetY = 0;
+                    qcState.rotation = 0;
+                    appendLog('Quasicrystal view reset', 'info');
+                });
+                
+                // Keyboard control
+                window.addEventListener('keydown', (event) => {
+                    if (!dom.qcCanvas.parentElement.contains(document.activeElement) && event.target !== document.body) return;
+                    
+                    switch(event.key.toLowerCase()) {
+                        case 'q':
+                            // Toggle auto-rotate
+                            qcState.autoRotate = !qcState.autoRotate;
+                            appendLog('QC Auto-rotate: ' + (qcState.autoRotate ? 'ON' : 'OFF'), 'info');
+                            break;
+                        case 'l':
+                            // Toggle labels
+                            qcState.showLabels = !qcState.showLabels;
+                            appendLog('QC Labels: ' + (qcState.showLabels ? 'ON' : 'OFF'), 'info');
+                            break;
+                        case 'n':
+                            // Toggle connections
+                            qcState.showConnections = !qcState.showConnections;
+                            appendLog('QC Connections: ' + (qcState.showConnections ? 'ON' : 'OFF'), 'info');
+                            break;
+                        case 'b':
+                            // Toggle particles
+                            qcState.showParticles = !qcState.showParticles;
+                            appendLog('QC Particles: ' + (qcState.showParticles ? 'ON' : 'OFF'), 'info');
+                            break;
+                        case 'k':
+                            // Cycle color schemes
+                            const schemes = ['spectrum', 'thermal', 'cool'];
+                            const currentIdx = schemes.indexOf(qcState.colorScheme);
+                            qcState.colorScheme = schemes[(currentIdx + 1) % schemes.length];
+                            appendLog('QC Color: ' + qcState.colorScheme.toUpperCase(), 'info');
+                            break;
+                    }
+                });
+            }
+        }
+
+        function generatePenroseTiles(center, radius, depth) {
+            const phi = qcState.goldenRatio;
+            const tiles = [];
+            const numSectors = 10;
+            
+            for (let i = 0; i < numSectors; i++) {
+                const angle = (i * 2 * Math.PI) / numSectors;
+                const angle2 = ((i + 1) * 2 * Math.PI) / numSectors;
+                
+                const p1 = { x: center.x, y: center.y };
+                const p2 = { 
+                    x: center.x + radius * Math.cos(angle), 
+                    y: center.y + radius * Math.sin(angle) 
+                };
+                const p3 = { 
+                    x: center.x + radius * Math.cos(angle2), 
+                    y: center.y + radius * Math.sin(angle2) 
+                };
+                
+                tiles.push({ 
+                    type: i % 2 === 0 ? 'kite' : 'dart',
+                    points: [p1, p2, p3],
+                    depth: 0,
+                    shell: 0
+                });
+            }
+            return tiles;
+        }
+
+        function renderQuasicrystal(){
+            if (!qcState.ctx || !dom.qcCanvas) return;
+            const ctx = qcState.ctx;
+            const canvas = dom.qcCanvas;
+            const scale = qcState.scale || 1;
+            const width = canvas.width;
+            const height = canvas.height;
+            
+            ctx.save();
+            ctx.clearRect(0, 0, width, height);
+            ctx.scale(scale, scale);
+            
+            const size = width / scale;
+            const center = { x: size / 2, y: size / 2 };
+            const radiusMax = size * 0.44;
+            const time = (performance.now() - qcState.timeOffset) / 1000;
+            
+            // Background with depth gradient
+            const bgGradient = ctx.createRadialGradient(center.x, center.y, 0, center.x, center.y, radiusMax);
+            bgGradient.addColorStop(0, '#0a0f1e');
+            bgGradient.addColorStop(0.5, '#050914');
+            bgGradient.addColorStop(1, '#020409');
+            ctx.fillStyle = bgGradient;
+            ctx.fillRect(0, 0, size, size);
+            
+            // Shell population visualization with Penrose-inspired geometry
+            const shellsEntries = Object.entries(qcState.lastShells || {}).sort((a, b) => Number(a[0]) - Number(b[0]));
+            const maxOccupancy = shellsEntries.reduce((m, [,count]) => Math.max(m, Number(count) || 0), 0) || 1;
+            const phi = qcState.goldenRatio;
+            
+            shellsEntries.forEach(([dim, count], idx) => {
+                const ringCount = shellsEntries.length;
+                const ratio = Math.pow(idx / ringCount, 0.85);
+                const radius = ratio * radiusMax;
+                const occupancy = Math.max(0, Number(count) || 0);
+                const intensity = occupancy / maxOccupancy;
+                
+                // Draw Penrose-style segments
+                const segments = Math.floor(10 * (1 + ratio));
+                const angleStep = (2 * Math.PI) / segments;
+                
+                ctx.save();
+                ctx.translate(center.x, center.y);
+                ctx.rotate(qcState.rotation + time * 0.05);
+                
+                for (let i = 0; i < segments; i++) {
+                    const angle = i * angleStep;
+                    const nextAngle = (i + 1) * angleStep;
+                    
+                    // Alternate kite and dart shapes
+                    const isKite = i % 2 === 0;
+                    const innerRatio = isKite ? (1 / phi) : (1 / (phi * phi));
+                    const innerRadius = radius * innerRatio;
+                    
+                    const hue = (210 + idx * 35 + i * 5) % 360;
+                    const alpha = 0.3 + intensity * 0.6;
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(innerRadius * Math.cos(angle), innerRadius * Math.sin(angle));
+                    ctx.lineTo(radius * Math.cos(angle), radius * Math.sin(angle));
+                    ctx.lineTo(radius * Math.cos(nextAngle), radius * Math.sin(nextAngle));
+                    ctx.lineTo(innerRadius * Math.cos(nextAngle), innerRadius * Math.sin(nextAngle));
+                    ctx.closePath();
+                    
+                    const gradient = ctx.createRadialGradient(0, 0, innerRadius, 0, 0, radius);
+                    gradient.addColorStop(0, `hsla(${hue}, 75%, 60%, ${alpha * 0.5})`);
+                    gradient.addColorStop(1, `hsla(${hue}, 70%, 50%, ${alpha})`);
+                    ctx.fillStyle = gradient;
+                    ctx.fill();
+                    
+                    ctx.strokeStyle = `hsla(${hue}, 80%, 70%, ${alpha * 0.8})`;
+                    ctx.lineWidth = 0.5;
+                    ctx.stroke();
+                }
+                
+                ctx.restore();
+                
+                // Shell label with glow
+                ctx.save();
+                ctx.shadowColor = 'rgba(111, 155, 255, 0.6)';
+                ctx.shadowBlur = 8;
+                ctx.fillStyle = 'rgba(239, 246, 255, 0.85)';
+                ctx.font = 'bold 11px Space Grotesk';
+                ctx.textAlign = 'left';
+                const labelAngle = Math.PI / 6;
+                const labelX = center.x + radius * Math.cos(labelAngle) + 8;
+                const labelY = center.y + radius * Math.sin(labelAngle) + 4;
+                ctx.fillText(`D${dim} (${count})`, labelX, labelY);
+                ctx.restore();
+            });
+            
+            // Memory nodes with improved positioning
+            const nodes = qcState.lastNodes || [];
+            const totalShells = shellsEntries.length || 1;
+            
+            nodes.forEach((node, idx) => {
+                const hash = hashString(node.id || node.label || idx);
+                const shellIndex = hash % totalShells;
+                const shellEntry = shellsEntries[shellIndex];
+                
+                if (!shellEntry) return;
+                
+                const ratio = Math.pow(shellIndex / totalShells, 0.85);
+                const baseRadius = ratio * radiusMax;
+                const radiusVariation = (hash % 100) / 100 * 15 - 7.5;
+                const radius = baseRadius + radiusVariation;
+                
+                const angleSection = Math.floor((hash % 1000) / 100);
+                const angleBase = (angleSection * 2 * Math.PI) / 10;
+                const angleOffset = ((hash % 100) / 100) * (Math.PI / 5);
+                const angle = angleBase + angleOffset + time * 0.1 + idx * 0.01;
+                
+                const x = center.x + radius * Math.cos(angle);
+                const y = center.y + radius * Math.sin(angle);
+                
+                const age = Math.min(1, (idx / nodes.length));
+                const pulse = 3 + Math.sin(time * 3 + idx * 0.5) * 1.2;
+                const glowRadius = 5 + pulse;
+                
+                // Glow effect
+                const glowGradient = ctx.createRadialGradient(x, y, 0, x, y, glowRadius);
+                glowGradient.addColorStop(0, `rgba(94, 234, 212, ${0.9 * age})`);
+                glowGradient.addColorStop(0.5, `rgba(111, 155, 255, ${0.5 * age})`);
+                glowGradient.addColorStop(1, 'rgba(148, 163, 255, 0)');
+                ctx.fillStyle = glowGradient;
+                ctx.beginPath();
+                ctx.arc(x, y, glowRadius, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Core node
+                ctx.fillStyle = `rgba(94, 234, 212, ${0.95 * age})`;
+                ctx.beginPath();
+                ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Connection lines to nearby nodes in same shell
+                if (idx > 0 && idx < nodes.length - 1) {
+                    const prevNode = nodes[idx - 1];
+                    const prevHash = hashString(prevNode.id || prevNode.label || (idx - 1));
+                    if ((prevHash % totalShells) === shellIndex) {
+                        const prevAngle = angleBase + ((prevHash % 100) / 100) * (Math.PI / 5) + time * 0.1 + (idx - 1) * 0.01;
+                        const prevX = center.x + radius * Math.cos(prevAngle);
+                        const prevY = center.y + radius * Math.sin(prevAngle);
+                        
+                        ctx.strokeStyle = `rgba(111, 155, 255, ${0.15 * age})`;
+                        ctx.lineWidth = 0.5;
+                        ctx.beginPath();
+                        ctx.moveTo(x, y);
+                        ctx.lineTo(prevX, prevY);
+                        ctx.stroke();
+                    }
+                }
+            });
+            
+            // Central info display
+            ctx.save();
+            ctx.textAlign = 'center';
+            ctx.shadowColor = 'rgba(111, 155, 255, 0.8)';
+            ctx.shadowBlur = 12;
+            ctx.fillStyle = 'rgba(239, 246, 255, 0.9)';
+            ctx.font = 'bold 13px Space Grotesk';
+            ctx.fillText(`${nodes.length} NODES`, center.x, center.y - 5);
+            ctx.font = '11px Space Grotesk';
+            ctx.fillStyle = 'rgba(239, 246, 255, 0.7)';
+            ctx.fillText(`${shellsEntries.length} shells`, center.x, center.y + 10);
+            ctx.restore();
+            
+            ctx.restore();
+            
+            if (dom.qcSummary) {
+                const keepFrac = qcState.lastQc && typeof qcState.lastQc.keep_frac === 'number' ? qcState.lastQc.keep_frac.toFixed(3) : '--';
+                const totalNodes = nodes.length;
+                const shellCount = shellsEntries.length;
+                dom.qcSummary.textContent = `k*=${keepFrac} · ${totalNodes} nodes · ${shellCount} dimensional shells`;
+            }
+        }
+
+        function updateQuasicrystalState(snapshot){
+            qcState.lastShells = snapshot.shell_population || {};
+            qcState.lastNodes = Array.isArray(snapshot.new_memory_nodes) ? snapshot.new_memory_nodes.slice(-60) : [];
+            qcState.lastQc = snapshot.qc || {};
+        }
+
+        function updateM25Metrics() {
+            if (dom.m25RouteE8) dom.m25RouteE8.textContent = m25State.routeCounts.E8;
+            if (dom.m25RouteBoundary) dom.m25RouteBoundary.textContent = m25State.routeCounts.BOUNDARY;
+            if (dom.m25RouteLeech) dom.m25RouteLeech.textContent = m25State.routeCounts.LEECH;
+
+            const preMSEs = m25State.compressionStats.preMSE;
+            const postMSEs = m25State.compressionStats.postMSE;
+            if (preMSEs.length > 0 && dom.m25PreMSE) {
+                const avgPre = preMSEs.reduce((a, b) => a + b, 0) / preMSEs.length;
+                dom.m25PreMSE.textContent = avgPre.toFixed(4);
+            }
+            if (postMSEs.length > 0 && dom.m25PostMSE) {
+                const avgPost = postMSEs.reduce((a, b) => a + b, 0) / postMSEs.length;
+                dom.m25PostMSE.textContent = avgPost.toFixed(4);
+            }
+            if (preMSEs.length > 0 && postMSEs.length > 0 && dom.m25GainRatio) {
+                const avgPre = preMSEs.reduce((a, b) => a + b, 0) / preMSEs.length;
+                const avgPost = postMSEs.reduce((a, b) => a + b, 0) / postMSEs.length;
+                const ratio = avgPre > 0 ? (avgPre / avgPost).toFixed(2) : '--';
+                dom.m25GainRatio.textContent = ratio + 'x';
+            }
+
+            if (m25State.invarianceTests.lockJaccard !== null && dom.m25LockJaccard) {
+                dom.m25LockJaccard.textContent = (m25State.invarianceTests.lockJaccard * 100).toFixed(1) + '%';
+            }
+            if (m25State.invarianceTests.codewordAgree !== null && dom.m25CodewordAgree) {
+                dom.m25CodewordAgree.textContent = (m25State.invarianceTests.codewordAgree * 100).toFixed(1) + '%';
+            }
+            if (m25State.invarianceTests.glyphJaccard !== null && dom.m25GlyphJaccard) {
+                dom.m25GlyphJaccard.textContent = (m25State.invarianceTests.glyphJaccard * 100).toFixed(1) + '%';
+            }
+        }
+
+        function handleM25Consolidation(data) {
+            if (!data) return;
+            const route = data.route || 'E8';
+            if (m25State.routeCounts[route] !== undefined) {
+                m25State.routeCounts[route]++;
+            }
+            if (typeof data.pre_mse === 'number') {
+                m25State.compressionStats.preMSE.push(data.pre_mse);
+                if (m25State.compressionStats.preMSE.length > 100) {
+                    m25State.compressionStats.preMSE.shift();
+                }
+            }
+            if (typeof data.post_mse === 'number') {
+                m25State.compressionStats.postMSE.push(data.post_mse);
+                if (m25State.compressionStats.postMSE.length > 100) {
+                    m25State.compressionStats.postMSE.shift();
+                }
+            }
+            m25State.recentConsolidations.push(data);
+            if (m25State.recentConsolidations.length > 50) {
+                m25State.recentConsolidations.shift();
+            }
+            updateM25Metrics();
+
+            // Enhanced log message with codeword/glyph info
+            const clusterSize = data.cluster_size || 0;
+            const compression = data.pre_mse > 0 ? (data.pre_mse / (data.post_mse || 1)).toFixed(2) : '--';
+            let extra = '';
+            if (data.codeword) {
+                extra += ` [${data.codeword.shell}:${data.codeword.id}]`;
+            }
+            if (data.glyph_topk && data.glyph_topk.length > 0) {
+                const topGlyph = data.glyph_topk[0];
+                extra += ` glyph[${topGlyph[0]}]=${topGlyph[1].toFixed(3)}`;
+            }
+            appendLog(`[M25:${route}] Consolidated ${clusterSize} nodes, ${compression}x gain${extra}`, 'success');
+        }
+
+        function handleM25ProximityAlert(data) {
+            if (!data) return;
+            m25State.recentProximityAlerts.push(data);
+            if (m25State.recentProximityAlerts.length > 50) {
+                m25State.recentProximityAlerts.shift();
+            }
+
+            const tier = data.tier || 'STRONG';
+            const dist = typeof data.distance === 'number' ? data.distance.toFixed(4) : '--';
+            let codeInfo = '';
+            if (data.source_codeword && data.target_codeword) {
+                const srcId = data.source_codeword.id || '?';
+                const tgtId = data.target_codeword.id || '?';
+                codeInfo = ` codes:[${srcId}↔${tgtId}]`;
+            }
+            const projection = data.projection || '';
+            appendLog(`[M25:PROXIMITY:${tier}] d=${dist} ${projection}${codeInfo}`, tier === 'LOCK' ? 'warn' : 'info');
+        }
+
+        function handleM25InvarianceTest(data) {
+            if (!data) return;
+            if (typeof data.locks_jaccard === 'number') {
+                m25State.invarianceTests.lockJaccard = data.locks_jaccard;
+            }
+            if (typeof data.codeword_agreement === 'number') {
+                m25State.invarianceTests.codewordAgree = data.codeword_agreement;
+            }
+            if (typeof data.glyph_jaccard === 'number') {
+                m25State.invarianceTests.glyphJaccard = data.glyph_jaccard;
+            }
+            updateM25Metrics();
+            appendLog(`[M25:INVARIANCE:${data.kind || 'test'}] lock=${(data.locks_jaccard*100).toFixed(1)}% code=${(data.codeword_agreement*100).toFixed(1)}% glyph=${(data.glyph_jaccard*100).toFixed(1)}%`, 'success');
+        }
+
+        // ========== M27 FIELD DYNAMICS HANDLERS ==========
+
+        function handleM27GravityStep(data) {
+            if (!data) return;
+            m27State.gravitySteps++;
+            if (typeof data.eta === 'number') {
+                m27State.latestGravityETA = data.eta;
+            }
+            updateM27Metrics();
+            const eta = typeof data.eta === 'number' ? data.eta.toExponential(3) : '--';
+            const converged = data.converged ? 'CONVERGED' : 'solving';
+            appendLog(`[M27:GRAVITY] step=${m27State.gravitySteps} eta=${eta} ${converged}`, 'info');
+        }
+
+        function handleM27StrongStep(data) {
+            if (!data) return;
+            m27State.strongSteps++;
+            if (typeof data.binding_energy === 'number') {
+                m27State.latestStrongBinding = data.binding_energy;
+            }
+            updateM27Metrics();
+            const binding = typeof data.binding_energy === 'number' ? data.binding_energy.toFixed(4) : '--';
+            const num = data.num_bindings || 0;
+            appendLog(`[M27:STRONG] step=${m27State.strongSteps} binding=${binding} count=${num}`, 'info');
+        }
+
+        function handleM27WeakEvent(data) {
+            if (!data) return;
+            m27State.weakEvents++;
+            if (data.flavor) {
+                m27State.latestWeakFlavor = data.flavor;
+            }
+            updateM27Metrics();
+            const flavor = data.flavor || 'UNKNOWN';
+            const interacted = data.interacted ? 'YES' : 'NO';
+            appendLog(`[M27:WEAK] event=${m27State.weakEvents} flavor=${flavor} interaction=${interacted}`, 'info');
+        }
+
+        function handleM27LockEvent(data) {
+            if (!data) return;
+            m27State.lockEvents++;
+            updateM27Metrics();
+            const tier = data.tier || '?';
+            const projection = data.projection || '';
+            const dist = typeof data.distance === 'number' ? data.distance.toFixed(4) : '--';
+            appendLog(`[M27:LOCK:${tier}] d=${dist} proj=${projection}`, 'warn');
+        }
+
+        function handleM27PromotionDecision(data) {
+            if (!data) return;
+            const promoted = data.promoted || false;
+            if (promoted) {
+                m27State.promotions++;
+            } else {
+                m27State.rejections++;
+            }
+            updateM27Metrics();
+            const decision = promoted ? 'PROMOTED' : 'REJECTED';
+            const gate = data.gate || '?';
+            const reason = data.reason || '';
+            appendLog(`[M27:ROUTER:${decision}] gate=${gate} ${reason}`, promoted ? 'success' : 'info');
+        }
+
+        function handleM27FieldDetector(data) {
+            if (!data) return;
+            m27State.fieldDetectorCandidates.push(data);
+            if (m27State.fieldDetectorCandidates.length > 100) {
+                m27State.fieldDetectorCandidates.shift();
+            }
+            const cid = data.concept_id || '?';
+            const score = typeof data.score === 'number' ? data.score.toFixed(3) : '--';
+            appendLog(`[M27:FIELD_DETECTOR] concept=${cid} score=${score}`, 'info');
+        }
+
+        function handleM27FieldInstantiated(data) {
+            if (!data) return;
+            const fieldType = data.field_type || 'UNKNOWN';
+            const params = data.params || {};
+            const paramsStr = JSON.stringify(params).slice(0, 60);
+            appendLog(`[M27:FIELD_INSTANTIATED] type=${fieldType} params=${paramsStr}`, 'success');
+        }
+
+        function handleM27ControlBlend(data) {
+            if (!data) return;
+            if (typeof data.dmn_proxy === 'number') {
+                m27State.latestDMNProxy = data.dmn_proxy;
+            }
+            if (typeof data.pfc_proxy === 'number') {
+                m27State.latestPFCProxy = data.pfc_proxy;
+            }
+            if (typeof data.alpha === 'number') {
+                m27State.latestBlendAlpha = data.alpha;
+            }
+            m27State.recentControlBlends.push(data);
+            if (m27State.recentControlBlends.length > 50) {
+                m27State.recentControlBlends.shift();
+            }
+            updateM27Metrics();
+            const dmn = typeof data.dmn_proxy === 'number' ? data.dmn_proxy.toFixed(3) : '--';
+            const pfc = typeof data.pfc_proxy === 'number' ? data.pfc_proxy.toFixed(3) : '--';
+            const alpha = typeof data.alpha === 'number' ? data.alpha.toFixed(3) : '--';
+            appendLog(`[M27:CONSCIOUSNESS] DMN=${dmn} PFC=${pfc} α=${alpha}`, 'info');
+        }
+
+        function handleM27ProxECDF(data) {
+            if (!data) return;
+            const median = typeof data.median === 'number' ? data.median.toFixed(4) : '--';
+            const q90 = typeof data.q90 === 'number' ? data.q90.toFixed(4) : '--';
+            appendLog(`[M27:PROX_ECDF] median=${median} q90=${q90}`, 'info');
+        }
+
+        function handleM27RouterFeatures(data) {
+            if (!data) return;
+            m27State.routerFeatures = data;
+            const numGates = data.num_gates || 0;
+            const eta = typeof data.eta_g_default === 'number' ? data.eta_g_default.toExponential(2) : '--';
+            appendLog(`[M27:ROUTER_FEATURES] gates=${numGates} eta_g=${eta}`, 'success');
+        }
+
+        function updateM27Metrics() {
+            if (dom.m27GravitySteps) dom.m27GravitySteps.textContent = m27State.gravitySteps;
+            if (dom.m27StrongSteps) dom.m27StrongSteps.textContent = m27State.strongSteps;
+            if (dom.m27WeakEvents) dom.m27WeakEvents.textContent = m27State.weakEvents;
+
+            if (m27State.latestGravityETA !== null && dom.m27GravityETA) {
+                dom.m27GravityETA.textContent = m27State.latestGravityETA.toExponential(2);
+            }
+            if (m27State.latestStrongBinding !== null && dom.m27StrongBinding) {
+                dom.m27StrongBinding.textContent = m27State.latestStrongBinding.toFixed(4);
+            }
+            if (dom.m27WeakFlavor) {
+                dom.m27WeakFlavor.textContent = m27State.latestWeakFlavor;
+            }
+
+            if (m27State.latestDMNProxy !== null && dom.m27DMNProxy) {
+                dom.m27DMNProxy.textContent = m27State.latestDMNProxy.toFixed(3);
+            }
+            if (m27State.latestPFCProxy !== null && dom.m27PFCProxy) {
+                dom.m27PFCProxy.textContent = m27State.latestPFCProxy.toFixed(3);
+            }
+            if (m27State.latestBlendAlpha !== null && dom.m27BlendAlpha) {
+                dom.m27BlendAlpha.textContent = m27State.latestBlendAlpha.toFixed(3);
+            }
+
+            if (dom.m27Promotions) dom.m27Promotions.textContent = m27State.promotions;
+            if (dom.m27Rejections) dom.m27Rejections.textContent = m27State.rejections;
+            if (dom.m27LockEvents) dom.m27LockEvents.textContent = m27State.lockEvents;
+        }
+
+        function curvatureToCanvas(msg){
+            if (!curvCtx || !dom.curvCanvas) return;
+            if (!dom.curvToggle.checked) {
+                dom.curvCanvas.style.display = 'none';
+                return;
+            }
+            dom.curvCanvas.style.display = 'block';
+            try {
+                const W = dom.curvCanvas.width;
+                const H = dom.curvCanvas.height;
+                curvCtx.clearRect(0, 0, W, H);
+                curvCtx.fillStyle = 'rgba(111,155,255,0.08)';
+                curvCtx.fillRect(0, 0, W, H);
+                
+                // Placeholder when no samples yet
+                if (!msg || !Array.isArray(msg.samples) || msg.samples.length === 0) {
+                    curvCtx.fillStyle = 'rgba(255,255,255,0.6)';
+                    try { curvCtx.font = '12px Inter, sans-serif'; } catch(e){}
+                    curvCtx.fillText('Waiting for curvature frames…', 12, 18);
+                    return;
+                }
+curvCtx.strokeStyle = 'rgba(111,155,255,0.4)';
+                curvCtx.lineWidth = 1;
+                curvCtx.beginPath();
+                curvCtx.moveTo(0, H / 2);
+                curvCtx.lineTo(W, H / 2);
+                curvCtx.stroke();
+                const samples = Array.isArray(msg?.samples) ? msg.samples : [];
+                const mn = typeof msg?.min === 'number' ? msg.min : -1;
+                const mx = typeof msg?.max === 'number' ? msg.max : 1;
+                const rng = (mx - mn) || 1;
+                const step = W / Math.max(samples.length, 1);
+                samples.forEach((entry, idx) => {
+                    const val = typeof entry?.k === 'number' ? entry.k : 0;
+                    const norm = (val - mn) / rng;
+                    const y = H - norm * H;
+                    const x = idx * step;
+                    const width = Math.max(1, step - 1);
+                    if (val >= 0) {
+                        curvCtx.fillStyle = 'rgba(94, 234, 212, 0.85)';
+                        curvCtx.fillRect(x, y, width, (H / 2) - y);
+                    } else {
+                        curvCtx.fillStyle = 'rgba(248, 113, 113, 0.85)';
+                        curvCtx.fillRect(x, H / 2, width, y - (H / 2));
+                    }
+                });
+            } catch (err) {
+                appendLog('Curvature draw error: ' + err, 'error');
+            }
+        }
+        function handleTelemetry(obj){
+            if (!obj || typeof obj !== 'object') return;
+            if (typeof obj.step === 'number') {
+                if (dom.stepNum) dom.stepNum.textContent = obj.step.toLocaleString();
+                if (dom.latticeStep) dom.latticeStep.textContent = obj.step.toLocaleString();
+            }
+            if (typeof obj.memory_count === 'number') {
+                const formatted = obj.memory_count.toLocaleString();
+                if (dom.conceptCount) dom.conceptCount.textContent = formatted;
+                if (dom.memoryCountVal) dom.memoryCountVal.textContent = formatted;
+            }
+            if (typeof obj.novelty === 'number' && dom.noveltyVal) {
+                dom.noveltyVal.textContent = obj.novelty.toFixed(3);
+            }
+            if (typeof obj.compression_gain === 'number' && dom.compressionGainVal) {
+                dom.compressionGainVal.textContent = obj.compression_gain.toFixed(3);
+            }
+            if (typeof obj.disagreement === 'number' && dom.disagreementVal) {
+                dom.disagreementVal.textContent = obj.disagreement.toFixed(3);
+            }
+            if (typeof obj.global_tension === 'number' && dom.globalTensionVal) {
+                dom.globalTensionVal.textContent = obj.global_tension.toFixed(3);
+            }
+            if (obj.environment_theme && dom.regionVal) {
+                dom.regionVal.textContent = obj.environment_theme;
+            }
+            if (typeof obj.teacher_in === 'number' && dom.teacherCountdown) {
+                dom.teacherCountdown.textContent = obj.teacher_in.toString();
+            }
+            if (typeof obj.explorer_in === 'number' && dom.explorerCountdown) {
+                dom.explorerCountdown.textContent = obj.explorer_in.toString();
+            }
+            if (obj.hypothesis && dom.hypothesisText) {
+                dom.hypothesisText.textContent = obj.hypothesis;
+                document.getElementById('hypothesisCard').classList.remove('empty');
+            } else if (dom.hypothesisText) {
+                dom.hypothesisText.textContent = 'No hypothesis registered.';
+                document.getElementById('hypothesisCard').classList.add('empty');
+            }
+            if (obj.teacher_question && dom.teacherQuestion) {
+                dom.teacherQuestion.textContent = obj.teacher_question;
+                document.getElementById('teacherCard').classList.remove('empty');
+            } else if (dom.teacherQuestion) {
+                dom.teacherQuestion.textContent = 'Awaiting next cadence...';
+                document.getElementById('teacherCard').classList.add('empty');
+            }
+            if (obj.explorer_answer && dom.explorerAnswer) {
+                dom.explorerAnswer.textContent = obj.explorer_answer;
+                document.getElementById('explorerCard').classList.remove('empty');
+            } else if (dom.explorerAnswer) {
+                dom.explorerAnswer.textContent = 'No explorer output captured yet.';
+                document.getElementById('explorerCard').classList.add('empty');
+            }
+            if (obj.subconscious_narrative && dom.subconsciousText) {
+                dom.subconsciousText.textContent = obj.subconscious_narrative;
+                document.getElementById('subconsciousCard').classList.remove('empty');
+            } else if (dom.subconsciousText) {
+                dom.subconsciousText.textContent = 'Silent subconscious layer.';
+                document.getElementById('subconsciousCard').classList.add('empty');
+            }
+            if (Array.isArray(obj.ingestion_feed) && dom.ingestionFeed) {
+                renderList(dom.ingestionFeed, obj.ingestion_feed.slice(-10).reverse().map(line => ({label: line})), 'No ingestion events yet.');
+            }
+            if (Array.isArray(obj.validation_lab) && dom.validationFeed) {
+                renderList(dom.validationFeed, obj.validation_lab.slice(-10).reverse().map(line => ({label: line})), 'No validations yet.');
+            }
+            if (Array.isArray(obj.insight_holocron) && dom.holocronFeed) {
+                renderList(dom.holocronFeed, obj.insight_holocron.slice(-10).reverse().map(line => ({label: line})), 'Holocron remains quiet.');
+            }
+            if (obj.goals && typeof obj.goals === 'object' && dom.goalsList) {
+                const entries = Object.entries(obj.goals)
+                    .map(([name, val]) => ({label: name, badge: Number(val || 0).toFixed(2)}))
+                    .sort((a, b) => Number(b.badge) - Number(a.badge))
+                    .slice(0, 6);
+                renderList(dom.goalsList, entries, 'Goal field inactive.');
+            }
+            if (obj.quantum_telemetry && dom.quantumMetrics) {
+                const q = obj.quantum_telemetry;
+                const qEntries = [
+                    ['Psi Entropy', formatNumber(q.psi_entropy, 4)],
+                    ['Lambda', formatNumber(q.lam, 4)],
+                    ['Delta t', formatNumber(q.dt, 4)],
+                    ['Gamma', formatNumber(q.gamma, 4)],
+                    ['Dephase', formatNumber(q.dephase, 4)]
+                ];
+                renderKeyValueCards(dom.quantumMetrics, qEntries);
+            }
+            if (obj.qc && dom.qcMetrics) {
+                const qc = obj.qc;
+                const entries = [
+                    ['Keep Fraction', formatNumber(qc.keep_frac, 3)],
+                    ['k12 Radius', formatNumber(qc.k12_radius, 5)],
+                    ['deg12 Share', formatNumber(qc.deg12_share, 3)]
+                ];
+                if (qc.angle) {
+                    entries.push(['Angle 63deg', formatNumber(qc.angle.frac63, 3)]);
+                    entries.push(['Angle 116deg', formatNumber(qc.angle.frac116, 3)]);
+                }
+                renderKeyValueCards(dom.qcMetrics, entries);
+            }
+            if (obj.phi && dom.phiConfig) {
+                const phiEntries = [
+                    ['Enabled', obj.phi.enabled ? 'ON' : 'OFF'],
+                    ['Amplitude A', formatNumber(obj.phi.A, 3)],
+                    ['k*', formatNumber(obj.phi.kstar, 3)],
+                    ['Phase', formatNumber(obj.phi.phase, 3)]
+                ];
+                dom.phiConfig.innerHTML = '';
+                phiEntries.forEach(([label, value]) => {
+                    const item = document.createElement('div');
+                    item.className = 'list-item';
+                    const span = document.createElement('span');
+                    span.textContent = label;
+                    const badge = document.createElement('span');
+                    badge.className = 'badge';
+                    badge.textContent = value;
+                    item.append(span, badge);
+                    dom.phiConfig.appendChild(item);
+                });
+            }
+            if (obj.stream_note) {
+                appendLog(obj.stream_note, 'info');
+            }
+            updateQuasicrystalState(obj);
+        }
+        function connectSSE(){
+            if (eventSource) {
+                eventSource.close();
+            }
+            eventSource = new EventSource(apiUrl('/api/telemetry/stream'));
+            eventSource.onopen = () => {
+                setSSEState('Live', 'ok');
+                appendLog('SSE channel established.', 'success');
+                if (reconnectTimer) {
+                    clearTimeout(reconnectTimer);
+                    reconnectTimer = null;
+                }
+            };
+            eventSource.onerror = () => {
+                setSSEState('Reconnecting', 'err');
+                appendLog('SSE connection interrupted. Retrying shortly...', 'warn');
+                if (!reconnectTimer) {
+                    reconnectTimer = window.setTimeout(connectSSE, 4000);
+                }
+            };
+            eventSource.addEventListener('telemetry', ev => {
+                try {
+                    const payload = JSON.parse(ev.data);
+                    handleTelemetry(payload);
+                } catch (err) {
+                    appendLog('Telemetry parse error: ' + err, 'error');
+                }
+            });
+            eventSource.addEventListener('tetra_update', ev => {
+                appendLog('[TETRA] ' + ev.data.slice(0, 160), 'info');
+            });
+            eventSource.addEventListener('curvature', ev => {
+                try {
+                    const payload = JSON.parse(ev.data);
+                    
+                    if (!dom.curvToggle.checked) { dom.curvToggle.checked = true; if (dom.curvCanvas) dom.curvCanvas.style.display = 'block'; }
+curvatureToCanvas(payload);
+                } catch (err) {
+                    appendLog('Curvature parse error: ' + err, 'error');
+                }
+            });
+            eventSource.addEventListener('consolidation', ev => {
+                try {
+                    const data = JSON.parse(ev.data);
+                    handleM25Consolidation(data);
+                } catch (err) {
+                    appendLog('M25 consolidation parse error: ' + err, 'error');
+                }
+            });
+            eventSource.addEventListener('proximity_alert', ev => {
+                try {
+                    const data = JSON.parse(ev.data);
+                    handleM25ProximityAlert(data);
+                } catch (err) {
+                    appendLog('M25 proximity parse error: ' + err, 'error');
+                }
+            });
+            eventSource.addEventListener('invariance_test', ev => {
+                try {
+                    const data = JSON.parse(ev.data);
+                    handleM25InvarianceTest(data);
+                } catch (err) {
+                    appendLog('M25 invariance parse error: ' + err, 'error');
+                }
+            });
+
+            // M27 Field Dynamics event listeners
+            eventSource.addEventListener('gravity_step', ev => {
+                try {
+                    const data = JSON.parse(ev.data);
+                    handleM27GravityStep(data);
+                } catch (err) {
+                    appendLog('M27 gravity_step parse error: ' + err, 'error');
+                }
+            });
+
+            eventSource.addEventListener('strong_step', ev => {
+                try {
+                    const data = JSON.parse(ev.data);
+                    handleM27StrongStep(data);
+                } catch (err) {
+                    appendLog('M27 strong_step parse error: ' + err, 'error');
+                }
+            });
+
+            eventSource.addEventListener('weak_event', ev => {
+                try {
+                    const data = JSON.parse(ev.data);
+                    handleM27WeakEvent(data);
+                } catch (err) {
+                    appendLog('M27 weak_event parse error: ' + err, 'error');
+                }
+            });
+
+            eventSource.addEventListener('lock_event', ev => {
+                try {
+                    const data = JSON.parse(ev.data);
+                    handleM27LockEvent(data);
+                } catch (err) {
+                    appendLog('M27 lock_event parse error: ' + err, 'error');
+                }
+            });
+
+            eventSource.addEventListener('promotion_decision', ev => {
+                try {
+                    const data = JSON.parse(ev.data);
+                    handleM27PromotionDecision(data);
+                } catch (err) {
+                    appendLog('M27 promotion_decision parse error: ' + err, 'error');
+                }
+            });
+
+            eventSource.addEventListener('field_detector_candidate', ev => {
+                try {
+                    const data = JSON.parse(ev.data);
+                    handleM27FieldDetector(data);
+                } catch (err) {
+                    appendLog('M27 field_detector parse error: ' + err, 'error');
+                }
+            });
+
+            eventSource.addEventListener('field_instantiated', ev => {
+                try {
+                    const data = JSON.parse(ev.data);
+                    handleM27FieldInstantiated(data);
+                } catch (err) {
+                    appendLog('M27 field_instantiated parse error: ' + err, 'error');
+                }
+            });
+
+            eventSource.addEventListener('control_blend', ev => {
+                try {
+                    const data = JSON.parse(ev.data);
+                    handleM27ControlBlend(data);
+                } catch (err) {
+                    appendLog('M27 control_blend parse error: ' + err, 'error');
+                }
+            });
+
+            eventSource.addEventListener('prox_ecdf', ev => {
+                try {
+                    const data = JSON.parse(ev.data);
+                    handleM27ProxECDF(data);
+                } catch (err) {
+                    appendLog('M27 prox_ecdf parse error: ' + err, 'error');
+                }
+            });
+
+            eventSource.addEventListener('router.features', ev => {
+                try {
+                    const data = JSON.parse(ev.data);
+                    handleM27RouterFeatures(data);
+                } catch (err) {
+                    appendLog('M27 router.features parse error: ' + err, 'error');
+                }
+            });
+        }
+
+        async function refreshGraphSummary(){
+            try {
+                const res = await fetch(apiUrl('/api/graph/summary'));
+                if (!res.ok) {
+                    return;
+                }
+                const data = await res.json();
+                if (typeof data.nodes === 'number') {
+                    const formatted = data.nodes.toLocaleString();
+                    if (dom.conceptCount) dom.conceptCount.textContent = formatted;
+                    if (dom.memoryCountVal) dom.memoryCountVal.textContent = formatted;
+                }
+                if (Array.isArray(data.recent) && dom.recentConcepts) {
+                    const entries = data.recent.map(item => ({
+                        label: item.label || item.id,
+                        badge: formatNumber(item.temperature || 0, 2)
+                    }));
+                    renderList(dom.recentConcepts, entries, 'No recent concepts.');
+                }
+            } catch (err) {
+                // Suppress error logging if we're in file:// mode and just waiting for server
+                if (window.location.protocol !== 'file:') {
+                    appendLog('Graph summary fetch failed: ' + err, 'error');
+                }
+            }
+        }
+
+        async function refreshMetrics(){
+            try {
+                const res = await fetch(apiUrl('/metrics/summary'));
+                if (!res.ok) {
+                    return;
+                }
+                const data = await res.json();
+                const gauges = Object.entries(data.gauges || {}).map(([k, v]) => ({
+                    label: k,
+                    value: formatNumber(v, 3)
+                })).slice(0, 9);
+                const counters = Object.entries(data.counters || {}).map(([k, v]) => ({
+                    label: k,
+                    value: Number(v || 0).toLocaleString()
+                })).slice(0, 6);
+                const timings = Object.entries(data.timings || {}).map(([k, v]) => ({
+                    label: k,
+                    value: v && typeof v.mean === 'number' ? v.mean.toFixed(2) + ' ms' : '--'
+                })).slice(0, 6);
+                renderMetricBlocks(dom.metrics, [
+                    { title: 'Gauges', entries: gauges },
+                    { title: 'Counters', entries: counters },
+                    { title: 'Timings', entries: timings }
+                ]);
+            } catch (err) {
+                // Suppress error logging if we're in file:// mode and just waiting for server
+                if (window.location.protocol !== 'file:') {
+                    appendLog('Metrics fetch failed: ' + err, 'error');
+                }
+            }
+        }
+
+        async function refreshBlueprint(){
+            try {
+                const res = await fetch(apiUrl('/api/blueprint'));
+                if (!res.ok) {
+                    return;
+                }
+                const data = await res.json();
+                if (Array.isArray(data) && data.length && dom.blueprint) {
+                    dom.blueprint.textContent = data.length + ' anchor points in active lattice blueprint.';
+                } else if (dom.blueprint) {
+                    dom.blueprint.textContent = 'No lattice blueprint emitted yet.';
+                }
+            } catch (err) {
+                if (dom.blueprint && window.location.protocol !== 'file:') {
+                    dom.blueprint.textContent = 'Blueprint unavailable.';
+                    appendLog('Blueprint fetch failed: ' + err, 'error');
+                }
+            }
+        }
+        if (dom.curvToggle && dom.curvCanvas) {
+            dom.curvToggle.addEventListener('change', () => {
+                if (!dom.curvToggle.checked) {
+                    dom.curvCanvas.style.display = 'none';
+                    if (curvCtx) {
+                        curvCtx.clearRect(0, 0, dom.curvCanvas.width, dom.curvCanvas.height);
+                    }
+                }
+            });
+        }
+
+        if (dom.searchBtn && dom.searchQ && dom.searchResults) {
+            dom.searchBtn.addEventListener('click', async () => {
+                const query = dom.searchQ.value.trim();
+                if (!query) {
+                    return;
+                }
+                dom.searchResults.textContent = 'Searching...';
+                try {
+                    const res = await fetch(apiUrl('/api/memory/search?q=' + encodeURIComponent(query) + '&k=7'));
+                    const data = await res.json();
+                    if (!res.ok || data.error) {
+                        dom.searchResults.textContent = data.error || 'Search failed.';
+                        return;
+                    }
+                    const results = Array.isArray(data.results) ? data.results : [];
+                    if (!results.length) {
+                        dom.searchResults.textContent = 'No matches.';
+                        return;
+                    }
+                    dom.searchResults.innerHTML = '';
+                    results.forEach(item => {
+                        const card = document.createElement('div');
+                        card.className = 'search-item';
+                        const title = document.createElement('div');
+                        title.className = 'title';
+                        title.textContent = item.label || item.id;
+                        const meta = document.createElement('div');
+                        meta.className = 'meta';
+                        const temperature = item.temperature != null ? ' temp ' + formatNumber(item.temperature, 2) : '';
+                        meta.textContent = 'distance ' + (1 - (item.distance || 0)).toFixed(3) + temperature;
+                        card.append(title, meta);
+                        dom.searchResults.appendChild(card);
+                    });
+                } catch (err) {
+                    dom.searchResults.textContent = 'Search error.';
+                    appendLog('Search error: ' + err, 'error');
+                }
+            });
+        }
+
+        if (dom.addBtn && dom.conceptText && dom.addStatus) {
+            dom.addBtn.addEventListener('click', async () => {
+                const text = dom.conceptText.value.trim();
+                if (!text) {
+                    dom.addStatus.textContent = 'Enter a concept first.';
+                    return;
+                }
+                dom.addBtn.disabled = true;
+                dom.addStatus.textContent = 'Submitting...';
+                try {
+                    const res = await fetch(apiUrl('/api/concept/add'), {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({text})
+                    });
+                    const data = await res.json();
+                    if (!res.ok || data.error) {
+                        dom.addStatus.textContent = data.error || 'Error';
+                        appendLog('Concept add failed: ' + (data.error || res.status), 'error');
+                    } else {
+                        dom.addStatus.textContent = 'Added ' + (data.node_id || '').slice(0, 8);
+                        dom.conceptText.value = '';
+                        appendLog('Concept submitted to forge.', 'success');
+                        refreshGraphSummary();
+                    }
+                } catch (err) {
+                    dom.addStatus.textContent = 'Error';
+                    appendLog('Concept submission error: ' + err, 'error');
+                } finally {
+                    dom.addBtn.disabled = false;
+                }
+            });
+        }
+
+        connectSSE();
+        refreshGraphSummary();
+        refreshMetrics();
+        refreshBlueprint();
+        refreshLatticeData();
+        resizeQuasicrystalCanvas();
+        
+        // Log startup info
+        if (window.location.protocol === 'file:') {
+            appendLog('📂 Opened as local file. Connecting to ' + API_BASE, 'info');
+            appendLog('Make sure the E8 Mind server is running on localhost:7871', 'info');
+        } else {
+            appendLog('🌐 Served from ' + window.location.origin, 'success');
+        }
+
+        window.setInterval(refreshGraphSummary, 10000);
+        window.setInterval(refreshMetrics, 20000);
+        window.setInterval(refreshBlueprint, 25000);
+        window.setInterval(refreshLatticeData, 16000);
+
+        const quasicrystalLoop = () => {
+            renderQuasicrystal();
+            qcState.animationHandle = requestAnimationFrame(quasicrystalLoop);
+        };
+        if (qcState.ctx) {
+            quasicrystalLoop();
+        }
+
+        window.addEventListener('resize', () => {
+            resizeLatticeRenderer();
+            resizeQuasicrystalCanvas();
+        });
+
+        window.addEventListener('beforeunload', () => {
+            if (eventSource) {
+                eventSource.close();
+            }
+            if (latticeState.animationId) {
+                cancelAnimationFrame(latticeState.animationId);
+            }
+            if (qcState.animationHandle) {
+                cancelAnimationFrame(qcState.animationHandle);
+            }
+        });
+    })();
+    </script>
+</body>
+</html>
