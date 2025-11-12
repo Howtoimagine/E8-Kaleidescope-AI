@@ -5,7 +5,7 @@ import contextlib
 import json
 import os
 import time
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
@@ -42,21 +42,18 @@ except Exception:  # fallback to legacy-compatible shims
             return ""
         return text.replace('\n',' ').replace('\r','').strip()[:max_chars]
 
-# Some helpers exist only in legacy server; import lazily when present
-def _legacy_symbols():
-    try:
-        import importlib, sys
-        for name in ("e8_mind_server_M24.2", "e8_mind_server_M24.1"):
-            mod = sys.modules.get(name)
-            if mod is None:
-                try:
-                    mod = importlib.import_module(name)
-                except Exception:
-                    continue
-            return mod
-    except Exception:
-        pass
-    return None
+try:
+    from e8_mind.physics.e8 import triacontagonal_projection  # type: ignore
+except Exception:  # pragma: no cover
+    def triacontagonal_projection(_roots, _console=None):
+        return np.asarray([])
+
+try:
+    from e8_mind.core.orchestrator import GLOBAL_SEED as ORCHESTRATOR_GLOBAL_SEED
+    from e8_mind.core.orchestrator import deterministic_embedding_stub as modular_deterministic_embedding
+except Exception:  # pragma: no cover - orchestrator unavailable
+    ORCHESTRATOR_GLOBAL_SEED = 1337
+    modular_deterministic_embedding = None
 
 # Graph export utility (kept local to avoid heavy nx import at module top)
 def _export_graph(graph: Any) -> Dict[str, Any]:
@@ -66,7 +63,8 @@ def _export_graph(graph: Any) -> Dict[str, Any]:
     except Exception:
         return {"nodes": [], "links": []}
     try:
-        return json_graph.node_link_data(graph, edges="edges")
+        # Preserve current JSON shape with 'links' while avoiding the FutureWarning
+        return json_graph.node_link_data(graph, edges="links")
     except TypeError:
         return json_graph.node_link_data(graph)
 
@@ -145,9 +143,6 @@ async def handle_ws_telemetry(request):
             if not ws.closed:
                 await ws.close()
     return ws
-
-async def handle_add_concept_legacy(request):
-    return await handle_add_concept(request)
 
 async def handle_get_graph_summary(request):
     mind = request.app['mind']
@@ -310,15 +305,15 @@ async def handle_memory_search(request):
     try:
         vec = await mind.get_embedding(q_text)
     except Exception:
-        legacy = _legacy_symbols()
-        if legacy is not None:
+        embed_dim = getattr(mind, 'embed_in_dim', 1536)
+        if modular_deterministic_embedding is not None:
             try:
-                raw = legacy.deterministic_embedding_stub(q_text, mind.embed_in_dim, legacy.GLOBAL_SEED)
+                raw = modular_deterministic_embedding(q_text, embed_dim, ORCHESTRATOR_GLOBAL_SEED)
                 vec = mind.embed_adapter(raw)
             except Exception:
-                vec = np.zeros(getattr(mind, 'embed_in_dim', 1536), dtype=np.float32)
+                vec = np.zeros(embed_dim, dtype=np.float32)
         else:
-            vec = np.zeros(getattr(mind, 'embed_in_dim', 1536), dtype=np.float32)
+            vec = np.zeros(embed_dim, dtype=np.float32)
     try:
         sims = mind.memory.find_similar_in_main_storage_e8(vec, k=k, decode_remnants=True)
     except Exception as e:
@@ -479,7 +474,9 @@ async def handle_get_telemetry(request):
                 console.log(f"[Telemetry Endpoint Error] {e}")
         except Exception:
             pass
-        return web.json_response({"error": "Failed to generate telemetry"}, status=500)
+        # Be resilient for frontend seeding: return an empty object instead of 500
+        # Frontend will continue with SSE/WS updates; this avoids noisy XHR 500s on cold start
+        return web.json_response({}, status=200, dumps=lambda d: json.dumps(d, cls=JSONEncoderAdapter))
 
 async def handle_get_blueprint(request):
     return web.json_response(request.app['mind'].blueprint)
@@ -487,8 +484,10 @@ async def handle_get_blueprint(request):
 async def handle_get_lattice(request):
     mind = request.app['mind']
     try:
-        lattice_data = {
+        lattice_data: Dict[str, Any] = {
             "roots": [],
+            "connections": [],
+            "thinking_traces": [],
             "active_roots": [],
             # Legacy-compatible aliases (populated before response):
             # - roots_3d: list of [x, y, z]
@@ -499,41 +498,210 @@ async def handle_get_lattice(request):
             "meta": {
                 "step": getattr(mind, 'step_num', 0),
                 "energy": 0.0,
-                "active_dimension": 8
-            }
+                "active_dimension": 8,
+                "total_roots": 0,
+                "shell_population": {},
+                "shell_tension": {},
+            },
         }
-        if hasattr(mind, 'physics') and hasattr(mind.physics, 'roots_unit'):
-            roots_unit = mind.physics.roots_unit
-            if roots_unit is not None and len(roots_unit) > 0:
-                for i, root in enumerate(roots_unit[:240]):
-                    if len(root) >= 3:
-                        x, y, z = root[0], root[1], root[2] if len(root) > 2 else 0
-                        scale = 5.0
-                        lattice_data["roots"].append({
-                            "id": i,
-                            "position": [x * scale, y * scale, z * scale],
-                            "energy": float(np.linalg.norm(root[:3]) if len(root) >= 3 else 1.0),
-                            "type": "type1" if i < 112 else "type2"
-                        })
-                active_count = min(8, len(lattice_data["roots"]))
-                step = getattr(mind, 'step_num', 0)
-                for i in range(active_count):
-                    idx = (step + i * 13) % len(lattice_data["roots"])
-                    lattice_data["active_roots"].append(idx)
-                if len(lattice_data["roots"]) >= 4:
-                    lattice_data["tetrahedron"] = [0, 1, 2, 3]
-                lattice_data["meta"]["energy"] = float(getattr(mind, 'last_insight_reward', 0.5))
-                lattice_data["meta"]["total_roots"] = len(lattice_data["roots"])
 
-        # Populate legacy aliases even if physics branch above was skipped
-        try:
-            if lattice_data["roots"]:
-                lattice_data["roots_3d"] = [r.get("position", [0.0, 0.0, 0.0]) for r in lattice_data["roots"]]
-            if lattice_data["active_roots"]:
-                lattice_data["active_highlights"] = list(lattice_data["active_roots"])  # same indices
-        except Exception:
-            # Non-fatal; keep base fields
-            pass
+        physics = getattr(mind, 'physics', None)
+        projection_matrix: Optional[np.ndarray] = None
+        root_vectors: Optional[np.ndarray] = None
+        root_positions: Optional[np.ndarray] = None
+        max_roots = 240
+
+        if physics is not None and hasattr(physics, 'roots'):
+            try:
+                root_vectors = np.asarray(getattr(physics, 'roots', []), dtype=np.float32)
+            except Exception:
+                root_vectors = None
+            if root_vectors is not None and root_vectors.size > 0:
+                # Prefer cached projection matrix if physics has already generated one
+                projection_matrix = getattr(physics, 'projection_matrix', None)
+                if projection_matrix is not None:
+                    try:
+                        projection_matrix = np.asarray(projection_matrix, dtype=np.float32)
+                        if projection_matrix.shape[0] != 8 or projection_matrix.shape[1] < 3:
+                            projection_matrix = None
+                    except Exception:
+                        projection_matrix = None
+                if projection_matrix is None:
+                    try:
+                        # fall back to triacontagonal projection used during initialization
+                        root_positions = triacontagonal_projection(root_vectors, getattr(mind, 'console', None))
+                    except Exception:
+                        root_positions = None
+                if root_positions is None:
+                    try:
+                        # Simple orthographic slice if projection failed
+                        root_positions = root_vectors[:, :3]
+                    except Exception:
+                        root_positions = None
+                else:
+                    # triacontagonal_projection already returns scaled positions
+                    pass
+
+                if projection_matrix is not None and root_positions is None:
+                    try:
+                        root_positions = root_vectors @ projection_matrix[:, :3]
+                    except Exception:
+                        root_positions = None
+
+                if root_positions is not None and root_positions.size > 0:
+                    # normalize spread for visualization
+                    span = float(np.max(np.linalg.norm(root_positions, axis=1))) or 1.0
+                    scale = 6.0 / span
+                    root_positions = (root_positions * scale).astype(np.float32)
+
+                    total_roots = min(root_positions.shape[0], max_roots)
+                    weights_matrix = None
+                    adj_bool = None
+                    try:
+                        weights_matrix = np.asarray(getattr(physics, 'weights', None), dtype=np.float32)
+                    except Exception:
+                        weights_matrix = None
+                    try:
+                        adj_bool = np.asarray(getattr(physics, 'adj_bool', None), dtype=np.int8)
+                    except Exception:
+                        adj_bool = None
+
+                    roots_payload: list[Dict[str, Any]] = []
+                    for idx in range(total_roots):
+                        vec8 = root_vectors[idx].tolist()
+                        pos3 = root_positions[idx].tolist()
+                        parity = 'even' if int(sum(vec8)) % 2 == 0 else 'odd'
+                        degree = 0
+                        neighbors: list[int] = []
+                        if adj_bool is not None and adj_bool.shape[0] > idx:
+                            neigh_idx = np.where(adj_bool[idx][:total_roots] > 0)[0]
+                            neighbors = [int(n) for n in np.asarray(neigh_idx, dtype=int)]
+                            degree = len(neighbors)
+                        energy = float(np.linalg.norm(root_vectors[idx]))
+                        roots_payload.append({
+                            "id": idx,
+                            "position": [float(pos3[0]), float(pos3[1]), float(pos3[2])],
+                            "vector8": [float(v) for v in vec8],
+                            "shell": float(np.linalg.norm(root_vectors[idx])),
+                            "energy": energy,
+                            "parity": parity,
+                            "degree": degree,
+                            "neighbors": neighbors,
+                        })
+                    lattice_data["roots"] = roots_payload
+                    lattice_data["meta"]["total_roots"] = total_roots
+                    # Build legacy flat positions
+                    lattice_data["roots_3d"] = [r["position"] for r in roots_payload]
+
+                    # Build connection list from weights
+                    if weights_matrix is not None and weights_matrix.size > 0:
+                        conn: list[Dict[str, Any]] = []
+                        capped = min(weights_matrix.shape[0], total_roots)
+                        for i in range(capped):
+                            row = weights_matrix[i][:capped]
+                            for j in range(i + 1, capped):
+                                w = float(row[j])
+                                if w <= 0:
+                                    continue
+                                conn.append({
+                                    "source": int(i),
+                                    "target": int(j),
+                                    "weight": w,
+                                })
+                        # keep strongest connections to limit payload size
+                        conn.sort(key=lambda item: item["weight"], reverse=True)
+                        lattice_data["connections"] = conn[:2500]
+
+                    # active roots derived from time-dependent sweep
+                    step = getattr(mind, 'step_num', 0)
+                    active_count = min(16, total_roots)
+                    active_roots = []
+                    if active_count > 0:
+                        for offset in range(active_count):
+                            idx = (step + offset * 17) % total_roots
+                            active_roots.append(int(idx))
+                    lattice_data["active_roots"] = active_roots
+                    lattice_data["active_highlights"] = list(active_roots)
+
+                    # Add a simple tetrahedron skeleton anchored to first four roots for reference
+                    if total_roots >= 4:
+                        lattice_data["tetrahedron"] = [0, 1, 2, 3]
+
+        # Shell metrics (population & tension) derived from dimensional shells
+        dimensional_shells = getattr(mind, 'dimensional_shells', {}) or {}
+        shell_population: Dict[str, int] = {}
+        shell_tension: Dict[str, float] = {}
+        for dim, shell in dimensional_shells.items():
+            matrix, _ = shell.get_all_vectors_as_matrix()
+            dim_key = str(dim)
+            if matrix is None or getattr(matrix, 'size', 0) == 0:
+                shell_population[dim_key] = len(getattr(shell, 'vectors', {}))
+                shell_tension[dim_key] = 0.0
+                continue
+            matrix = np.asarray(matrix, dtype=np.float32)
+            shell_population[dim_key] = int(matrix.shape[0])
+            if matrix.shape[0] > 1:
+                center = np.mean(matrix, axis=0, keepdims=True)
+                dists = np.linalg.norm(matrix - center, axis=1)
+                shell_tension[dim_key] = float(np.mean(dists))
+            else:
+                shell_tension[dim_key] = 0.0
+        lattice_data["meta"]["shell_population"] = shell_population
+        lattice_data["meta"]["shell_tension"] = shell_tension
+        lattice_data["meta"]["energy"] = float(getattr(mind, 'last_insight_reward', 0.0))
+
+        # Sample recent cognitive activity and project onto the lattice
+        memory = getattr(mind, 'memory', None)
+        thoughts: list[Dict[str, Any]] = []
+        if memory is not None:
+            main_vectors = getattr(memory, 'main_vectors', {}) or {}
+            recent_ids = list(getattr(memory, 'recent_nodes', []))[-24:]
+            physics_project = getattr(physics, 'find_nearest_root_index', None)
+            for node_id in reversed(recent_ids):
+                node_data = {}
+                try:
+                    node_data = memory.graph_db.get_node(node_id) or {}
+                except Exception:
+                    node_data = {}
+                label = node_data.get('label') or node_data.get('metaphor') or node_id
+                rating = node_data.get('rating')
+                vec = main_vectors.get(node_id)
+                if vec is None:
+                    continue
+                try:
+                    vec8 = memory.project_to_dim8(vec).tolist()
+                except Exception:
+                    try:
+                        vec8 = list(np.asarray(vec, dtype=np.float32)[:8])
+                    except Exception:
+                        continue
+                root_idx = None
+                if callable(physics_project):
+                    try:
+                        root_idx = physics_project(np.asarray(vec8, dtype=np.float32))
+                    except Exception:
+                        root_idx = None
+                if root_idx is None and root_vectors is not None and root_vectors.size > 0:
+                    try:
+                        diffs = root_vectors[:max_roots] - np.asarray(vec8, dtype=np.float32)
+                        norms = np.linalg.norm(diffs, axis=1)
+                        root_idx = int(np.argmin(norms))
+                    except Exception:
+                        root_idx = None
+                root_idx = int(root_idx) if root_idx is not None else None
+                projection = None
+                if root_idx is not None and root_positions is not None and root_positions.shape[0] > root_idx:
+                    projection = root_positions[root_idx].tolist()
+                thoughts.append({
+                    "node_id": node_id,
+                    "label": label,
+                    "rating": float(rating) if isinstance(rating, (int, float)) else None,
+                    "vector8": [float(v) for v in vec8],
+                    "root_index": root_idx,
+                    "projection": [float(v) for v in projection] if projection is not None else None,
+                })
+        lattice_data["thinking_traces"] = thoughts[:18]
+
         return web.json_response(lattice_data, dumps=lambda d: json.dumps(d, cls=JSONEncoderAdapter))
     except Exception as e:
         try:

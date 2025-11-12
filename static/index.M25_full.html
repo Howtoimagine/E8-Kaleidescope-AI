@@ -1,0 +1,1201 @@
+<!DOCTYPE html>
+<!--
+  E8 Mind Observatory - Standalone & Server-Compatible UI
+  
+  This file can be opened directly (file://) or served from the E8 Mind server.
+  
+  When opened as a file:
+  - Automatically connects to http://localhost:7871
+  - Requires the E8 Mind server to be running
+  - Start the server with: start_kaleidoscope_monolith.bat
+  
+  When served from the server:
+  - Uses relative URLs to the hosting server
+  - Automatically works with any server configuration
+-->
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>E8 Mind Observatory</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap');
+        :root {
+            --bg: #040616;
+            --fg: #eef3ff;
+            --muted: rgba(222, 232, 255, 0.72);
+            --panel-bg: rgba(13, 18, 36, 0.78);
+            --panel-border: rgba(130, 150, 255, 0.18);
+            --accent: #6f9bff;
+            --accent-2: #8f5cff;
+            --success: #5eead4;
+            --danger: #f87171;
+            --warning: #facc15;
+            --badge-bg: rgba(255, 255, 255, 0.08);
+            --badge-fg: #cdd8ff;
+            --shadow: 0 24px 70px rgba(5, 9, 24, 0.65);
+            --radius-lg: 20px;
+            --radius-md: 14px;
+            --radius-sm: 10px;
+            --code-bg: rgba(5, 9, 24, 0.6);
+        }
+
+        *, *::before, *::after { box-sizing: border-box; }
+        html, body { height: 100%; }
+        body {
+            margin: 0;
+            padding: 32px 24px 48px;
+            font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+            color: var(--fg);
+            background: radial-gradient(circle at 20% -10%, rgba(111, 155, 255, 0.35), transparent 55%),
+                        radial-gradient(circle at 80% 0%, rgba(143, 92, 255, 0.25), transparent 48%),
+                        #020409;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            overflow-y: auto;
+        }
+
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            background: radial-gradient(circle at 50% 120%, rgba(94, 234, 212, 0.08), transparent 55%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .cosmic-grid {
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+            background-size: 80px 80px, 80px 80px;
+            -webkit-mask-image: radial-gradient(circle at 50% 50%, rgba(0,0,0,0.95), transparent 70%);
+            mask-image: radial-gradient(circle at 50% 50%, rgba(0,0,0,0.95), transparent 70%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .app-shell {
+            position: relative;
+            z-index: 1;
+            width: min(1440px, 100%);
+            display: flex;
+            flex-direction: column;
+            gap: 28px;
+        }
+
+        .top-bar {
+            background: linear-gradient(135deg, rgba(21, 30, 58, 0.92), rgba(19, 26, 52, 0.72));
+            border: 1px solid var(--panel-border);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow);
+            padding: 22px 28px;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 24px;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+        }
+        
+        .brand-badge {
+            width: 48px;
+            height: 48px;
+            border-radius: 16px;
+            background: linear-gradient(145deg, rgba(111,155,255,0.45), rgba(143,92,255,0.55));
+            display: grid;
+            place-items: center;
+            font-family: 'Space Grotesk', sans-serif;
+            font-weight: 700;
+            font-size: 18px;
+            letter-spacing: 1px;
+            color: #0b1020;
+            box-shadow: 0 12px 30px rgba(111,155,255,0.22);
+        }
+
+        .brand-text h1 {
+            margin: 0;
+            font-family: 'Space Grotesk', sans-serif;
+            font-weight: 600;
+            font-size: 24px;
+            letter-spacing: 0.8px;
+        }
+
+        .brand-text p {
+            margin: 4px 0 0;
+            font-size: 14px;
+            color: var(--muted);
+        }
+
+        .status-capsules {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: center;
+        }
+        .capsule {
+            padding: 12px 18px;
+            border-radius: 999px;
+            border: 1px solid rgba(255,255,255,0.08);
+            background: rgba(10, 15, 30, 0.55);
+            min-width: 140px;
+            display: grid;
+            gap: 4px;
+        }
+
+        .capsule .label {
+            text-transform: uppercase;
+            font-size: 10px;
+            letter-spacing: 0.18em;
+            color: var(--muted);
+        }
+
+        .capsule .value {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 16px;
+        }
+
+        .capsule .value.ok { color: var(--success); }
+        .capsule .value.err { color: var(--danger); }
+
+        .layout {
+            display: grid;
+            grid-template-columns: minmax(300px, 0.9fr) minmax(420px, 1.2fr) minmax(300px, 0.9fr);
+            gap: 24px;
+        }
+
+        .column {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            min-height: 0;
+        }
+
+        .panel {
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            border-radius: var(--radius-lg);
+            padding: 22px 24px 24px;
+            box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            min-height: 0;
+            -webkit-backdrop-filter: blur(18px) saturate(140%);
+            backdrop-filter: blur(18px) saturate(140%);
+        }
+
+        .panel h2, .panel h3, .panel h4 {
+            margin: 0;
+            font-family: 'Space Grotesk', sans-serif;
+            letter-spacing: 0.04em;
+        }
+
+        .panel h2 { font-size: 20px; }
+        .panel h3 { font-size: 16px; color: var(--muted); }
+        .panel h4 { font-size: 14px; color: var(--muted); text-transform: uppercase; }
+
+        .panel-intro {
+            font-size: 13px;
+            color: var(--muted);
+        }
+
+        .field {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .field.actions {
+            flex-direction: row;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .field-label {
+            font-size: 12px;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+
+        textarea, input[type="text"] {
+            width: 100%;
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(255,255,255,0.12);
+            background: rgba(8,12,26,0.6);
+            color: var(--fg);
+            padding: 12px 14px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        textarea:focus, input[type="text"]:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(111,155,255,0.25);
+        }
+
+        textarea::placeholder, input::placeholder {
+            color: rgba(220,230,255,0.45);
+        }
+
+        button {
+            border: none;
+            border-radius: 999px;
+            font-family: 'Space Grotesk', sans-serif;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            padding: 12px 22px;
+            cursor: pointer;
+            color: #050914;
+            background: linear-gradient(135deg, #6f9bff, #8f5cff);
+            box-shadow: 0 12px 30px rgba(111,155,255,0.35);
+            transition: transform 0.15s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+        }
+
+        button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 16px 36px rgba(111,155,255,0.4);
+        }
+
+        button:active:not(:disabled) {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .ghost-btn {
+            background: transparent;
+            color: var(--fg);
+            border: 1px solid rgba(255,255,255,0.24);
+            box-shadow: none;
+        }
+
+        .ghost-btn:hover:not(:disabled) {
+            background: rgba(111,155,255,0.12);
+        }
+
+        .microcopy {
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .divider {
+            width: 100%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+            margin: 4px 0;
+        }
+
+        .list-block {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-height: 220px;
+            overflow: auto;
+            padding-right: 4px;
+        }
+
+        .list-block.dense { gap: 6px; }
+
+        .list-item {
+            padding: 10px 12px;
+            background: rgba(12, 18, 32, 0.72);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+        }
+
+        .list-item .badge {
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: var(--badge-bg);
+            color: var(--badge-fg);
+            font-size: 11px;
+        }
+        .log-window {
+            background: var(--code-bg);
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(111,155,255,0.18);
+            padding: 16px;
+            font-family: 'JetBrains Mono', 'SFMono-Regular', Menlo, monospace;
+            font-size: 12px;
+            line-height: 1.5;
+            height: 320px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .log-line {
+            display: flex;
+            gap: 12px;
+            align-items: baseline;
+            color: rgba(226,236,255,0.88);
+        }
+
+        .log-line .log-time {
+            color: rgba(226,236,255,0.45);
+            font-size: 11px;
+            min-width: 54px;
+        }
+
+        .log-line.success .log-text { color: var(--success); }
+        .log-line.error .log-text { color: var(--danger); }
+        .log-line.warn .log-text { color: var(--warning); }
+
+        .curvature {
+            background: rgba(13,20,38,0.75);
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(111,155,255,0.16);
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .curvature-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .toggle {
+            position: relative;
+            width: 46px;
+            height: 24px;
+        }
+
+        .toggle input {
+            appearance: none;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            cursor: pointer;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            inset: 0;
+            background: rgba(255,255,255,0.16);
+            border-radius: 999px;
+            transition: background 0.2s ease;
+        }
+
+        .toggle-slider::after {
+            content: "";
+            position: absolute;
+            top: 3px;
+            left: 4px;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #fff;
+            transition: transform 0.2s ease;
+        }
+
+        .toggle input:checked + .toggle-slider {
+            background: linear-gradient(135deg, #6f9bff, #8f5cff);
+        }
+
+        .toggle input:checked + .toggle-slider::after {
+            transform: translateX(20px);
+        }
+
+        #curvCanvas {
+            width: 100%;
+            height: 180px;
+            display: none;
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(111,155,255,0.2);
+            background: rgba(5,9,24,0.75);
+        }
+
+        .panel--lattice .panel-intro {
+            margin-bottom: 4px;
+        }
+
+        .lattice-viewport {
+            position: relative;
+            width: 100%;
+            height: 320px;
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(111,155,255,0.16);
+            background: rgba(7, 11, 25, 0.8);
+            overflow: hidden;
+        }
+
+        .lattice-viewport canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        .lattice-alert {
+            position: absolute;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            font-size: 13px;
+            color: rgba(226,236,255,0.7);
+            -webkit-backdrop-filter: blur(6px);
+            backdrop-filter: blur(6px);
+        }
+
+        .lattice-meta {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .lattice-meta .item {
+            display: grid;
+            gap: 4px;
+        }
+
+        .lattice-meta .label {
+            text-transform: uppercase;
+            font-size: 10px;
+            letter-spacing: 0.18em;
+            color: var(--muted);
+        }
+
+        .lattice-meta .value {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 16px;
+        }
+
+        .quasicrystal-wrapper {
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 8px;
+            background: rgba(8, 12, 26, 0.65);
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+
+        #qcMemoryCanvas {
+            width: 100%;
+            max-width: 380px;
+            height: auto;
+            display: block;
+        }
+
+        .quasicrystal-summary {
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .qc-tooltip {
+            position: absolute;
+            background: rgba(12,18,36,0.95);
+            border: 1px solid rgba(111,155,255,0.4);
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 11px;
+            color: rgba(239,246,255,0.9);
+            pointer-events: none;
+            display: none;
+            z-index: 100;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 14px;
+        }
+
+        .stat-card {
+            background: rgba(12, 18, 36, 0.65);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: var(--radius-md);
+            padding: 14px 16px;
+            display: grid;
+            gap: 6px;
+        }
+
+        .stat-card .label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.18em;
+            color: var(--muted);
+        }
+
+        .stat-card .value {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 18px;
+        }
+
+        .stat-card .meta {
+            font-size: 11px;
+            color: rgba(226,236,255,0.55);
+        }
+        .countdown-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .countdown-pill {
+            border-radius: 999px;
+            border: 1px solid rgba(255,255,255,0.14);
+            padding: 8px 14px;
+            background: rgba(12,18,36,0.6);
+            font-size: 12px;
+            letter-spacing: 0.04em;
+            color: var(--muted);
+        }
+
+        .countdown-pill span {
+            color: var(--fg);
+            font-family: 'Space Grotesk', sans-serif;
+            margin-left: 6px;
+        }
+
+        .metric-section {
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+
+        .metric-block {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .metric-block h4 {
+            font-size: 12px;
+            letter-spacing: 0.14em;
+            color: var(--muted);
+        }
+
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+        }
+
+        .metric-card {
+            background: rgba(12, 18, 36, 0.65);
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(255,255,255,0.08);
+            padding: 12px 14px;
+            display: grid;
+            gap: 4px;
+            font-size: 12px;
+        }
+
+        .metric-card .metric-label {
+            text-transform: uppercase;
+            font-size: 10px;
+            letter-spacing: 0.16em;
+            color: var(--muted);
+        }
+
+        .metric-card .metric-value {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 16px;
+        }
+
+        .blueprint-block {
+            min-height: 120px;
+            border-radius: var(--radius-md);
+            border: 1px dashed rgba(255,255,255,0.18);
+            background: rgba(8, 12, 26, 0.55);
+            padding: 14px 16px;
+            font-size: 13px;
+            color: var(--muted);
+        }
+
+        .feed-grid {
+            display: grid;
+            gap: 12px;
+        }
+
+        .feed-grid .feed {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .dialogue-grid {
+            display: grid;
+            gap: 12px;
+        }
+
+        .dialogue-card {
+            background: rgba(12, 18, 36, 0.6);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: var(--radius-md);
+            padding: 16px;
+            display: grid;
+            gap: 8px;
+        }
+
+        .dialogue-card h3 {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.22em;
+            color: var(--muted);
+        }
+
+        .dialogue-card p {
+            margin: 0;
+            font-size: 14px;
+            color: rgba(230, 238, 255, 0.9);
+            line-height: 1.5;
+        }
+
+        .dialogue-card.empty p {
+            color: rgba(230, 238, 255, 0.45);
+        }
+
+        .actions-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .search-results {
+            max-height: 180px;
+            overflow-y: auto;
+            padding-right: 4px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .search-item {
+            border-radius: var(--radius-md);
+            padding: 10px 12px;
+            background: rgba(12, 18, 36, 0.6);
+            border: 1px solid rgba(255,255,255,0.08);
+            display: grid;
+            gap: 4px;
+        }
+
+        .search-item .title { font-weight: 600; }
+
+        .search-item .meta {
+            font-size: 11px;
+            color: var(--muted);
+        }
+
+        ::-webkit-scrollbar { width: 10px; height: 10px; }
+        ::-webkit-scrollbar-track { background: rgba(5,9,24,0.35); border-radius: 999px; }
+        ::-webkit-scrollbar-thumb { background: rgba(111,155,255,0.35); border-radius: 999px; }
+
+        @media (max-width: 1280px) {
+            body { padding: 24px 18px 36px; }
+            .layout {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+            .column:last-child {
+                grid-column: 1 / -1;
+            }
+        }
+
+        @media (max-width: 900px) {
+            .layout { grid-template-columns: 1fr; }
+            .top-bar { flex-direction: column; align-items: flex-start; }
+            .log-window { height: 260px; }
+            .lattice-viewport { height: 260px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="cosmic-grid"></div>
+    <div class="app-shell">
+        <header class="top-bar">
+            <div class="brand">
+                <div class="brand-badge">E8</div>
+                <div class="brand-text">
+                    <h1>Mind Observatory</h1>
+                    <p>Quantum cognition telemetry and emergent insight console</p>
+                </div>
+            </div>
+            <div class="status-capsules">
+                <div class="capsule">
+                    <span class="label">Stream</span>
+                    <span class="value" id="sseStatus">Connecting...</span>
+                </div>
+                <div class="capsule">
+                    <span class="label">Step</span>
+                    <span class="value" id="stepNum">-</span>
+                </div>
+                <div class="capsule">
+                    <span class="label">Concepts</span>
+                    <span class="value" id="conceptCount">-</span>
+                </div>
+                <div class="capsule">
+                    <span class="label">Environment</span>
+                    <span class="value" id="regionVal">-</span>
+                </div>
+            </div>
+        </header>
+
+        <div class="layout">
+            <div class="column column--left">
+                <section class="panel panel--form">
+                    <h2>Concept Forge</h2>
+                    <p class="panel-intro">Seed the lattice with fresh ideas. Concepts are routed through synthesis, validation, and the quasicrystal window.</p>
+                    <label class="field">
+                        <span class="field-label">New concept</span>
+                        <textarea id="conceptText" rows="4" placeholder="Describe a concept, hypothesis, or observation..."></textarea>
+                    </label>
+                    <div class="field actions">
+                        <button id="addBtn">Submit Concept</button>
+                        <span id="addStatus" class="microcopy"></span>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <h3>Memory Lookup</h3>
+                    <div class="actions-row">
+                        <input type="text" id="searchQ" placeholder="Search the knowledge graph..."/>
+                        <button id="searchBtn" class="ghost-btn">Search</button>
+                    </div>
+                    <div id="searchResults" class="search-results microcopy"></div>
+
+                    <div class="divider"></div>
+
+                    <h3>Recent Concepts</h3>
+                    <div id="recentConcepts" class="list-block"></div>
+                </section>
+
+                <section class="panel panel--feeds">
+                    <h2>Signal Feeds</h2>
+                    <div class="feed-grid">
+                        <div class="feed">
+                            <h3>Ingestion Stream</h3>
+                            <div id="ingestionFeed" class="list-block dense"></div>
+                        </div>
+                        <div class="feed">
+                            <h3>Validation Lab</h3>
+                            <div id="validationFeed" class="list-block dense"></div>
+                        </div>
+                        <div class="feed">
+                            <h3>Insight Holocron</h3>
+                            <div id="holocronFeed" class="list-block dense"></div>
+                        </div>
+                    </div>
+                </section>
+            
+
+                <section class="panel panel--beats">
+                    <h2>Runtime Beats</h2>
+                    <div class="stat-grid">
+                        <div class="stat-card"><span class="label">Teacher</span><span class="value" id="beatTeacher">—</span><span class="meta">running</span></div>
+                        <div class="stat-card"><span class="label">Explorer</span><span class="value" id="beatExplorer">—</span><span class="meta">running</span></div>
+                        <div class="stat-card"><span class="label">Dream</span><span class="value" id="beatDream">—</span><span class="meta">running</span></div>
+                        <div class="stat-card"><span class="label">Insight</span><span class="value" id="beatInsight">—</span><span class="meta">running</span></div>
+                    </div>
+                </section>
+
+                <section class="panel panel--window">
+                    <h2>Window Rollup</h2>
+                    <p class="panel-intro">Aggregates from sliding windows: alert/lock/coverage/unknown/autotune/vae.</p>
+                    <div class="metric-grid">
+                        <div class="stat-card"><span class="label">ray_alert_rate</span><span class="value" id="winRayAlert">—</span></div>
+                        <div class="stat-card"><span class="label">lock_rate</span><span class="value" id="winLockRate">—</span></div>
+                        <div class="stat-card"><span class="label">validator_coverage</span><span class="value" id="winValidator">—</span></div>
+                        <div class="stat-card"><span class="label">unknown_rate</span><span class="value" id="winUnknown">—</span></div>
+                        <div class="stat-card"><span class="label">autotune_rate</span><span class="value" id="winAutotune">—</span></div>
+                        <div class="stat-card"><span class="label">vae_loss_avg</span><span class="value" id="winVAE">—</span></div>
+                    </div>
+                    <div class="divider"></div>
+                    <h3>Latest Window</h3>
+                    <div id="windowList" class="list-block dense"></div>
+                </section>
+
+                <section class="panel panel--latency">
+                    <h2>Latency Samples</h2>
+                    <div class="metric-grid">
+                        <div class="stat-card"><span class="label">Last</span><span class="value" id="latLast">—</span></div>
+                        <div class="stat-card"><span class="label">Mean</span><span class="value" id="latMean">—</span></div>
+                        <div class="stat-card"><span class="label">N</span><span class="value" id="latN">0</span></div>
+                    </div>
+                    <div class="divider"></div>
+                    <div id="latencyList" class="list-block dense"></div>
+                </section>
+
+</div>
+            <div class="column column--center">
+                <section class="panel panel--lattice">
+                    <div>
+                        <h2>E8 Lattice Geometry</h2>
+                        <p class="panel-intro">3D projection with symmetry groups. Drag to rotate, scroll/pinch to zoom. Keys: R=reset | C=connections | A=auto-rotate | G=grid | P=particles | M=color-mode | +/- zoom | arrows=rotate</p>
+                    </div>
+                    <div id="latticeViewport" class="lattice-viewport">
+                        <div id="latticeFallback" class="lattice-alert">Initializing lattice renderer…</div>
+                    </div>
+                    <div class="lattice-meta">
+                        <div class="item">
+                            <span class="label">Roots</span>
+                            <span class="value" id="latticeMetaRoots">-</span>
+                        </div>
+                        <div class="item">
+                            <span class="label">Energy</span>
+                            <span class="value" id="latticeMetaEnergy">-</span>
+                        </div>
+                        <div class="item">
+                            <span class="label">Step</span>
+                            <span class="value" id="latticeMetaStep">-</span>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="panel panel--activity">
+                    <h2>Signal Stream</h2>
+                    <p class="panel-intro">Live narration of emergent behaviour, structural adjustments, and telemetry anomalies.</p>
+                    <div id="log" class="log-window"></div>
+                    <div class="curvature">
+                        <div class="curvature-header">
+                            <div>
+                                <h3>Curvature Overlay</h3>
+                                <p class="microcopy">Visualise curvature deviations across the causal manifold.</p>
+                            </div>
+                            <label class="toggle" aria-label="Toggle curvature overlay">
+                                <input type="checkbox" id="curvToggle" aria-label="Enable curvature overlay"/>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <canvas id="curvCanvas" width="720" height="180"></canvas>
+                    </div>
+                </section>
+
+                <section class="panel panel--dialogue">
+                    <h2>Dialogue and Narrative</h2>
+                    <div class="dialogue-grid">
+                        <div class="dialogue-card" id="hypothesisCard">
+                            <h3>Active Hypothesis</h3>
+                            <p id="hypothesisText">No hypothesis registered.</p>
+                        </div>
+                        <div class="dialogue-card" id="teacherCard">
+                            <h3>Teacher Prompt</h3>
+                            <p id="teacherQuestion">Awaiting next cadence...</p>
+                        </div>
+                        <div class="dialogue-card" id="explorerCard">
+                            <h3>Explorer Response</h3>
+                            <p id="explorerAnswer">No explorer output captured yet.</p>
+                        </div>
+                        <div class="dialogue-card" id="subconsciousCard">
+                            <h3>Subconscious Narrative</h3>
+                            <p id="subconsciousText">Silent subconscious layer.</p>
+                        </div>
+                        <div class="dialogue-card" id="goalsCard">
+                            <h3>Goal Field</h3>
+                            <div id="goalsList" class="list-block dense"></div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+            <div class="column column--right">
+                <section class="panel panel--quasicrystal">
+                    <h2>Quasicrystal Memory</h2>
+                    <p class="panel-intro">Penrose-style tiling with dimensional shells. Drag to pan, scroll to zoom, double-click to reset. Keys: Q=auto-rotate | L=labels | N=connections | B=particles | K=color-scheme</p>
+                    <div class="quasicrystal-wrapper">
+                        <canvas id="qcMemoryCanvas" width="400" height="400"></canvas>
+                        <div id="qcTooltip" class="qc-tooltip"></div>
+                    </div>
+                    <div class="quasicrystal-summary" id="quasicrystalSummary">Awaiting telemetry…</div>
+                </section>
+
+                <section class="panel panel--insights">
+                    <h2>Telemetry</h2>
+                    <div class="stat-grid">
+                        <div class="stat-card">
+                            <span class="label">Memory</span>
+                            <span class="value" id="memoryCountVal">-</span>
+                            <span class="meta">nodes</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="label">Novelty</span>
+                            <span class="value" id="noveltyVal">-</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="label">Compression</span>
+                            <span class="value" id="compressionGainVal">-</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="label">Disagreement</span>
+                            <span class="value" id="disagreementVal">-</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="label">Global Tension</span>
+                            <span class="value" id="globalTensionVal">-</span>
+                        </div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <h3>Cadence</h3>
+                    <div class="countdown-grid">
+                        <div class="countdown-pill">Teacher in<span id="teacherCountdown">-</span></div>
+                        <div class="countdown-pill">Explorer in<span id="explorerCountdown">-</span></div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <h3>Quantum Envelope</h3>
+                    <div id="quantumMetrics" class="metric-grid"></div>
+
+                    <div class="divider"></div>
+
+                    <h3>Quasicrystal Window</h3>
+                    <div id="qcMetrics" class="metric-grid"></div>
+
+                    <div class="divider"></div>
+
+                    <h3>Phi Log-Periodic</h3>
+                    <div id="phiConfig" class="list-block dense"></div>
+
+                    <div class="divider"></div>
+
+                    <h3>Metric Summary</h3>
+                    <div id="metrics" class="metric-section"></div>
+
+                    <div class="divider"></div>
+
+                    
+                    <div class="divider"></div>
+
+                    <h3>M25 Compression Router</h3>
+                    <div class="metric-grid">
+                      <div class="stat-card"><span class="label">E8 route</span><span class="value" id="m25RouteE8">-</span></div>
+                      <div class="stat-card"><span class="label">Boundary route</span><span class="value" id="m25RouteBoundary">-</span></div>
+                      <div class="stat-card"><span class="label">Leech route</span><span class="value" id="m25RouteLeech">-</span></div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <h3>M25 Invariance Check</h3>
+                    <div class="metric-grid">
+                      <div class="stat-card"><span class="label">Pre-MSE</span><span class="value" id="m25PreMSE">-</span></div>
+                      <div class="stat-card"><span class="label">Post-MSE</span><span class="value" id="m25PostMSE">-</span></div>
+                      <div class="stat-card"><span class="label">Gain (×)</span><span class="value" id="m25GainRatio">-</span></div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <h3>M25 Codeword Consensus</h3>
+                    <div class="metric-grid">
+                      <div class="stat-card"><span class="label">Lock Jaccard</span><span class="value" id="m25LockJaccard">-</span></div>
+                      <div class="stat-card"><span class="label">Codeword Agree</span><span class="value" id="m25CodewordAgree">-</span></div>
+                      <div class="stat-card"><span class="label">Glyph Jaccard</span><span class="value" id="m25GlyphJaccard">-</span></div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <h3>M27 Field Dynamics</h3>
+                    <div class="metric-grid">
+                      <div class="stat-card"><span class="label">Gravity Steps</span><span class="value" id="m27GravitySteps">-</span></div>
+                      <div class="stat-card"><span class="label">Strong Steps</span><span class="value" id="m27StrongSteps">-</span></div>
+                      <div class="stat-card"><span class="label">Weak Events</span><span class="value" id="m27WeakEvents">-</span></div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <h3>M27 Field Mantle Status</h3>
+                    <div class="metric-grid">
+                      <div class="stat-card"><span class="label">Gravity Residual</span><span class="value" id="m27GravityETA">-</span></div>
+                      <div class="stat-card"><span class="label">Avg Binding</span><span class="value" id="m27StrongBinding">-</span></div>
+                      <div class="stat-card"><span class="label">Weak State</span><span class="value" id="m27WeakFlavor">-</span></div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <h3>M27 Consciousness Control</h3>
+                    <div class="metric-grid">
+                      <div class="stat-card"><span class="label">DMN Proxy</span><span class="value" id="m27DMNProxy">-</span></div>
+                      <div class="stat-card"><span class="label">PFC Proxy</span><span class="value" id="m27PFCProxy">-</span></div>
+                      <div class="stat-card"><span class="label">Blend Alpha</span><span class="value" id="m27BlendAlpha">-</span></div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <h3>M27 Router & Promotion</h3>
+                    <div class="metric-grid">
+                      <div class="stat-card"><span class="label">Promotions</span><span class="value" id="m27Promotions">-</span></div>
+                      <div class="stat-card"><span class="label">Rejections</span><span class="value" id="m27Rejections">-</span></div>
+                      <div class="stat-card"><span class="label">Lock Events</span><span class="value" id="m27LockEvents">-</span></div>
+                    </div>
+
+                    <h3>Blueprint Snapshot</h3>
+                    <div id="blueprint" class="blueprint-block">No blueprint data yet.</div>
+                </section>
+                
+                <section class="panel panel--events">
+                    <h2>Event Inspector</h2>
+                    <p class="panel-intro">Counts and last payload per SSE event type.</p>
+                    <div class="metric-grid" id="eventCounts"></div>
+                    <div class="divider"></div>
+                    <div id="eventLastPayload" class="log-window" style="height:180px;"></div>
+                </section>
+
+                <section class="panel panel--hypo">
+                    <h2>Hypothesis Dashboard</h2>
+                    <p class="panel-intro">Live set of active hypotheses with ratings and uncertainty.</p>
+                    <div id="hypothesisList" class="list-block"></div>
+                </section>
+
+                <section class="panel panel--telemetry-lite">
+                    <h2>Live Telemetry Stream</h2>
+                    <div>Step: <span id="step">-</span> | Loops: <span id="loops">-</span></div>
+                    <div>Horizon phi=<span id="phi">-</span> | temp=<span id="temp">-</span></div>
+                    <div>Fields: gravity phi=<span id="grav">-</span> | binding=<span id="bind">-</span> | lambda_up=<span id="lambda">-</span></div>
+                    <div>VAE loss avg: <span id="vae">-</span></div>
+                    <div>Router: <span id="route">-</span> | s=<span id="routeS">-</span></div>
+                    <div>BH Panel: <span id="bh">-</span></div>
+                    <div>E8 Lattice roots: <span id="latticeCount">-</span></div>
+                    <ul id="prox" class="telemetry-prox list-block dense"></ul>
+                    <ul id="hypos" class="telemetry-hypos list-block dense"></ul>
+                </section>
+            </div>
+        </div>
+    </div>
+
+<script>
+window.addEventListener('DOMContentLoaded', () => {
+    (function telemetryLite() {
+        const base = (window.location.protocol === 'file:' ? 'http://localhost:7871' : window.location.origin).replace(/\/$/, '');
+        const buildUrl = (path) => `${base}${path}`;
+        const buildWsUrl = () => {
+            if (window.location.protocol === 'file:') {
+                return `${base.replace(/^http/i, 'ws')}/api/ws/telemetry`;
+            }
+            const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+            return `${scheme}://${window.location.host}/api/ws/telemetry`;
+        };
+        const byId = (id) => document.getElementById(id);
+        const setText = (id, value) => {
+            const el = byId(id);
+            if (el) {
+                el.textContent = value;
+            }
+        };
+
+        function render(frame) {
+            if (!frame) {
+                return;
+            }
+            const status = frame.status || {};
+            setText('step', status.step ?? '-');
+            const loops = ['teacher', 'explorer', 'dream', 'insight']
+                .map((key) => `${key}:${status[`${key}_running`] ? 'on' : 'off'}`)
+                .join('  ');
+            setText('loops', loops);
+            setText('phi', frame.horizon_phi ?? '-');
+            setText('temp', frame.horizon_temperature ?? '-');
+            const gravityPhi = frame.fields_gravity?.phi ?? frame.fields_gravity?.phi_norm ?? '-';
+            setText('grav', gravityPhi);
+            setText('bind', frame.fields_strong?.binding_energy ?? frame.fields_strong?.avg_binding ?? '-');
+            setText('lambda', frame.fields_weak?.lambda_up ?? frame.fields_weak?.lambda_up_avg ?? '-');
+            const vaeLoss = frame.vae?.loss_avg ?? frame.vae_loss_avg;
+            setText('vae', typeof vaeLoss === 'number' ? vaeLoss.toFixed(4) : (vaeLoss ?? '-'));
+            const decision = frame.router?.last_decision;
+            setText('route', decision?.chosen_route ?? '-');
+            setText('routeS', decision?.s !== undefined ? JSON.stringify(decision.s) : '-');
+
+            const events = Array.isArray(frame.proximity?.events) ? frame.proximity.events : [];
+            const proxList = byId('prox');
+            if (proxList) {
+                proxList.innerHTML = events.slice(-20).map((evt) => {
+                    const delta = Number(evt?.distance ?? 0);
+                    const formatted = Number.isFinite(delta) ? delta.toFixed(3) : '-';
+                    return `<li>[${evt?.step ?? '-'}] ${evt?.tier ?? '-'} ${evt?.source_dim ?? '-'}->${evt?.target_dim ?? '-'} d=${formatted}</li>`;
+                }).join('');
+            }
+
+            const hypoList = byId('hypos');
+            if (hypoList) {
+                const hypos = Array.isArray(frame.hypotheses) ? frame.hypotheses : [];
+                hypoList.innerHTML = hypos.map((h) => {
+                    const rating = typeof h?.rating === 'number' ? h.rating.toFixed(3) : (h?.rating ?? '-');
+                    const uncertainty = h?.uncertainty ?? '-';
+                    const title = h?.title || 'Hypothesis';
+                    return `<li>${title}: r=${rating} u=${uncertainty}</li>`;
+                }).join('');
+            }
+        }
+
+        function connectWS() {
+            const ws = new WebSocket(buildWsUrl());
+            ws.onmessage = (event) => {
+                try {
+                    render(JSON.parse(event.data));
+                } catch {
+                    /* ignore parse errors */
+                }
+            };
+            ws.onclose = () => setTimeout(connectWS, 1500);
+        }
+
+        function connectSSE() {
+            if (!window.EventSource) {
+                connectWS();
+                return;
+            }
+            const es = new EventSource(buildUrl('/api/stream/telemetry'));
+            es.onmessage = (event) => {
+                try {
+                    render(JSON.parse(event.data));
+                } catch {
+                    /* ignore parse errors */
+                }
+            };
+            es.onerror = () => {
+                es.close();
+                connectWS();
+            };
+        }
+
+        async function refreshPanels() {
+            try {
+                const bh = await fetch(buildUrl('/api/bh/panel')).then((r) => r.json());
+                setText('bh', JSON.stringify(bh));
+            } catch {
+                setText('bh', '-');
+            }
+            try {
+                const lattice = await fetch(buildUrl('/api/e8/lattice')).then((r) => r.json());
+                const roots = lattice?.meta?.total_roots ?? lattice?.total_roots ?? '-';
+                setText('latticeCount', roots);
+            } catch {
+                setText('latticeCount', '-');
+            }
+            setTimeout(refreshPanels, 3000);
+        }
+
+        connectSSE();
+        refreshPanels();
+    })();
+});
+</script>
+</body>
+</html>
