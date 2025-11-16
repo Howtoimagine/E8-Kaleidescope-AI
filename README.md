@@ -200,7 +200,7 @@ Process:
 3. Release information through "radiation" (field diffusion)
 4. Preserve total information (unitarity)
 
-### 5. Consciousness Control System
+### 5. Cognitive Control System
 
 **Conceptual Metaphor**: The system models different "brain wave states" like a cognitive weather system. The Default Mode Network (DMN) represents the calm "background hum" of resting thought. Gamma waves indicate the "lightning storms" of intense focus. Alpha waves show the "gentle breeze" of relaxed integration. The Prefrontal Cortex proxy acts as the "air traffic controller," directing attention and making executive decisions. Together, they create a dynamic weather pattern of consciousness that shifts between states of rest, focus, creativity, and integration.
 
@@ -211,7 +211,7 @@ Process:
 - **PFC (Prefrontal Cortex)**: Executive control proxy
 
 ```python
-consciousness_level = w₁×DMN + w₂×Gamma + w₃×Alpha + w₄×PFC
+Cognition_level = w₁×DMN + w₂×Gamma + w₃×Alpha + w₄×PFC
 ```
 
 ### 6. Validation System
