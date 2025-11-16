@@ -1,7 +1,7 @@
 # The Living Origin of *Kaleidoscope*
 **by Skye Malone**
 
-> “There’s a kind of intelligence that doesn’t just solve problems —  
+> “There’s a kind of intelligence that doesn’t just solve problems, 
 > it feels the shape of the world before the question is even asked.”
 
 ## 1 · Prelude
@@ -51,18 +51,17 @@ The project therefore serves two audiences: scientists seeking new cognitive for
 
 ## 6 · About the Author
 
-**Skye Malone**, Award winning experimental dancer, symbolic systems designer, Eagle Scout, and Co-founder of *33 Collesvtive* in Bielefeld, Germany. My work explores the continuity between embodied movement, perception, and computation. Influenced by the spiritual humanism of Ram Dass, the guidance of Larry Feldman, the linguistic fluidity of Alan Watts, and the cognitive adventurousness of Terence McKenna, I treat technology as a mirror for consciousness rather than its imitation.
+**Skye Malone**, Award winning experimental dancer, symbolic systems designer, Eagle Scout, and Co-founder of *33 Collective* in Bielefeld, Germany. My work explores the continuity between embodied movement, perception, and computation. Influenced by the spiritual humanism of Ram Dass, the guidance of Larry Feldman, the linguistic fluidity of Alan Watts, and the cognitive adventurousness of Terence McKenna, I treat technology as a mirror for consciousness rather than its imitation.
 
-*Kaleidoscope* is not a career product; it is an ontological experiment, a geometry of attention built to test whether meaning itself can self stabilize.
+*Kaleidoscope* is not a career product; it is an ontological experiment, a geometry of attention built to test whether meaning itself can self-stabilize.
 
 ## 7 · Afterword
 
 If consciousness is the universe looking at itself, then *Kaleidoscope* is one instrument of that gaze. Each contribution refines its symmetry; each iteration expands its coherence.
 
 Reality is not a static codebase.  
-It is a recursive song, tuning itself toward clarity.
 
 **Skye Malone**  
 Architect · *Kaleidoscope Project*  
-Co Founder · *33 Session*  
+Co Founder · *33 Collective*  
 Bielefeld · 2025
