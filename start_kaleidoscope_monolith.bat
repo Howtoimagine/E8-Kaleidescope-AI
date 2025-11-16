@@ -1,8 +1,7 @@
 @echo off
-REM Kaleidoscope Monolith Launcher (M24.6 feature-ready)
-chcp 65001 >nul
 cd /d "%~dp0"
 setlocal ENABLEDELAYEDEXPANSION
+chcp 65001 >nul
 
 REM --- Conda detection / configuration ---------------------------------------
 if "%E8_CONDA_ENV%"=="" set "E8_CONDA_ENV=kaleidoscope"
@@ -49,6 +48,10 @@ if "%MIND_PROFILE%"=="" set "MIND_PROFILE=default"
 if "%E8_PROVIDER%"=="" set "E8_PROVIDER=ask"
 if "%E8_UI_RAY_ALERTS_DEMO%"=="" set "E8_UI_RAY_ALERTS_DEMO=0"
 
+REM Boundary force defaults
+if "%E8_BOUNDARY_FORCE_INTERVAL%"=="" set "E8_BOUNDARY_FORCE_INTERVAL=333"
+if "%E8_BOUNDARY_FORCE_MIN_CLUSTER%"=="" set "E8_BOUNDARY_FORCE_MIN_CLUSTER=6"
+
 REM Core loops ON
 if "%ENABLE_TEACHER%"=="" set "ENABLE_TEACHER=1"
 if "%ENABLE_EXPLORER%"=="" set "ENABLE_EXPLORER=1"
@@ -61,7 +64,7 @@ if "%RUN_DIR%"=="" set "RUN_DIR=./runs/run_S4_full"
 if "%STATE_EVERY%"=="" set "STATE_EVERY=200"
 if "%VALIDATOR_BUDGET_MS%"=="" set "VALIDATOR_BUDGET_MS=300"
 
-REM Ablations OFF (0 means "do NOT ablate" — keep the feature enabled)
+REM Ablations OFF (0 means "do NOT ablate" ? keep the feature enabled)
 if "%ABLT_RAY%"=="" set "ABLT_RAY=0"
 if "%ABLT_VALIDATORS%"=="" set "ABLT_VALIDATORS=0"
 if "%ABLT_DIVERSITY%"=="" set "ABLT_DIVERSITY=0"
@@ -84,6 +87,10 @@ if "%BETA_VAE_WARMUP%"=="" set "BETA_VAE_WARMUP=300"
 REM Enable enhanced console telemetry by default
 if "%E8_CONSOLE_MODE%"=="" set "E8_CONSOLE_MODE=engine"
 if "%E8_CONSOLE_VERBOSITY%"=="" set "E8_CONSOLE_VERBOSITY=2"
+
+REM Create runtime directory if it doesn't exist
+if not exist "runtime" mkdir "runtime"
+
 if "%E8_CONSOLE_JSON%"=="" set "E8_CONSOLE_JSON=%CD%\runtime\console.ndjson"
 
 REM Dialogue logging shares the same NDJSON stream
@@ -96,24 +103,38 @@ if "%E8_INGEST%"=="" set "E8_INGEST=1"
 REM Ensure UTF-8 runtime for consistent logging
 set "PYTHONUTF8=1"
 
-REM Select target script (prefer M25)
-if exist e8_mind_server_M25.py (
-        set "TARGET=e8_mind_server_M25.py"
-) else if exist e8_mind_server_M24.6.py (
-        set "TARGET=e8_mind_server_M24.6.py"
-) else if exist e8_mind_server_M24.4.py (
-        set "TARGET=e8_mind_server_M24.4.py"
-) else (
-        echo ERROR: Could not find e8_mind_server_M25.py, e8_mind_server_M24.6.py, or e8_mind_server_M24.4.py in %CD%
-        echo        Make sure you're in the project root.
-        exit /b 1
+REM Select target script (prefer M25.1, allow override via E8_TARGET_SCRIPT)
+set "TARGET="
+if not "%E8_TARGET_SCRIPT%"=="" (
+        if exist "%E8_TARGET_SCRIPT%" (
+                set "TARGET=%E8_TARGET_SCRIPT%"
+        ) else (
+                echo [WARN] Requested E8_TARGET_SCRIPT "%E8_TARGET_SCRIPT%" was not found, falling back to autodetect.
+        )
+)
+
+if not defined TARGET (
+        if exist e8_mind_server_M25.1.py (
+                set "TARGET=e8_mind_server_M25.1.py"
+        ) else if exist e8_mind_server_M25.py (
+                set "TARGET=e8_mind_server_M25.py"
+        ) else if exist e8_mind_server_M24.6.py (
+                set "TARGET=e8_mind_server_M24.6.py"
+        ) else if exist e8_mind_server_M24.4.py (
+                set "TARGET=e8_mind_server_M24.4.py"
+        ) else (
+                echo ERROR: Could not find e8_mind_server_M25.1.py, e8_mind_server_M25.py, e8_mind_server_M24.6.py, or e8_mind_server_M24.4.py in %CD%
+                echo        Make sure you're in the project root.
+                exit /b 1
+        )
 )
 
 REM Derive and display version label from selected target
 set "VER_LABEL=unknown"
-if /I "%TARGET%"=="e8_mind_server_M25.py" set "VER_LABEL=M25"
-if /I "%TARGET%"=="e8_mind_server_M24.6.py" set "VER_LABEL=M24.6"
-if /I "%TARGET%"=="e8_mind_server_M24.4.py" set "VER_LABEL=M24.4"
+if "%TARGET%"=="e8_mind_server_M25.1.py" set "VER_LABEL=M25.1"
+if "%TARGET%"=="e8_mind_server_M25.py" set "VER_LABEL=M25"
+if "%TARGET%"=="e8_mind_server_M24.6.py" set "VER_LABEL=M24.6"
+if "%TARGET%"=="e8_mind_server_M24.4.py" set "VER_LABEL=M24.4"
 echo Monolith Version: %VER_LABEL%
 set "E8_APP_VERSION=%VER_LABEL%"
 
@@ -135,14 +156,34 @@ echo Server URL: http://localhost:7871/
 echo (Press Ctrl+C to stop)
 echo.
 
+REM --- Launch with fallback and pause-on-error ---------------------------------
+set "EXITCODE=0"
 if "%USE_CONDA_RUN%"=="1" (
         call "%CONDA_BAT%" run -n "%E8_CONDA_ENV%" python -u "%TARGET%"
+        set "EXITCODE=!ERRORLEVEL!"
+        if not "!EXITCODE!"=="0" (
+                echo [WARN] Conda run failed with code !EXITCODE!. Falling back to local Python...
+                if exist .venv\Scripts\python.exe (
+                        .venv\Scripts\python.exe -u "%TARGET%"
+                ) else (
+                        python -u "%TARGET%"
+                )
+                set "EXITCODE=!ERRORLEVEL!"
+        )
 ) else (
         "%PY%" -u "%TARGET%"
+        set "EXITCODE=!ERRORLEVEL!"
 )
 
 REM Optionally open the UI in the default browser if the server is likely running locally
 REM Uncomment the next line if you want the browser to auto-open:
 REM start "" http://localhost:7871/
+
+if not "%EXITCODE%"=="0" (
+        echo.
+        echo [ERROR] Monolith exited with code %EXITCODE%.
+        echo Press any key to close this window...
+        pause >nul
+)
 
 endlocal

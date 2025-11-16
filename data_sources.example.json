@@ -1,0 +1,132 @@
+{
+  "arxiv_adhd_autism_learning_general": {
+    "type": "arxiv_api",
+    "url": "http://export.arxiv.org/api/query?search_query=(all:(adhd+OR+attention+deficit+OR+autism+OR+asd+OR+neurodivergent+OR+neurodiversity))+AND+(cat:q-bio.NC+OR+cat:cs.LG+OR+cat:cs.AI+OR+cat:stat.ML)&sortBy=submittedDate&sortOrder=descending&max_results=50",
+    "schedule_minutes": 20
+  },
+  "arxiv_ml_nlp_neurodiversity_education": {
+    "type": "arxiv_api",
+    "url": "http://export.arxiv.org/api/query?search_query=(all:(adhd+OR+autism+OR+neurodiversity+OR+neurodivergent+OR+special+education+OR+personalized+learning))+AND+(cat:cs.CL+OR+cat:cs.LG+OR+cat:cs.AI+OR+cat:cs.HC)&sortBy=submittedDate&sortOrder=descending&max_results=50",
+    "schedule_minutes": 40
+  },
+  "arxiv_predictive_processing_cognition_dynamics": {
+    "type": "arxiv_api",
+    "url": "http://export.arxiv.org/api/query?search_query=(all:(predictive+processing+OR+active+inference+OR+free+energy+principle+OR+predictive+coding))+AND+(cat:q-bio.NC+OR+cat:nlin.AO+OR+cat:cs.NE+OR+cat:cs.LG)&sortBy=submittedDate&sortOrder=descending&max_results=50",
+    "schedule_minutes": 60
+  },
+  "arxiv_flow_state_skill_acquisition": {
+    "type": "arxiv_api",
+    "url": "http://export.arxiv.org/api/query?search_query=(all:(flow+state+OR+skill+acquisition+OR+motor+learning+OR+implicit+learning))+AND+(cat:q-bio.NC+OR+cat:cs.HC+OR+cat:cs.LG)&sortBy=submittedDate&sortOrder=descending&max_results=40",
+    "schedule_minutes": 60
+  },
+  "arxiv_freestyle_dance_motion_capture": {
+    "type": "arxiv_api",
+    "url": "http://export.arxiv.org/api/query?search_query=(all:(dance+motion+capture+OR+human+pose+estimation+OR+movement+generation+OR+choreography+generation))+AND+(cat:cs.CV+OR+cat:cs.GR+OR+cat:cs.RO+OR+cat:cs.AI)&sortBy=submittedDate&sortOrder=descending&max_results=40",
+    "schedule_minutes": 60
+  },
+  "arxiv_autism_predictive_social_coding": {
+    "type": "arxiv_api",
+    "url": "http://export.arxiv.org/api/query?search_query=(all:(autism+social+prediction+OR+autism+predictive+coding+OR+autism+hierarchical+inference+OR+autism+Bayesian+brain))+AND+(cat:q-bio.NC+OR+cat:cs.AI+OR+cat:stat.ML)&sortBy=submittedDate&sortOrder=descending&max_results=30",
+    "schedule_minutes": 80
+  },
+  "arxiv_adhd_neurobiology_networks": {
+    "type": "arxiv_api",
+    "url": "http://export.arxiv.org/api/query?search_query=(all:(adhd+neural+network+OR+adhd+functional+connectivity+OR+adhd+default+mode+network+OR+adhd+neuroimaging))+AND+(cat:q-bio.NC+OR+cat:physics.bio-ph+OR+cat:stat.ML)&sortBy=submittedDate&sortOrder=descending&max_results=30",
+    "schedule_minutes": 80
+  },
+  "arxiv_neurobiology_motor_control": {
+    "type": "arxiv_api",
+    "url": "http://export.arxiv.org/api/query?search_query=(all:(motor+control+OR+motor+learning+OR+sensorimotor+integration+OR+basal+ganglia+movement))+AND+(cat:q-bio.NC+OR+cat:physics.bio-ph+OR+cat:nlin.AO)&sortBy=submittedDate&sortOrder=descending&max_results=30",
+    "schedule_minutes": 80
+  },
+  "rss_additude_adhd_research": {
+    "type": "rss",
+    "url": "https://www.additudemag.com/category/research-studies/feed/",
+    "schedule_minutes": 80
+  },
+  "rss_chadd_advocacy_news": {
+    "type": "rss",
+    "url": "https://chadd.org/feed/",
+    "schedule_minutes": 80
+  },
+  "rss_spectrum_autism_research": {
+    "type": "rss",
+    "url": "https://www.spectrumnews.org/news/feed/",
+    "schedule_minutes": 80
+  },
+  "rss_autism_investigator_network": {
+    "type": "rss",
+    "url": "https://www.autism.org.uk/rss/news",
+    "schedule_minutes": 80
+  },
+  "rss_autism_uk_news": {
+    "type": "rss",
+    "url": "https://www.autism.org.uk/rss/blog",
+    "schedule_minutes": 80
+  },
+  "rss_flow_research_collective": {
+    "type": "rss",
+    "url": "https://www.flowresearchcollective.com/blog?format=rss",
+    "schedule_minutes": 80
+  },
+  "rss_frontiers_consciousness_research": {
+    "type": "rss",
+    "url": "https://www.frontiersin.org/journals/psychology/sections/consciousness-research/rss",
+    "schedule_minutes": 80
+  },
+  "rss_dance_magazine": {
+    "type": "rss",
+    "url": "https://www.dancemagazine.com/.rss/full/",
+    "schedule_minutes": 240
+  },
+  "rss_steezy_freestyle_moves": {
+    "type": "rss",
+    "url": "https://blog.steezy.co/rss",
+    "schedule_minutes": 240
+  },
+  "rss_cell_neuron_current": {
+    "type": "rss",
+    "url": "https://www.cell.com/neuron/current.rss",
+    "schedule_minutes": 60
+  },
+  "rss_nature_neuroscience": {
+    "type": "rss",
+    "url": "https://www.nature.com/neuro/rss/current.xml",
+    "schedule_minutes": 60
+  },
+  "rss_neuroscience_news": {
+    "type": "rss",
+    "url": "https://neurosciencenews.com/feed/",
+    "schedule_minutes": 20
+  },
+  "arxiv_consciousness_theories": {
+    "type": "arxiv_api",
+    "url": "http://export.arxiv.org/api/query?search_query=(all:(consciousness+OR+awareness+OR+qualia))+AND+(cat:q-bio.NC+OR+cat:cs.AI+OR+cat:cs.LG+OR+cat:nlin.AO)&sortBy=submittedDate&sortOrder=descending&max_results=20",
+    "schedule_minutes": 20
+  },
+  "arxiv_cosmology_dark_energy": {
+    "type": "arxiv_api",
+    "url": "http://export.arxiv.org/api/query?search_query=(all:(cosmology+OR+dark+energy+OR+dark+matter))+AND+(cat:astro-ph.CO+OR+cat:gr-qc)&sortBy=submittedDate&sortOrder=descending&max_results=30",
+    "schedule_minutes": 40
+  },
+  "arxiv_holographic_principle": {
+    "type": "arxiv_api",
+    "url": "http://export.arxiv.org/api/query?search_query=(all:(holographic+principle+OR+holography+OR+AdS/CFT+OR+AdS-CFT))+AND+(cat:hep-th+OR+cat:gr-qc+OR+cat:hep-ph)&sortBy=submittedDate&sortOrder=descending&max_results=25",
+    "schedule_minutes": 40
+  },
+  "arxiv_black_holes": {
+    "type": "arxiv_api",
+    "url": "http://export.arxiv.org/api/query?search_query=(all:(black+hole+OR+black+holes+OR+event+horizon))+AND+(cat:gr-qc+OR+cat:astro-ph.HE+OR+cat:hep-th)&sortBy=submittedDate&sortOrder=descending&max_results=25",
+    "schedule_minutes": 40
+  },
+  "arxiv_information_theory": {
+    "type": "arxiv_api",
+    "url": "http://export.arxiv.org/api/query?search_query=(all:(information+theory+OR+Shannon+entropy+OR+mutual+information))+AND+(cat:cs.IT+OR+cat:math.IT+OR+cat:cs.LG+OR+cat:stat.ML)&sortBy=submittedDate&sortOrder=descending&max_results=25",
+    "schedule_minutes": 30
+  },
+  "arxiv_neuro_network_topology": {
+    "type": "arxiv_api",
+    "url": "http://export.arxiv.org/api/query?search_query=(all:(brain+network+topology+OR+connectomics+OR+functional+connectivity))+AND+(cat:q-bio.NC+OR+cat:physics.bio-ph+OR+cat:stat.ML)&sortBy=submittedDate&sortOrder=descending&max_results=25",
+    "schedule_minutes": 30
+  }
+}
