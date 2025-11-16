@@ -202,7 +202,7 @@ Process:
 
 ### 5. Cognitive Control System
 
-**Conceptual Metaphor**: The system models different "brain wave states" like a cognitive weather system. The Default Mode Network (DMN) represents the calm "background hum" of resting thought. Gamma waves indicate the "lightning storms" of intense focus. Alpha waves show the "gentle breeze" of relaxed integration. The Prefrontal Cortex proxy acts as the "air traffic controller," directing attention and making executive decisions. Together, they create a dynamic weather pattern of consciousness that shifts between states of rest, focus, creativity, and integration.
+**Conceptual Metaphor**: The system models different "brain wave states" like a cognitive weather system. The Default Mode Network (DMN) represents the calm "background hum" of resting thought. Gamma waves indicate the "lightning storms" of intense focus. Alpha waves show the "gentle breeze" of relaxed integration. The Prefrontal Cortex proxy acts as the "air traffic controller," directing attention and making executive decisions. Together, they create a dynamic weather pattern of cognition that shifts between states of rest, focus, creativity, and integration.
 
 #### State Variables
 - **DMN (Default Mode Network)**: Baseline activity proxy
@@ -300,7 +300,7 @@ bits_budget = k × perimeter(region)
 
 ### Key Performance Indicators
 
-**Conceptual Metaphor**: The system's health is monitored like vital signs of a living organism. Acceptance Rate is the "immune response" - how well it distinguishes good ideas from bad. Lock Rate measures "crystallization" - how quickly fluid thoughts solidify into stable concepts. Coherence Score checks "sanity" - whether ideas make logical sense together. Novelty Score measures "creativity" - distance from the familiar. Q(t) represents overall "evolution" - the system's journey toward higher consciousness.
+**Conceptual Metaphor**: The system's health is monitored like vital signs of a living organism. Acceptance Rate is the "immune response" - how well it distinguishes good ideas from bad. Lock Rate measures "crystallization" - how quickly fluid thoughts solidify into stable concepts. Coherence Score checks "sanity" - whether ideas make logical sense together. Novelty Score measures "creativity" - distance from the familiar. Q(t) represents overall "evolution" - the system's journey toward higher cognition.
 
 - **Acceptance Rate**: Successful validations / total attempts
 - **Lock Rate**: Pattern crystallization frequency
@@ -556,7 +556,7 @@ Create or modify `data_sources_example.json`:
       "type": "arxiv",
       "enabled": true,
       "config": {
-        "query": "quantum computing consciousness",
+        "query": "quantum computing cognition",
         "max_results": 10,
         "categories": ["quant-ph", "cs.AI", "cs.NE"],
         "update_frequency": "daily"
@@ -592,7 +592,7 @@ Create or modify `data_sources_example.json`:
       "type": "pubmed",
       "enabled": false,
       "config": {
-        "query": "consciousness neural networks",
+        "query": "cognition neural networks",
         "max_results": 20,
         "recent_days": 30
       }
@@ -898,7 +898,7 @@ The guide emphasizes the importance of customizing the `data_sources_example.jso
 
 ## Conclusion
 
-The Kaleidoscope M25.1 represents an ambitious experiment in applying mathematical physics to artificial intelligence. While it doesn't achieve artificial general intelligence or consciousness, it explores interesting approaches to:
+The Kaleidoscope M25.1 represents an ambitious experiment in applying mathematical physics to artificial intelligence. While it doesn't achieve artificial general intelligence or cognition, it explores interesting approaches to:
 
 - Information organization using exceptional mathematical structures
 - Memory consolidation through physics-inspired processes
