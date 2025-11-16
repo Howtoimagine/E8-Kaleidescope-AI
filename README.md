@@ -417,7 +417,7 @@ This system serves as a testbed for:
 > Imagine running Kaleidoscope overnight with 10k papers… waking up to clusters, analogies, and **a theory of something new.**
 <img width="1965" height="1006" alt="Screen Shot 2025-09-23 at 05 27 44 854 PM" src="https://github.com/user-attachments/assets/e1daf1b4-6622-4895-982a-540d02291d64" />
 <img width="1966" height="1088" alt="Screen Shot 2025-09-16 at 07 27 18 435 PM" src="https://github.com/user-attachments/assets/33867042-6a3f-47a5-b43b-97dc9fe09416" />
-```markdown
+```
 
 ## Getting Started with The Kaleidoscope
 
