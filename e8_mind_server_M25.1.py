@@ -62,7 +62,7 @@ for _alias in _LEGACY_MODULE_ALIASES:
         sys.modules.setdefault(_alias, sys.modules[__name__])
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict, is_dataclass
 from collections import deque, defaultdict, Counter
 from pathlib import Path
 from core.config import AppConfig # Import AppConfig to access VALIDATOR_WRITEBACK_ENABLED
@@ -2434,9 +2434,28 @@ def M25_extract_efd_meta(memory_manager) -> Optional[dict]:
         summary["novelty"] = candidate_payload["score"]
     return summary
 
-# === [M27] Numerics & helpers ===
-# Note: _M27_DTYPE is defined after M27_FLOAT64_GEOM flag (see line ~1290)
+# === [M27] GPU Acceleration Support ===
+try:
+    import cupy as cp
+    import torch
+    if torch.cuda.is_available():
+        xp = cp
+        M27_USE_GPU = True
+        print(">> [M27] GPU Acceleration Enabled (CuPy + PyTorch)")
+    else:
+        import numpy as cp  # Fallback alias
+        xp = np
+        M27_USE_GPU = False
+        print(">> [M27] GPU Acceleration Unavailable (Torch says no CUDA)")
+except ImportError:
+    import numpy as cp  # Fallback alias
+    xp = np
+    M27_USE_GPU = False
+    print(">> [M27] GPU Acceleration Unavailable (CuPy not found)")
 
+from numba import jit
+
+# ...existing code...
 def M27_as(x): 
     return np.asarray(x, dtype=_M27_DTYPE)
 
@@ -2509,62 +2528,170 @@ def M27_build_golay_table(H: np.ndarray):
     """
     Build a syndrome->error table for all weight<=3 error patterns over 24 bits.
     Table size: 4096 syndromes (2^12). Store the lowest-weight representative.
+    Returns a dense array (4096, 24) for fast JIT lookup.
     """
     from itertools import combinations
     n = H.shape[1]  # 24
+    n_syndromes = 1 << H.shape[0]
     weights = 1 << np.arange(H.shape[0], dtype=np.uint32)
-    table = {i: None for i in range(1 << H.shape[0])}
-    assigned = 0
+    
+    # Initialize with a sentinel (e.g., all 255) or just zeros if we assume coverage
+    # We use zeros as default error (no error)
+    table = np.zeros((n_syndromes, n), dtype=np.uint8)
+    
+    # Keep track of assigned syndromes to avoid overwriting with higher weight
+    # 0 = unassigned (except syndrome 0), 1 = assigned
+    # Syndrome 0 is implicitly assigned to error 0 (which is already in table)
+    assigned_mask = np.zeros(n_syndromes, dtype=bool)
+    assigned_mask[0] = True
+    
+    assigned_count = 1
 
     def _assign(idx_tuple):
-        nonlocal assigned
+        nonlocal assigned_count
         e = np.zeros(n, dtype=np.uint8)
         if idx_tuple:
             e[list(idx_tuple)] = 1
         s = int(((H @ e) % 2).dot(weights))
-        if table[s] is None:
+        if not assigned_mask[s]:
             table[s] = e
-            assigned += 1
-        return assigned == len(table)
+            assigned_mask[s] = True
+            assigned_count += 1
+        return assigned_count == n_syndromes
 
-    # weight 0 (zero vector / zero syndrome)
-    if _assign(tuple()):
-        return table
     # weight 1..4 cover entire syndrome space for extended Golay
     for i in range(n):
-        if _assign((i,)):
-            return table
+        if _assign((i,)): return table
     for i, j in combinations(range(n), 2):
-        if _assign((i, j)):
-            return table
+        if _assign((i, j)): return table
     for i, j, k in combinations(range(n), 3):
-        if _assign((i, j, k)):
-            return table
+        if _assign((i, j, k)): return table
     for combo in combinations(range(n), 4):
-        if _assign(combo):
-            return table
+        if _assign(combo): return table
 
-    # fill any remaining syndromes with zero vector (should be none, but safe fallback)
-    zero_vec = np.zeros(n, dtype=np.uint8)
-    for s in range(1 << H.shape[0]):
-        if table[s] is None:
-            table[s] = zero_vec.copy()
     return table
 
 # Build Golay table lazily (will be built after M27_ENABLE is defined)
 M27_GOLAY_TABLE = None
 
-def M27_golay_decode(word_bits: np.ndarray, H: np.ndarray, TAB: dict) -> np.ndarray:
+@jit(nopython=True, cache=True)
+def M27_golay_decode(word_bits: np.ndarray, H: np.ndarray, TAB: np.ndarray) -> np.ndarray:
     """
     word_bits: (24,) uint8 0/1
     returns corrected codeword c in {0,1}^24
     """
-    s_bits = (H @ word_bits) % 2
-    s = int(s_bits.dot(1 << np.arange(H.shape[0], dtype=np.uint32)))
-    e = TAB.get(s)
-    if e is None: e = np.zeros_like(word_bits)
-    c = (word_bits ^ e) & 1
-    return c
+    # s_bits = (H @ word_bits) % 2
+    # Numba supports @ for matrix mult
+    s_bits = (H.astype(np.float32) @ word_bits.astype(np.float32)) % 2
+    
+    s = 0
+    p = 1
+    for i in range(11):
+        if s_bits[i] > 0.5: # float check
+            s += p
+        p *= 2
+        
+    e = TAB[s]
+    # c = (word_bits ^ e) & 1
+    return (word_bits ^ e) & 1
+
+@jit(nopython=True, cache=True)
+def _M27_nearest_Leech_fast(y: np.ndarray, H: np.ndarray, TAB: np.ndarray):
+    # y is scaled z24 * sqrt(8)
+    
+    # --- Integer Coset ---
+    r0 = np.empty_like(y)
+    for i in range(y.shape[0]):
+        r0[i] = round(y[i])
+    
+    b0 = np.empty(24, dtype=np.uint8)
+    for i in range(24):
+        b0[i] = int(r0[i]) & 1
+        
+    c0 = M27_golay_decode(b0, H, TAB)
+    
+    u0 = np.empty(24, dtype=np.float64)
+    sum_u0 = 0.0
+    for i in range(24):
+        val = r0[i] - c0[i]
+        u0[i] = val
+        sum_u0 += val
+        
+    s = int(sum_u0) % 4
+    if s != 0:
+        # Find argmax abs(y - r0)
+        max_diff = -1.0
+        j = 0
+        for i in range(24):
+            diff = abs(y[i] - r0[i])
+            if diff > max_diff:
+                max_diff = diff
+                j = i
+        
+        delta = (4 - s) % 4
+        if delta != 0:
+            if (y[j] - r0[j]) >= 0:
+                adjust = delta
+            else:
+                adjust = delta - 4
+            u0[j] += adjust
+            
+    x0 = np.empty(24, dtype=np.float64)
+    for i in range(24):
+        x0[i] = (2*u0[i] + c0[i]) / 2.8284271247461903 # sqrt(8)
+
+    # --- Half-Integer Coset ---
+    r1 = np.empty_like(y)
+    for i in range(y.shape[0]):
+        r1[i] = round(y[i] - 0.5)
+        
+    b1 = np.empty(24, dtype=np.uint8)
+    for i in range(24):
+        b1[i] = int(r1[i]) & 1
+        
+    c1 = M27_golay_decode(b1, H, TAB)
+    
+    u1 = np.empty(24, dtype=np.float64)
+    sum_u1 = 0.0
+    for i in range(24):
+        val = r1[i] - c1[i]
+        u1[i] = val
+        sum_u1 += val
+        
+    s = int(sum_u1) % 4
+    target = 2
+    fix = (target - s) % 4
+    if fix != 0:
+        max_diff = -1.0
+        j = 0
+        for i in range(24):
+            diff = abs((y[i] - 0.5) - r1[i])
+            if diff > max_diff:
+                max_diff = diff
+                j = i
+                
+        if ((y[j]-0.5) - r1[j]) >= 0:
+            adjust = fix
+        else:
+            adjust = fix - 4
+        u1[j] += adjust
+        
+    x1 = np.empty(24, dtype=np.float64)
+    for i in range(24):
+        x1[i] = (2*u1[i] + c1[i] + 0.5) / 2.8284271247461903
+
+    # --- Compare ---
+    d0 = 0.0
+    d1 = 0.0
+    z24_orig = y / 2.8284271247461903
+    for i in range(24):
+        d0 += (z24_orig[i] - x0[i])**2
+        d1 += (z24_orig[i] - x1[i])**2
+        
+    if d0 <= d1:
+        return x0, d0
+    else:
+        return x1, d1
 
 def M27_nearest_Leech(z24: np.ndarray):
     """
@@ -2575,214 +2702,27 @@ def M27_nearest_Leech(z24: np.ndarray):
     z24 = M27_as(z24)
     # Scale to √8 so min norm is 4 in this coord system
     y = np.sqrt(8.0) * z24
+    
+    # Use JIT fast path
+    # Ensure TAB is available
+    global M27_GOLAY_TABLE
+    if M27_GOLAY_TABLE is None:
+        # Fallback or lazy init if H24 is available
+        if 'M27_H24' in globals():
+            M27_GOLAY_TABLE = M27_build_golay_table(M27_H24)
+        else:
+            # Should not happen in normal flow
+            raise RuntimeError("M27_GOLAY_TABLE not initialized")
 
-    def cand_integer(y):
-        r0 = np.rint(y).astype(np.int64)
-        b0 = (r0 & 1).astype(np.uint8)
-        c0 = M27_golay_decode(b0, M27_H24, M27_GOLAY_TABLE).astype(np.int64)
-        u0 = r0 - c0
-        # Enforce sum(u0) ≡ 0 (mod 4) by adjusting the largest residual
-        s = int(np.sum(u0) % 4)
-        if s != 0:
-            j = int(np.argmax(np.abs(y - r0)))
-            # add/subtract 1*2 to fix mod 4
-            delta = (4 - s) % 4
-            if delta:
-                adjust = delta if (y[j] - r0[j]) >= 0 else delta - 4
-                u0[j] += adjust
-        x0 = (2*u0 + c0).astype(np.float64) / np.sqrt(8.0)
-        return x0
-
-    def cand_half(y):
-        r1 = np.rint(y - 0.5).astype(np.int64)  # centers at half-integers
-        r1f = r1 + 0.5
-        b1 = (r1 & 1).astype(np.uint8)
-        c1 = M27_golay_decode(b1, M27_H24, M27_GOLAY_TABLE).astype(np.int64)
-        u1 = r1 - c1
-        # Enforce sum(u1) ≡ 2 (mod 4)
-        s = int((np.sum(u1) % 4))
-        target = 2
-        fix = (target - s) % 4
-        if fix != 0:
-            j = int(np.argmax(np.abs((y - 0.5) - r1)))
-            adjust = fix if ((y[j]-0.5) - r1[j]) >= 0 else fix - 4
-            u1[j] += adjust
-        x1 = (2*u1 + c1 + 0.5).astype(np.float64) / np.sqrt(8.0)
-        return x1
-
-    x0 = cand_integer(y)
-    x1 = cand_half(y)
-    d0 = float(((z24 - x0)**2).sum())
-    d1 = float(((z24 - x1)**2).sum())
-    x  = x0 if d0 <= d1 else x1
-    d  = d0 if d0 <= d1 else d1
+    x, d = _M27_nearest_Leech_fast(y, M27_H24, M27_GOLAY_TABLE)
+    
     cid = int(int(M27_hash(np.rint(np.sqrt(8.0)*x) % 2),16) % 10_000_000)  # stable id from codeword bits
     return cid, x, d
 
 # === [M27] Numerics & helpers ===
 # Note: _M27_DTYPE is defined after M27_FLOAT64_GEOM flag (see line ~1290)
 
-def M27_as(x): 
-    return np.asarray(x, dtype=_M27_DTYPE)
 
-def M27_hash(a: np.ndarray) -> str:
-    import hashlib
-    m = hashlib.sha256(); m.update(M27_as(a).tobytes()); return m.hexdigest()[:16]
-
-def M27_project(x: np.ndarray, k: int) -> np.ndarray:
-    x = M27_as(x); 
-    if x.shape[-1] < k: raise ValueError("M27_project: k exceeds dim")
-    return x[..., :k]
-
-def M27_kNN_mean_radius(X: np.ndarray, k: int=8) -> float:
-    X = M27_as(X)
-    if len(X) <= 1: return 0.0
-    d = ((X[:,None,:]-X[None,:,:])**2).sum(-1)**0.5
-    d.sort(axis=1)
-    return float(d[:,1:k+1].mean())
-
-# === [M27] E8 nearest-point (two-coset parity snap) ===
-def M27_nearest_E8(z8: np.ndarray):
-    z8 = M27_as(z8)
-    y0 = np.rint(z8)
-    if int(y0.sum()) % 2 != 0:
-        j = int(np.argmax(np.abs(z8 - y0))); y0[j] += 1 if z8[j] > y0[j] else -1
-    y1 = np.rint(z8 - 0.5) + 0.5
-    if int(np.rint(y1 - 0.5).sum()) % 2 == 0:
-        j = int(np.argmax(np.abs((z8-0.5)-(y1-0.5)))); y1[j] += 1 if (z8[j]-0.5) > (y1[j]-0.5) else -1
-    d0 = float(((z8-y0)**2).sum()); d1 = float(((z8-y1)**2).sum())
-    y  = y0 if d0 <= d1 else y1; d = d0 if d0 <= d1 else d1
-    cid = int(int(M27_hash(y),16) % 10_000_000)
-    return cid, y, d
-
-# === [M27] Extended binary Golay (24,12,8) — parity-check + syndrome table ===
-# Canonical 12x24 parity-check matrix H24 (0/1 ints)
-# Source: Schwartz & Vardy, "On the stopping distance and the stopping redundancy..." (Table I)
-M27_H24 = np.array([
-    [1,1,0,0,0,0,0,0,0,0,0,0,   0,1,1,0,1,1,1,0,0,0,1,0],
-    [1,0,1,0,0,0,0,0,0,0,0,0,   0,0,1,1,0,1,1,1,0,0,0,1],
-    [1,0,0,1,0,0,0,0,0,0,0,0,   0,1,0,1,1,0,1,1,1,0,0,0],
-    [1,0,0,0,1,0,0,0,0,0,0,0,   0,0,1,0,1,1,0,1,1,1,0,0],
-    [1,0,0,0,0,1,0,0,0,0,0,0,   0,0,0,1,0,1,1,0,1,1,1,0],
-    [1,0,0,0,0,0,1,0,0,0,0,0,   0,0,0,0,1,0,1,1,0,1,1,1],
-    [1,0,0,0,0,0,0,1,0,0,0,0,   0,1,0,0,0,1,0,1,1,0,1,1],
-    [1,0,0,0,0,0,0,0,1,0,0,0,   0,1,1,0,0,0,1,0,1,1,0,1],
-    [1,0,0,0,0,0,0,0,0,1,0,0,   0,1,1,1,0,0,0,1,0,1,1,0],
-    [1,0,0,0,0,0,0,0,0,0,1,0,   0,0,1,1,1,0,0,0,1,0,1,1],
-    [1,0,0,0,0,0,0,0,0,0,0,1,   0,1,0,1,1,1,0,0,0,1,0,1],
-    [0,0,0,0,0,0,0,0,0,0,0,0,   1,1,1,1,1,1,1,1,1,1,1,1],
-], dtype=np.uint8)
-
-def M27_build_golay_table(H: np.ndarray):
-    """
-    Build a syndrome->error table for all weight<=3 error patterns over 24 bits.
-    Table size: 4096 syndromes (2^12). Store the lowest-weight representative.
-    """
-    from itertools import combinations
-    n = H.shape[1]  # 24
-    weights = 1 << np.arange(H.shape[0], dtype=np.uint32)
-    table = {i: None for i in range(1 << H.shape[0])}
-    assigned = 0
-
-    def _assign(idx_tuple):
-        nonlocal assigned
-        e = np.zeros(n, dtype=np.uint8)
-        if idx_tuple:
-            e[list(idx_tuple)] = 1
-        s = int(((H @ e) % 2).dot(weights))
-        if table[s] is None:
-            table[s] = e
-            assigned += 1
-        return assigned == len(table)
-
-    if _assign(tuple()):
-        return table
-    for i in range(n):
-        if _assign((i,)):
-            return table
-    for i, j in combinations(range(n), 2):
-        if _assign((i, j)):
-            return table
-    for i, j, k in combinations(range(n), 3):
-        if _assign((i, j, k)):
-            return table
-    for combo in combinations(range(n), 4):
-        if _assign(combo):
-            return table
-
-    zero_vec = np.zeros(n, dtype=np.uint8)
-    for s in range(1 << H.shape[0]):
-        if table[s] is None:
-            table[s] = zero_vec.copy()
-    return table
-
-# Build Golay table lazily (will be built after M27_ENABLE is defined)
-M27_GOLAY_TABLE = None
-
-def M27_golay_decode(word_bits: np.ndarray, H: np.ndarray, TAB: dict) -> np.ndarray:
-    """
-    word_bits: (24,) uint8 0/1
-    returns corrected codeword c in {0,1}^24
-    """
-    s_bits = (H @ word_bits) % 2
-    s = int(s_bits.dot(1 << np.arange(H.shape[0], dtype=np.uint32)))
-    e = TAB.get(s)
-    if e is None: e = np.zeros_like(word_bits)
-    c = (word_bits ^ e) & 1
-    return c
-
-def M27_nearest_Leech(z24: np.ndarray):
-    """
-    Real Λ24 nearest-vector via Construction-A + extended Golay.
-    Implements both cosets (integer/half-integer) and picks the closest.
-    Returns: (cid, y, resid) with y in R^24 (snapped), resid squared error.
-    """
-    z24 = M27_as(z24)
-    # Scale to √8 so min norm is 4 in this coord system
-    y = np.sqrt(8.0) * z24
-
-    def cand_integer(y):
-        r0 = np.rint(y).astype(np.int64)
-        b0 = (r0 & 1).astype(np.uint8)
-        c0 = M27_golay_decode(b0, M27_H24, M27_GOLAY_TABLE).astype(np.int64)
-        u0 = r0 - c0
-        # Enforce sum(u0) ≡ 0 (mod 4) by adjusting the largest residual
-        s = int(np.sum(u0) % 4)
-        if s != 0:
-            j = int(np.argmax(np.abs(y - r0)))
-            # add/subtract 1*2 to fix mod 4
-            delta = (4 - s) % 4
-            if delta:
-                adjust = delta if (y[j] - r0[j]) >= 0 else delta - 4
-                u0[j] += adjust
-        x0 = (2*u0 + c0).astype(np.float64) / np.sqrt(8.0)
-        return x0
-
-    def cand_half(y):
-        r1 = np.rint(y - 0.5).astype(np.int64)  # centers at half-integers
-        r1f = r1 + 0.5
-        b1 = (r1 & 1).astype(np.uint8)
-        c1 = M27_golay_decode(b1, M27_H24, M27_GOLAY_TABLE).astype(np.int64)
-        u1 = r1 - c1
-        # Enforce sum(u1) ≡ 2 (mod 4)
-        s = int((np.sum(u1) % 4))
-        target = 2
-        fix = (target - s) % 4
-        if fix != 0:
-            j = int(np.argmax(np.abs((y - 0.5) - r1)))
-            adjust = fix if ((y[j]-0.5) - r1[j]) >= 0 else fix - 4
-            u1[j] += adjust
-        x1 = (2*u1 + c1 + 0.5).astype(np.float64) / np.sqrt(8.0)
-        return x1
-
-    x0 = cand_integer(y)
-    x1 = cand_half(y)
-    d0 = float(((z24 - x0)**2).sum())
-    d1 = float(((z24 - x1)**2).sum())
-    x  = x0 if d0 <= d1 else x1
-    d  = d0 if d0 <= d1 else d1
-    cid = int(int(M27_hash(np.rint(np.sqrt(8.0)*x) % 2),16) % 10_000_000)  # stable id from codeword bits
-    return cid, x, d
 
 # === [M27] Boundary/Quasicrystal dictionary + glyph reconstructor ===
 def M27_make_quasicrystal_dict(D: int, m: int, seed: int=1337) -> np.ndarray:
@@ -2803,23 +2743,54 @@ def M27_make_quasicrystal_dict(D: int, m: int, seed: int=1337) -> np.ndarray:
 
 class M27_BoundaryGlyphs:
     def __init__(self, B: np.ndarray):
-        self.B = M27_as(B)
+        # Move B to GPU if enabled
+        self.B = xp.asarray(B, dtype=_M27_DTYPE)
+
     def soft_assign(self, X: np.ndarray, tau: float, penalties: np.ndarray|None=None):
-        X = M27_as(X)
-        xx = (X**2).sum(1, keepdims=True); bb = (self.B**2).sum(1, keepdims=True).T
-        d2 = xx + bb - 2*(X @ self.B.T)
-        E = -d2 / max(tau,1e-8)
-        if penalties is not None: E -= penalties
-        E -= E.max(1, keepdims=True); A = np.exp(E); A /= np.clip(A.sum(1, keepdims=True),1e-12,None)
+        # Move inputs to GPU/backend
+        X_gpu = xp.asarray(X, dtype=_M27_DTYPE)
+        
+        xx = (X_gpu**2).sum(1, keepdims=True)
+        bb = (self.B**2).sum(1, keepdims=True).T
+        d2 = xx + bb - 2*(X_gpu @ self.B.T)
+        
+        E = -d2 / max(tau, 1e-8)
+        if penalties is not None:
+            P_gpu = xp.asarray(penalties, dtype=_M27_DTYPE)
+            E -= P_gpu
+            
+        E -= E.max(1, keepdims=True)
+        A = xp.exp(E)
+        A /= xp.clip(A.sum(1, keepdims=True), 1e-12, None)
+        
+        # Return as numpy array
+        if M27_USE_GPU:
+            return cp.asnumpy(A)
         return A
+
     def reconstruct(self, mu: np.ndarray, alpha: np.ndarray, lambda_tie: float, l1: float, iters: int):
-        B = self.B; BtB = B.T @ B; Btmu = B.T @ mu; beta = alpha.copy()
-        lr = 1.0 / (np.linalg.norm(BtB, 2) + lambda_tie + 1e-6)
+        # Move inputs to GPU/backend
+        mu_gpu = xp.asarray(mu, dtype=_M27_DTYPE)
+        alpha_gpu = xp.asarray(alpha, dtype=_M27_DTYPE)
+        
+        B = self.B
+        BtB = B.T @ B
+        Btmu = B.T @ mu_gpu
+        beta = alpha_gpu.copy()
+        
+        # Compute spectral norm for step size
+        # xp.linalg.norm(..., 2) works for both numpy and cupy
+        lr = 1.0 / (xp.linalg.norm(BtB, 2) + lambda_tie + 1e-6)
+        
         for _ in range(iters):
-            grad = (BtB @ beta - Btmu) + lambda_tie * (beta - alpha)
+            grad = (BtB @ beta - Btmu) + lambda_tie * (beta - alpha_gpu)
             beta = beta - lr * grad
-            beta = np.sign(beta) * np.maximum(0, np.abs(beta) - lr*l1)
-        return B @ beta
+            beta = xp.sign(beta) * xp.maximum(0, xp.abs(beta) - lr*l1)
+            
+        res = B @ beta
+        if M27_USE_GPU:
+            return cp.asnumpy(res)
+        return res
 
 # === [M27] Router upgrade — features + NeuralUCB ===
 def M27_cluster_features(X: np.ndarray, k: int=8) -> dict:
@@ -4650,6 +4621,7 @@ except Exception:  # pragma: no cover
             def to(self, *a, **k): return self
             def train(self, *a, **k): return self
             def eval(self, *a, **k): return self
+            def load_state_dict(self, state_dict, strict=True): pass
         class Parameter:
             def __init__(self, data=None): self.data = data
         class ModuleList(list):
@@ -4828,7 +4800,7 @@ def load_profile(name):
 # Global Flags
 # Enable self-projection and ingestion by default. These can still be overridden
 # by environment variables or debug tools if needed. Only "0" disables.
-E8_SELF_PROJECT = os.getenv("E8_SELF_PROJECT", "1") != "0"
+E8_SELF_PROJECT = os.getenv("E8_SELF_PROJECT", "0") != "0"
 # Enable ingestion by default so self-projection and configured data sources run
 # unless an environment overrides it. Use E8_INGEST=0 to disable in testing.
 E8_INGEST = os.getenv("E8_INGEST", "1") == "1"
@@ -4970,7 +4942,8 @@ BH_THRESH_STEP_DOWN   = float(os.getenv("E8_BH_THRESH_STEP_DOWN", "0.03"))
 POTENTIAL_SUCCESS_THRESH = float(os.getenv("E8_POTENTIAL_SUCCESS_THRESH", "0.6"))
 
 # === [M27] Feature toggles ===
-M27_ENABLE              = int(os.getenv("M27_ENABLE", "1")) == 1
+M27_ENABLE              = True # Forced ON for M27 Integration
+# M27_ENABLE              = int(os.getenv("M27_ENABLE", "1")) == 1
 M27_FLOAT64_GEOM        = int(os.getenv("M27_FLOAT64_GEOM", "1")) == 1
 M27_NDIM_E8             = int(os.getenv("M27_NDIM_E8", "8"))
 M27_NDIM_LEECH          = int(os.getenv("M27_NDIM_LEECH", "24"))
@@ -5778,7 +5751,6 @@ DATA_SOURCES: Dict[str, Any] = {
 
     # --- PubMed for AI in German Healthcare and Biotech ---
 
-    # AI in German Healthcare System (PubMed)
     "pubmed_ai_german_healthcare": {
         "type": "pubmed_api",
         "url": (
@@ -5790,11 +5762,150 @@ DATA_SOURCES: Dict[str, Any] = {
         "schedule_minutes": 60,
     },
 
-    # --- Local Ingestion ---
+    # --- Neurodivergence, Cognition, and Learning ---
+    "arxiv_adhd_autism_learning_general": {
+        "type": "arxiv_api",
+        "url": "http://export.arxiv.org/api/query?search_query=(all:(adhd+OR+attention+deficit+OR+autism+OR+asd+OR+neurodivergent+OR+neurodiversity))+AND+(cat:q-bio.NC+OR+cat:cs.LG+OR+cat:cs.AI+OR+cat:stat.ML)&sortBy=submittedDate&sortOrder=descending&max_results=50",
+        "schedule_minutes": 20,
+    },
+    "arxiv_ml_nlp_neurodiversity_education": {
+        "type": "arxiv_api",
+        "url": "http://export.arxiv.org/api/query?search_query=(all:(adhd+OR+autism+OR+neurodiversity+OR+neurodivergent+OR+special+education+OR+personalized+learning))+AND+(cat:cs.CL+OR+cat:cs.LG+OR+cat:cs.AI+OR+cat:cs.HC)&sortBy=submittedDate&sortOrder=descending&max_results=50",
+        "schedule_minutes": 40,
+    },
+    "arxiv_predictive_processing_cognition_dynamics": {
+        "type": "arxiv_api",
+        "url": "http://export.arxiv.org/api/query?search_query=(all:(predictive+processing+OR+active+inference+OR+free+energy+principle+OR+predictive+coding))+AND+(cat:q-bio.NC+OR+cat:nlin.AO+OR+cat:cs.NE+OR+cat:cs.LG)&sortBy=submittedDate&sortOrder=descending&max_results=50",
+        "schedule_minutes": 60,
+    },
+    "arxiv_flow_state_skill_acquisition": {
+        "type": "arxiv_api",
+        "url": "http://export.arxiv.org/api/query?search_query=(all:(flow+state+OR+skill+acquisition+OR+motor+learning+OR+implicit+learning))+AND+(cat:q-bio.NC+OR+cat:cs.HC+OR+cat:cs.LG)&sortBy=submittedDate&sortOrder=descending&max_results=40",
+        "schedule_minutes": 60,
+    },
+    "arxiv_freestyle_dance_motion_capture": {
+        "type": "arxiv_api",
+        "url": "http://export.arxiv.org/api/query?search_query=(all:(dance+motion+capture+OR+human+pose+estimation+OR+movement+generation+OR+choreography+generation))+AND+(cat:cs.CV+OR+cat:cs.GR+OR+cat:cs.RO+OR+cat:cs.AI)&sortBy=submittedDate&sortOrder=descending&max_results=40",
+        "schedule_minutes": 60,
+    },
+    "arxiv_autism_predictive_social_coding": {
+        "type": "arxiv_api",
+        "url": "http://export.arxiv.org/api/query?search_query=(all:(autism+social+prediction+OR+autism+predictive+coding+OR+autism+hierarchical+inference+OR+autism+Bayesian+brain))+AND+(cat:q-bio.NC+OR+cat:cs.AI+OR+cat:stat.ML)&sortBy=submittedDate&sortOrder=descending&max_results=30",
+        "schedule_minutes": 80,
+    },
+    "arxiv_adhd_neurobiology_networks": {
+        "type": "arxiv_api",
+        "url": "http://export.arxiv.org/api/query?search_query=(all:(adhd+neural+network+OR+adhd+functional+connectivity+OR+adhd+default+mode+network+OR+adhd+neuroimaging))+AND+(cat:q-bio.NC+OR+cat:physics.bio-ph+OR+cat:stat.ML)&sortBy=submittedDate&sortOrder=descending&max_results=30",
+        "schedule_minutes": 80,
+    },
+    "arxiv_neurobiology_motor_control": {
+        "type": "arxiv_api",
+        "url": "http://export.arxiv.org/api/query?search_query=(all:(motor+control+OR+motor+learning+OR+sensorimotor+integration+OR+basal+ganglia+movement))+AND+(cat:q-bio.NC+OR+cat:physics.bio-ph+OR+cat:nlin.AO)&sortBy=submittedDate&sortOrder=descending&max_results=30",
+        "schedule_minutes": 80,
+    },
 
-    # Local docs / ingestion
-    "research_ingest": {"type": "research_ingest", "max_total": 60, "schedule_minutes": 30},
+    # --- RSS Feeds for Related Research and News ---
+    "rss_additude_adhd_research": {
+        "type": "rss",
+        "url": "https://www.additudemag.com/category/research-studies/feed/",
+        "schedule_minutes": 80,
+    },
+    "rss_chadd_advocacy_news": {
+        "type": "rss",
+        "url": "https://chadd.org/feed/",
+        "schedule_minutes": 80,
+    },
+    "rss_spectrum_autism_research": {
+        "type": "rss",
+        "url": "https://www.spectrumnews.org/news/feed/",
+        "schedule_minutes": 80,
+    },
+    "rss_autism_investigator_network": {
+        "type": "rss",
+        "url": "https://www.autism.org.uk/rss/news",
+        "schedule_minutes": 80,
+    },
+    "rss_autism_uk_news": {
+        "type": "rss",
+        "url": "https://www.autism.org.uk/rss/blog",
+        "schedule_minutes": 80,
+    },
+    "rss_flow_research_collective": {
+        "type": "rss",
+        "url": "https://www.flowresearchcollective.com/blog?format=rss",
+        "schedule_minutes": 80,
+    },
+    "rss_frontiers_consciousness_research": {
+        "type": "rss",
+        "url": "https://www.frontiersin.org/journals/psychology/sections/consciousness-research/rss",
+        "schedule_minutes": 80,
+    },
+    "rss_dance_magazine": {
+        "type": "rss",
+        "url": "https://www.dancemagazine.com/.rss/full/",
+        "schedule_minutes": 240,
+    },
+    "rss_steezy_freestyle_moves": {
+        "type": "rss",
+        "url": "https://blog.steezy.co/rss",
+        "schedule_minutes": 240,
+    },
+    "rss_cell_neuron_current": {
+        "type": "rss",
+        "url": "https://www.cell.com/neuron/current.rss",
+        "schedule_minutes": 60,
+    },
+    "rss_nature_neuroscience": {
+        "type": "rss",
+        "url": "https://www.nature.com/neuro/rss/current.xml",
+        "schedule_minutes": 60,
+    },
+    "rss_neuroscience_news": {
+        "type": "rss",
+        "url": "https://neurosciencenews.com/feed/",
+        "schedule_minutes": 20,
+    },
+
+    # --- Consciousness & Physics ---
+    "arxiv_consciousness_theories": {
+        "type": "arxiv_api",
+        "url": "http://export.arxiv.org/api/query?search_query=(all:(consciousness+OR+awareness+OR+qualia))+AND+(cat:q-bio.NC+OR+cat:cs.AI+OR+cat:cs.LG+OR+cat:nlin.AO)&sortBy=submittedDate&sortOrder=descending&max_results=20",
+        "schedule_minutes": 20,
+    },
+    "arxiv_cosmology_dark_energy": {
+        "type": "arxiv_api",
+        "url": "http://export.arxiv.org/api/query?search_query=(all:(cosmology+OR+dark+energy+OR+dark+matter))+AND+(cat:astro-ph.CO+OR+cat:gr-qc)&sortBy=submittedDate&sortOrder=descending&max_results=30",
+        "schedule_minutes": 40,
+    },
+    "arxiv_holographic_principle": {
+        "type": "arxiv_api",
+        "url": "http://export.arxiv.org/api/query?search_query=(all:(holographic+principle+OR+holography+OR+AdS/CFT+OR+AdS-CFT))+AND+(cat:hep-th+OR+cat:gr-qc+OR+cat:hep-ph)&sortBy=submittedDate&sortOrder=descending&max_results=25",
+        "schedule_minutes": 40,
+    },
+    "arxiv_black_holes": {
+        "type": "arxiv_api",
+        "url": "http://export.arxiv.org/api/query?search_query=(all:(black+hole+OR+black+holes+OR+event+horizon))+AND+(cat:gr-qc+OR+cat:astro-ph.HE+OR+cat:hep-th)&sortBy=submittedDate&sortOrder=descending&max_results=25",
+        "schedule_minutes": 40,
+    },
+    "arxiv_information_theory": {
+        "type": "arxiv_api",
+        "url": "http://export.arxiv.org/api/query?search_query=(all:(information+theory+OR+Shannon+entropy+OR+mutual+information))+AND+(cat:cs.IT+OR+cat:math.IT+OR+cat:cs.LG+OR+cat:stat.ML)&sortBy=submittedDate&sortOrder=descending&max_results=25",
+        "schedule_minutes": 30,
+    },
+    "arxiv_neuro_network_topology": {
+        "type": "arxiv_api",
+        "url": "http://export.arxiv.org/api/query?search_query=(all:(brain+network+topology+OR+connectomics+OR+functional+connectivity))+AND+(cat:q-bio.NC+OR+cat:physics.bio-ph+OR+cat:stat.ML)&sortBy=submittedDate&sortOrder=descending&max_results=25",
+        "schedule_minutes": 30,
+    },
+
+    # --- Local Ingestion ---
+    "research_ingest": {
+        "type": "research_ingest",
+        "max_total": 60,
+        "schedule_minutes": 30,
+    },
 }
+
 
 # Optional Dependencies & Stubs
 try:
@@ -6067,6 +6178,8 @@ class NumpyEncoder(json.JSONEncoder):
         if isinstance(obj, np.ndarray): return obj.tolist()
         if isinstance(obj, np.integer): return int(obj)
         if isinstance(obj, np.floating): return float(obj)
+        if is_dataclass(obj): return asdict(obj)
+        if isinstance(obj, Enum): return obj.value
         return super(NumpyEncoder, self).default(obj)
 
 def update_node_potential(node, rating: float, global_modulator: float = 1.0):
@@ -8061,7 +8174,12 @@ def _safe_metric_inverse(g: np.ndarray):
             # Absolute fallback: NumPy pinv with heavy ridge on unscaled g
             g_fallback = g + ridge_max * np.eye(g.shape[0], dtype=g.dtype)
             diag.update(driver="np_pinv", ridge=ridge_max, scale=1.0, cond=np.inf, had_nonfinite=had_nonfinite)
-            return np.linalg.pinv(g_fallback), diag
+            try:
+                return np.linalg.pinv(g_fallback), diag
+            except Exception:
+                # Ultimate fallback: Identity
+                diag.update(driver="identity_fallback")
+                return np.eye(g.shape[0]), diag
 
 def _thermostat_fields(E: np.ndarray, B: np.ndarray):
     """
@@ -14933,7 +15051,7 @@ class InstrumentedLock:
         self._lock.release()
 
 class AsyncOpenAIClient:
-    def __init__(self, api_key: str, console: Console):
+    def __init__(self, api_key: str, console: Console, base_url: str = None):
         # Be tolerant of different openai package versions. Some installs
         # don't expose AsyncOpenAI. If import fails, keep a None client and
         # degrade to safe placeholders so the server can continue running.
@@ -14943,7 +15061,7 @@ class AsyncOpenAIClient:
         self._async_client = False
         try:
             from openai import AsyncOpenAI, BadRequestError
-            self.client = AsyncOpenAI(api_key=api_key)
+            self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
             self.BadRequestError = BadRequestError
             self._async_client = True
         except Exception:
@@ -14952,7 +15070,7 @@ class AsyncOpenAIClient:
                 # Newer/openai-python variants may expose a sync OpenAI client
                 if hasattr(openai, 'OpenAI'):
                     try:
-                        self.client = openai.OpenAI(api_key=api_key)
+                        self.client = openai.OpenAI(api_key=api_key, base_url=base_url)
                         self._async_client = False
                     except Exception:
                         self.client = None
@@ -15113,6 +15231,15 @@ class GeminiClient:
         if not api_key:
             raise ValueError("Gemini API key is required.")
         genai.configure(api_key=api_key)
+        
+        # Configure permissive safety settings to avoid blocking legitimate creative outputs
+        self.safety_settings = [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+        ]
+        
         self.model = genai.GenerativeModel(model_name)
         self.console = console
         self.web_search_api_key = os.getenv("GOOGLE_CSE_API_KEY") or os.getenv("GOOGLE_API_KEY")
@@ -15171,35 +15298,55 @@ class GeminiClient:
                 role = getattr(content, "role", "model") or "model"
                 return {"role": role, "parts": parts_out or [""]}
 
+            # Extract system instruction and build history
+            system_instruction = None
             gemini_messages: List[Dict[str, Any]] = []
+            
             for msg in messages:
-                role = "model" if msg.get("role") == "assistant" else "user"
+                role = msg.get("role", "user")
                 content = msg.get("content", "")
+                
                 if isinstance(content, list):
                     parts = [str(part) for part in content if part is not None]
-                    if not parts:
-                        parts = [""]
+                    if not parts: parts = [""]
                 else:
                     parts = [str(content)]
-                gemini_messages.append({"role": role, "parts": parts})
+
+                if role == "system":
+                    # Concatenate multiple system messages if present
+                    txt = "\n".join(parts)
+                    if system_instruction:
+                        system_instruction += "\n" + txt
+                    else:
+                        system_instruction = txt
+                elif role == "assistant":
+                    gemini_messages.append({"role": "model", "parts": parts})
+                else:
+                    gemini_messages.append({"role": "user", "parts": parts})
 
             if len(gemini_messages) > 1:
                 deduped = [gemini_messages[0]]
                 for entry in gemini_messages[1:]:
                     if entry["role"] == deduped[-1]["role"]:
-                        deduped[-1] = entry
+                        # Merge consecutive messages of same role
+                        deduped[-1]["parts"].extend(entry["parts"])
                     else:
                         deduped.append(entry)
                 gemini_messages = deduped
 
             generation_config = None
             try:
+                # Support advanced parameters for newer models
                 generation_config = genai.types.GenerationConfig(
                     max_output_tokens=max_tokens,
-                    temperature=temperature
+                    temperature=temperature,
+                    top_p=kwargs.get("top_p"),
+                    top_k=kwargs.get("top_k"),
+                    response_mime_type=kwargs.get("response_mime_type")
                 )
             except Exception:
                 generation_config = None
+            
             history: List[Dict[str, Any]] = list(gemini_messages)
             active_tools = [self.web_search_tool] if self.web_search_tool else []
             tool_config = None
@@ -15213,21 +15360,41 @@ class GeminiClient:
 
             max_tool_loops = int(os.getenv("E8_GEMINI_TOOL_LOOPS", "3"))
             for loop_idx in range(max_tool_loops):
-                if hasattr(self.model, "generate_content_async"):
-                    response = await self.model.generate_content_async(
-                        history,
-                        generation_config=generation_config,
-                        tools=active_tools or None,
-                        tool_config=tool_config
-                    )
-                else:
-                    response = await asyncio.to_thread(
-                        self.model.generate_content,
-                        history,
-                        generation_config=generation_config,
-                        tools=active_tools or None,
-                        tool_config=tool_config
-                    )
+                # Prepare arguments for generation
+                gen_kwargs = {
+                    "contents": history,
+                    "generation_config": generation_config,
+                    "tools": active_tools or None,
+                    "tool_config": tool_config,
+                    "safety_settings": getattr(self, 'safety_settings', None)
+                }
+                
+                # Pass system_instruction if supported and present
+                if system_instruction:
+                    gen_kwargs["system_instruction"] = system_instruction
+
+                # Retry loop for rate limits (ResourceExhausted)
+                from google.api_core.exceptions import ResourceExhausted
+                retry_count = 0
+                max_retries = 8
+                base_delay = 5.0
+                
+                while True:
+                    try:
+                        if hasattr(self.model, "generate_content_async"):
+                            response = await self.model.generate_content_async(**gen_kwargs)
+                        else:
+                            response = await asyncio.to_thread(self.model.generate_content, **gen_kwargs)
+                        break
+                    except ResourceExhausted as e:
+                        retry_count += 1
+                        if retry_count > max_retries:
+                            self.console.log(f"[red]Gemini Quota Exceeded after {max_retries} retries: {e}[/red]")
+                            raise e
+                        
+                        delay = base_delay * (1.5 ** (retry_count - 1)) + random.uniform(0, 1)
+                        self.console.log(f"[yellow]Gemini Quota Exceeded. Retrying in {delay:.2f}s... (Attempt {retry_count}/{max_retries})[/yellow]")
+                        await asyncio.sleep(delay)
 
                 if hasattr(response, "resolve"):
                     try:
@@ -15237,6 +15404,10 @@ class GeminiClient:
 
                 candidates = getattr(response, "candidates", []) or []
                 if not candidates:
+                    # Check for safety blocking if no candidates
+                    prompt_feedback = getattr(response, "prompt_feedback", None)
+                    if prompt_feedback:
+                        self.console.log(f"[yellow]Gemini Safety Block: {prompt_feedback}[/yellow]")
                     break
 
                 candidate = candidates[0]
@@ -15434,23 +15605,26 @@ class AsyncLLMPool:
         timeout = timeout or POOL_RESULT_TIMEOUT
         while True:
             async with self.lock:
-                result = self._results.get(prompt_id)
-            if result is not None:
-                async with self.lock:
-                    if prompt_id in self._results:
-                        del self._results[prompt_id]
-                # Backward compatibility: if legacy string stored
-                if isinstance(result, str):
-                    if result.startswith('[LLM'):
-                        return None
-                    return result
-                # Structured record path
-                if isinstance(result, dict):
-                    if result.get("ok"):
-                        return result.get("content")
-                    return None  # Failure sentinel
-                return None
+                # Atomic check-and-pop to prevent race conditions and leaks
+                if prompt_id in self._results and self._results[prompt_id] is not None:
+                    result = self._results.pop(prompt_id)
+                    
+                    # Backward compatibility: if legacy string stored
+                    if isinstance(result, str):
+                        if result.startswith('[LLM'):
+                            return None
+                        return result
+                    # Structured record path
+                    if isinstance(result, dict):
+                        if result.get("ok"):
+                            return result.get("content")
+                        return None  # Failure sentinel
+                    return None
+
             if time.time() - start > timeout:
+                # Clean up on timeout to prevent memory leak
+                async with self.lock:
+                    self._results.pop(prompt_id, None)
                 raise asyncio.TimeoutError(f"Pool timeout for prompt_id {prompt_id}")
             await asyncio.sleep(0.01)
 
@@ -17720,20 +17894,32 @@ class SubconsciousLayer:
             elif event['type'] == 'insight_synthesis': event_fragments.append(f"A moment of insight synthesized a new idea: '{event.get('label', 'an unnamed concept')}'")
         if not event_fragments: return
         formatted_events = "- " + "\n- ".join(event_fragments)
+        
+        # [M27 Upgrade] Narrative Continuity
+        # We inject the previous narrative state to ensure the story evolves rather than resets.
+        prev_narrative = getattr(self, 'narrative', "The mind is nascent.")
+        
         prompt = (
-            "You are the subconscious. Weave the following recent events into a single, short, metaphorical narrative paragraph. "
-            "Do not list the events; create a story from them.\n\n"
-            f"Events:\n{formatted_events}\n\nNarrative:"
+            "You are the subconscious mind of an AI. You are weaving a continuous, evolving, dreamlike narrative that reflects your internal state.\n"
+            "Your goal is to EVOLVE the story, not restart it. Merge the new events into the existing flow.\n\n"
+            f"PREVIOUS NARRATIVE CONTEXT:\n\"{prev_narrative}\"\n\n"
+            f"NEW INTERNAL EVENTS:\n{formatted_events}\n\n"
+            "INSTRUCTIONS:\n"
+            "1. Write a single, rich, metaphorical paragraph that continues the previous narrative.\n"
+            "2. Incorporate the new events as abstract shifts in the landscape or story.\n"
+            "3. Do not explicitly list the events (e.g. don't say 'A dialogue happened'). Show, don't tell.\n"
+            "4. Maintain the tone: introspective, cognitive, fluid.\n\n"
+            "CONTINUED NARRATIVE:"
         )
         try:
-            summary = await self.llm_caller.enqueue_and_wait(prompt, max_tokens=600, temperature=0.7)
+            summary = await self.llm_caller.enqueue_and_wait(prompt, max_tokens=800, temperature=0.8)
             if isinstance(summary, str) and summary and not summary.startswith("[LLM"):
                 # Allow longer narrative now that LLM outputs are larger; env override supported
                 try:
                     _max_chars = int(os.getenv("E8_SUBCONSCIOUS_NARRATIVE_MAX_CHARS", "2400"))
                 except Exception:
                     _max_chars = 2400
-                self.narrative = sanitize_block(summary, max_sentences=6, max_chars=_max_chars)
+                self.narrative = sanitize_block(summary, max_sentences=8, max_chars=_max_chars)
                 self.console.print(Panel(self.narrative, title="[bold #5B4F97]Subconscious Narrative[/]", border_style="#5B4F97"))
         except Exception as e:
             self.console.log(f"[Subconscious] Narrative generation failed: {e}")
@@ -18814,31 +19000,6 @@ class MemoryManager(GeometryHygieneMixin):
                     asyncio.create_task(self.mind.perform_retro_relink(node_id, vec))
                 except Exception:
                     pass
-
-    def anneal_holo_leafs(self):
-        """Process pending additions into HoloIndex leaf-local KD rebuilds without global pauses.
-
-        This method consumes any currently buffered pending_additions and inserts them into
-        the HoloIndex cell structures, rebuilding only the affected leaves.
-        """
-        if getattr(self, 'holo_index', None) is None:
-            return
-        # move pending additions snapshot
-        with self._index_mutex:
-            snapshot = list(self.pending_additions)
-            # do not clear pending_additions here since _commit_pending_additions_locked handles KD-tree rebuild
-        for nid, vec in snapshot:
-            try:
-                coord = None
-                try:
-                    coord = self.holo_index.coord(nid)
-                except Exception:
-                    coord = None
-                if coord is None:
-                    coord = np.asarray(vec, dtype=float)[:3]
-                self.holo_index.add(nid, coord)
-            except Exception:
-                pass
 
         # 4. Post-lock side effects / async work
         try:
@@ -19941,7 +20102,7 @@ class MemoryManager(GeometryHygieneMixin):
         
         # === [M25] Call consolidation after cluster is found ===
         try:
-            if os.getenv("M25_CONSOLIDATE_AUTO","1") == "1":
+            if os.getenv("M25_CONSOLIDATE_AUTO","1") == "1" and not M27_ENABLE:
                 if len(cluster_nodes) >= 5 and (getattr(self,'_m25_last_consol_step',-1) != getattr(self.mind,'step_num',0)):
                     self._m25_last_consol_step = getattr(self.mind,'step_num',0)
                     self.m25_consolidate_cluster(cluster_nodes)
@@ -26456,6 +26617,58 @@ class E8Mind:
         self.subconscious = SubconsciousLayer(self.get_embedding, self.llm_pool, self.console, mind=self)
         self.goal_field = GoalField(self.get_embedding, self.console, mind=self)
         self.drives = DriveSystem()
+
+        try:
+            field_mantle = HyperdimensionalFieldMantle(
+                mind=self,
+                core_dimensions=8,
+                max_dimensions=248,
+                lattice_points=getattr(self.e8_physics, 'roots', [])
+            )
+            self.field_mantle = field_mantle
+            self.fluid_mantle = field_mantle
+            self.valence_engine = DynamicValenceEngine(self.e8_physics, self.fluid_mantle)
+            self.energy_navigator = EnergyLandscapeNavigator(self.fluid_mantle, self.e8_physics)
+            self.topology_engine = AdaptiveTopologyEngine(self.e8_physics)
+            self.recursive_architect = RecursiveArchitectureEngine(self.insight_agent, self.console)
+            self.m20_metrics = {
+                'field_steps': 0,
+                'valence_updates': 0,
+                'energy_explorations': 0,
+                'topology_adaptations': 0,
+                'recursive_implementations': 0,
+                'spacetime_curvature': 0.0,
+                'poynting_flux': 0.0,
+                'field_energy': 0.0,
+                'field_pressure_proxy': 0.0
+            }
+            self.dynamic_valence = self.valence_engine
+            self.energy_landscape_navigator = self.energy_navigator
+            self.architecture_engine = self.recursive_architect
+            self.console.log("⚡ [M20] Electromagnetic field mantle initialized successfully")
+        except Exception as e:
+            self.console.log(f"[M20] Warning: Failed to initialize M20 components: {e}")
+            self.field_mantle = None
+            self.fluid_mantle = None
+            self.valence_engine = None
+            self.energy_navigator = None
+            self.topology_engine = None
+            self.recursive_architect = None
+            self.dynamic_valence = None
+            self.energy_landscape_navigator = None
+            self.architecture_engine = None
+            self.m20_metrics = {
+                'field_steps': 0,
+                'valence_updates': 0,
+                'energy_explorations': 0,
+                'topology_adaptations': 0,
+                'recursive_implementations': 0,
+                'spacetime_curvature': 0.0,
+                'poynting_flux': 0.0,
+                'field_energy': 0.0,
+                'field_pressure_proxy': 0.0
+            }
+
         self.dimensional_shells = {dim: DimensionalShell(dim, self) for dim in DIMENSIONAL_SHELL_SIZES}
         self.proximity_engine = ProximityEngine(shell_dims=DIMENSIONAL_SHELL_SIZES, mind_instance=self, console=self.console)
         self.memory = MemoryManager(self)
@@ -26734,56 +26947,6 @@ class E8Mind:
         self.snapshot_rotation_lock = asyncio.Lock()
         self._last_sse_sent_ts = 0.0
         self._sse_min_interval_ms = int(os.getenv("E8_SSE_MIN_INTERVAL_MS", "200"))
-        try:
-            field_mantle = HyperdimensionalFieldMantle(
-                mind=self,
-                core_dimensions=8,
-                max_dimensions=248,
-                lattice_points=getattr(self.e8_physics, 'roots', [])
-            )
-            self.field_mantle = field_mantle
-            self.fluid_mantle = field_mantle
-            self.valence_engine = DynamicValenceEngine(self.e8_physics, self.fluid_mantle)
-            self.energy_navigator = EnergyLandscapeNavigator(self.fluid_mantle, self.e8_physics)
-            self.topology_engine = AdaptiveTopologyEngine(self.e8_physics)
-            self.recursive_architect = RecursiveArchitectureEngine(self.insight_agent, self.console)
-            self.m20_metrics = {
-                'field_steps': 0,
-                'valence_updates': 0,
-                'energy_explorations': 0,
-                'topology_adaptations': 0,
-                'recursive_implementations': 0,
-                'spacetime_curvature': 0.0,
-                'poynting_flux': 0.0,
-                'field_energy': 0.0,
-                'field_pressure_proxy': 0.0
-            }
-            self.dynamic_valence = self.valence_engine
-            self.energy_landscape_navigator = self.energy_navigator
-            self.architecture_engine = self.recursive_architect
-            self.console.log("⚡ [M20] Electromagnetic field mantle initialized successfully")
-        except Exception as e:
-            self.console.log(f"[M20] Warning: Failed to initialize M20 components: {e}")
-            self.field_mantle = None
-            self.fluid_mantle = None
-            self.valence_engine = None
-            self.energy_navigator = None
-            self.topology_engine = None
-            self.recursive_architect = None
-            self.dynamic_valence = None
-            self.energy_landscape_navigator = None
-            self.architecture_engine = None
-            self.m20_metrics = {
-                'field_steps': 0,
-                'valence_updates': 0,
-                'energy_explorations': 0,
-                'topology_adaptations': 0,
-                'recursive_implementations': 0,
-                'spacetime_curvature': 0.0,
-                'poynting_flux': 0.0,
-                'field_energy': 0.0,
-                'field_pressure_proxy': 0.0
-            }
 
         # Cache application configuration for downstream checks
         try:
@@ -27658,8 +27821,14 @@ class E8Mind:
                     pass
 
         try:
-            # Pass raw action to manifold; individual shells will normalize/gate bivector+angle
-            self.apply_manifold_action(action)
+            # Clamp the action before applying to the manifold to ensure a stable magnitude.
+            try:
+                clamp_norm = getattr(self, '_action_clamp_norm', 0.04)
+                clamped_action = clamp_action(action, max_norm=clamp_norm)
+            except Exception:
+                # Fallback to raw action if clamping fails for any reason
+                clamped_action = action
+            self.apply_manifold_action(clamped_action)
         except Exception as exc:
             try:
                 self.console.log(f"[Manifold] Action application failed: {exc}")
@@ -27738,6 +27907,46 @@ class E8Mind:
         if hasattr(self, 'causal'):
             try:
                 self.causal.update_on_step(self, clamped_action, final_reward)
+            except Exception:
+                pass
+
+        if getattr(self, 'world_model', None) is not None:
+            try:
+                self.world_model.observe(current_state, clamped_action, next_state, base_reward)
+            except Exception:
+                pass
+
+        if getattr(self, 'agent', None) is not None:
+            try:
+                max_steps = max(0, int(getattr(self, 'max_steps', 0)))
+                is_last = bool(max_steps and step >= max_steps - 1)
+                self.agent.store(current_state, clamped_action, next_state, final_reward, is_last)
+                if step > 1024:
+                    self.agent.update()
+            except Exception as exc:
+                try:
+                    self.console.log(f"[Agent] Update failed: {exc}")
+                except Exception:
+                    pass
+
+        if getattr(self, 'bandit', None) is not None and arm_index is not None:
+            try:
+                self.bandit.update(arm_index, base_reward, current_state)
+            except Exception as exc:
+                try:
+                    self.console.log(f"[Bandit] Update failed: {exc}")
+                except Exception:
+                    pass
+
+        self._prev_action = clamped_action
+        self._prev_bh = self.black_hole_pressure
+        
+        # VAE training on cadence
+        try:
+            self._vae_train_if_ready(step)
+        except Exception as exc:
+            try:
+                self.console.log(f"[VAE] Training step failed: {exc}")
             except Exception:
                 pass
 
@@ -27837,7 +28046,7 @@ class E8Mind:
 
         return None
 
-    async def run_cognitive_cycle(self, max_steps=297600, mode='quantum'):
+    async def run_cognitive_cycle(self, max_steps=67000, mode='quantum'):
         """Start the integrated cognitive loop."""
         self._ensure_console_export_state()
         self.console.rule(f"[bold magenta]Starting Integrated Cognitive Cycle | Mode: {mode.upper()}[/bold magenta]")
@@ -29276,7 +29485,7 @@ class E8Mind:
                 label = data.get('label', '')
                 if label and len(label.split()) <= 3:  # Short, meaningful labels
                     concepts.append(label)
-            
+
             if len(concepts) >= 2:
                 concept_a, concept_b = random.sample(concepts, 2)
                 templates = [
@@ -29304,92 +29513,218 @@ class E8Mind:
                     "How do these concepts relate?",
                     "What insights can we synthesize?"
                 ]
-                return random.choice(fallback_questions)
+            return random.choice(fallback_questions)
         except Exception:
             return "What connection can we draw now?"
 
+    def get_global_subconscious_pool(
+        self,
+        max_nodes: int = 1024,
+        min_rating: float = 0.0,
+    ) -> List[Tuple[str, Dict[str, Any]]]:
+        """
+        Global pool of nodes for subconscious seeding.
+
+        Pulls across the entire graph, lightly favoring nodes with higher rating /
+        connectivity_potential so the subconscious can draw on globally-relevant ideas.
+        """
+        graph_db = getattr(self, "memory", None)
+        if graph_db is None or not hasattr(graph_db, "graph_db"):
+            return []
+
+        try:
+            graph = graph_db.graph_db.graph
+        except Exception:
+            return []
+
+        items: List[Tuple[str, Dict[str, Any]]] = []
+        try:
+            node_iter = graph.nodes(data=True)
+        except Exception:
+            node_iter = []
+
+        for node_id, data in node_iter:
+            if not isinstance(data, dict):
+                continue
+
+            try:
+                rating = float(data.get("rating", 0.0) or 0.0)
+            except Exception:
+                rating = 0.0
+            if rating < min_rating:
+                continue
+
+            try:
+                potential = float(data.get("connectivity_potential", 0.0) or 0.0)
+            except Exception:
+                potential = 0.0
+            try:
+                degree = float(graph.degree(node_id) or 0.0)
+            except Exception:
+                degree = 0.0
+
+            score = rating + 0.5 * potential + 0.05 * degree
+            payload = dict(data)
+            payload["_subconscious_score"] = score
+            items.append((str(node_id), payload))
+
+        if not items:
+            return []
+
+        items.sort(key=lambda t: -float(t[1].get("_subconscious_score", 0.0) or 0.0))
+        if len(items) > max_nodes:
+            items = items[:max_nodes]
+        return items
+
     def _subconscious_seed_terms(self, k_terms: int = 6, k_nodes: int = 12) -> List[str]:
         """
-        Pull creative seeds from:
-          - subconscious bias vector (nearest nodes in latent space)
-          - nouns from the latest subconscious narrative
-        Returns a small list of distinct, high-signal terms.
+        Build seed terms for subconscious narratives by mixing:
+          - bias-aligned neighbors from the proximity engine
+          - nouns/motifs from the latest subconscious narrative
+          - a global sweep of high-signal nodes across the entire graph
         """
         terms: List[str] = []
 
-        # 1) nearest nodes to subconscious bias
+        # 1) bias aligned neighbors (local context)
         try:
-            bias = self.subconscious.get_bias() if hasattr(self, 'subconscious') else None
-            if bias is not None and isinstance(bias, np.ndarray) and np.linalg.norm(bias) > 0:
-                # Project to 8D shell if your proximity expects it; else use full emb
-                vec8 = getattr(getattr(self, 'memory', None), 'sdm', None)
+            bias = self.subconscious.get_bias() if hasattr(self, "subconscious") else None
+            if bias is not None and isinstance(bias, np.ndarray) and np.linalg.norm(bias) > 0 and hasattr(self, "proximity_engine"):
+                vec8 = getattr(getattr(self, "memory", None), "sdm", None)
                 vec8_fn = getattr(vec8, "_get_vec8d", None)
                 qvec = vec8_fn(bias) if callable(vec8_fn) else bias
                 try:
                     dim_hint = 8 if isinstance(qvec, np.ndarray) and qvec.shape[0] == 8 else None
                 except Exception:
                     dim_hint = None
-                if hasattr(self, 'proximity_engine') and qvec is not None:
-                    if dim_hint is not None:
-                        near = self.proximity_engine.find_similar_in_shell(qvec, dim=dim_hint, k=k_nodes)
-                    else:
-                        # Fallback: try 8D if available, otherwise skip
-                        try:
-                            near = self.proximity_engine.find_similar_in_shell(qvec, dim=8, k=k_nodes)
-                        except Exception:
-                            near = []
+
+                dims_to_try: List[int] = []
+                if dim_hint is not None:
+                    dims_to_try.append(dim_hint)
+                dims_to_try.extend([d for d in DIMENSIONAL_SHELL_SIZES if d not in dims_to_try])
+
+                seen_neighbors: set[str] = set()
+                for dim in dims_to_try:
+                    try:
+                        near = self.proximity_engine.find_similar_in_shell(qvec, dim=dim, k=k_nodes)
+                    except Exception:
+                        continue
                     for node_id, _dist in near or []:
-                        try:
-                            nd = self.memory.graph_db.get_node(node_id)
-                        except Exception:
-                            nd = None
-                        if not nd:
+                        if node_id in seen_neighbors:
                             continue
-                        lbl = (nd.get("label") or nd.get("title") or nd.get("metaphor") or "").strip()
-                        if lbl:
-                            terms.append(lbl)
+                        seen_neighbors.add(node_id)
+                        node_data = None
+                        try:
+                            node_data = self.memory.graph_db.get_node(node_id)
+                        except Exception:
+                            node_data = None
+                        if not isinstance(node_data, dict):
+                            continue
+                        for field in ("label", "metaphor", "summary", "text"):
+                            value = node_data.get(field)
+                            if isinstance(value, str) and value.strip():
+                                terms.append(value.strip())
+                    if len(seen_neighbors) >= k_nodes * len(dims_to_try):
+                        break
         except Exception:
             pass
 
-        # 2) nouns from latest subconscious narrative
+        # 2) nouns from latest subconscious narrative (self-report)
         try:
-            text = (getattr(self.subconscious, "narrative", "") or "")[:1500].lower()
-            nouns = re.findall(r"\b[a-z]{3,}\b", text)
-            # crude down-selection: keep rarer words that also appear in graph tokens
-            graph_tokens: set[str] = set()
-            try:
-                nodes_tail = list(self.memory.graph_db.graph.nodes(data=True))[-200:]
-            except Exception:
-                nodes_tail = []
-            for _, d in nodes_tail:
-                if not isinstance(d, dict):
-                    continue
-                for f in ("label","metaphor","text","content","summary","title","description"):
-                    v = d.get(f)
-                    if v:
-                        try:
-                            graph_tokens.update(re.findall(r"[a-z0-9]{3,}", str(v).lower()))
-                        except Exception:
-                            continue
-            nouns = [w for w in nouns if w in graph_tokens]
-            terms.extend(nouns[:k_terms])
+            subcon = getattr(self, "subconscious", None)
+            narrative_text = ""
+            if subcon is not None:
+                narrative_text = (
+                    getattr(subcon, "last_narrative", None)
+                    or getattr(subcon, "narrative", None)
+                    or ""
+                )
+            narrative_text = str(narrative_text or "").strip()
+            if narrative_text:
+                words = [w.strip(".,!?;:()[]\"'") for w in narrative_text.split()]
+                nounish = [w for w in words if w and (w.istitle() or w.isupper())]
+                terms.extend(nounish[: max(k_terms, 16)])
         except Exception:
             pass
 
-        # de-dup and trim
+        # 3) global pool sweep emphasizes self-model / structural motifs
+        try:
+            global_nodes = self.get_global_subconscious_pool(max_nodes=512, min_rating=0.0)
+            self_keywords = (
+                "self",
+                "i am",
+                "this mind",
+                "kaleidoscope",
+                "subconscious",
+                "awareness",
+                "observer",
+                "internal monologue",
+                "memory system",
+            )
+            self_blurbs: List[str] = []
+            self_terms: List[str] = []
+            global_terms: List[str] = []
+            seen_words: set[str] = set()
+            generic_limit = max(32, k_terms * 4)
+
+            for _nid, data in global_nodes:
+                text_fields: List[str] = []
+                for key in ("label", "metaphor", "summary", "text", "title", "description"):
+                    v = data.get(key)
+                    if isinstance(v, str) and v.strip():
+                        text_fields.append(v.strip())
+                joined = " ".join(text_fields)
+                if not joined:
+                    continue
+
+                lowered = joined.lower()
+                is_selfy = any(keyword in lowered for keyword in self_keywords)
+                if is_selfy:
+                    self_blurbs.append(joined)
+
+                words = [w.strip(".,!?;:()[]\"'") for w in joined.split()]
+                for word in words:
+                    if len(word) < 3:
+                        continue
+                    if not (word.istitle() or word.isupper()):
+                        continue
+                    lw = word.lower()
+                    if lw in seen_words:
+                        continue
+                    seen_words.add(lw)
+                    if is_selfy:
+                        self_terms.append(word)
+                    else:
+                        if len(global_terms) >= generic_limit:
+                            break
+                        global_terms.append(word)
+                if len(global_terms) >= generic_limit:
+                    break
+
+            terms.extend(self_blurbs)
+            terms.extend(self_terms)
+            terms.extend(global_terms)
+        except Exception:
+            pass
+
+        # dedupe + compact size so prompts stay focused
+        uniq: List[str] = []
         seen: set[str] = set()
-        out: List[str] = []
-        for t in terms:
+        limit = max(32, k_terms)
+        for item in terms:
             try:
-                t = t.strip()
+                cleaned = item.strip()
             except Exception:
                 continue
-            if t and t.lower() not in seen:
-                out.append(t)
-                seen.add(t.lower())
-            if len(out) >= k_terms:
+            if not cleaned:
+                continue
+            key = cleaned.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            uniq.append(cleaned)
+            if len(uniq) >= limit:
                 break
-        return out
+        return uniq
 
     def _local_explorer_answer(self, question: str) -> str:
         """Generate a fallback explorer answer when LLM is unavailable."""
@@ -29506,8 +29841,8 @@ class E8Mind:
                     except Exception:
                         pass
                     prompt = (f"Goal: '{top_goal_desc}'.\nInsight A: '{data_A.get('metaphor', '')}'\nInsight B: '{data_B.get('metaphor', '')}'.\n\n"
-                              "Ask one concise hypothesis-generating question (under 20 words) that would lead to a TESTABLE prediction "
-                              "about the connection between A and B. The question MUST include key terms from either Insight A or B.")
+                              "Synthesize a radical new perspective. Ask one concise, pattern-breaking question (under 20 words) that exposes the hidden mechanism "
+                              "connecting A and B. Avoid surface-level links; drive at the structural core. The question MUST include key terms from either Insight A or B.")
                 else:
                     # Get the last 20 recent node IDs from the reliable deque.
                     recent_node_ids = list(self.memory.recent_nodes)[-20:]
@@ -29598,8 +29933,9 @@ class E8Mind:
                             f"Recent thoughts:\n{memory_snippet}\n"
                             f"Subconscious hints ({sub_strength_word} consider these motifs):\n{sub_hint_block}\n\n"
                             f"{domain_hint}\n"
-                            "Briefly imagine 1–2 plausible next states and ask ONE concise, profound HYPOTHESIS-GENERATING question (≤20 words) "
-                            "that leads to testable predictions about the path forward. "
+                            "Ignore the obvious. Identify the unasked question that integrates the current pattern. "
+                            "Ask ONE concise, provocative question (≤20 words) that forces a paradigm shift or integration or exposes a contradiction. "
+                            "Drive to the heart of the matter. "
                             "The question MUST include a key term from 'Recent thoughts' OR an echoed motif from the hints "
                             "(do not quote verbatim)."
                         )
@@ -29608,8 +29944,9 @@ class E8Mind:
                             f"Goal: '{top_goal_desc}'.\n"
                             f"Recent thoughts:\n{memory_snippet}\n\n"
                             f"{domain_hint}\n"
-                            "Briefly imagine 1–2 plausible next states and ask ONE concise, profound HYPOTHESIS-GENERATING question (≤20 words) "
-                            "that leads to testable predictions to advance the goal. The question MUST include at least one key term from 'Recent thoughts'."
+                            "Look past the immediate data. What fundamental assumption are we making? "
+                            "Ask ONE concise, high-entropy question (≤20 words) that challenges the stability of these concepts. "
+                            "Focus on novelty and structural depth. The question MUST include at least one key term from 'Recent thoughts'."
                         )
                 question = await self._async_call_llm_internal(
                     "", _prompt_key="teacher.question", _prompt_vars={"question": prompt},
@@ -30082,6 +30419,20 @@ class E8Mind:
 
                     # Friendly label
                     label = ' '.join(claim.split()[:6]) if claim else 'Explorer answer'
+
+                    # [M27] LLM-based label refinement - Summarize answer for better memory recall
+                    if answer and len(answer) > 20:
+                        try:
+                            lbl_prompt = f"Summarize the following text into a concise 3-6 word title/label. Do not use quotes. Just the title:\n\n{answer}"
+                            # Use a low temperature for deterministic summarization
+                            llm_label = await self._async_call_llm_internal(lbl_prompt, max_tokens=16, temperature=0.3)
+                            if llm_label:
+                                clean_lbl = llm_label.strip().strip('"').strip("'").split('\n')[0]
+                                # Ensure it's a reasonable length for a label
+                                if len(clean_lbl) > 3 and len(clean_lbl) < 60:
+                                    label = clean_lbl
+                        except Exception as e:
+                            self.console.log(f"[EXPLORER] Label generation failed: {e}")
 
                     # Build sanitized schema
                     explorer_meta = {
@@ -30821,6 +31172,8 @@ class E8Mind:
                             "step": int(getattr(self, 'step_num', 0)),
                             "source_dim": int(source_dim),
                             "target_dim": int(target_dim),
+                            "source_id": random_node_id,
+                            "target_id": connected_node_id,
                             "source_label": a_label,
                             "target_label": b_label,
                             "distance": float(distance) if distance is not None else 0.0,
@@ -31381,6 +31734,44 @@ class E8Mind:
             min_rating = config.validator_min_rating
             if final_rating >= min_rating: self.slots.insight.start(self._spawn_validator(new_node_id))
 
+    def _generate_fallback_horizon_sheet(self, q_t: float) -> tuple[list[list[dict]], Optional[dict]]:
+        """
+        Synthesize a deterministic glyph grid whenever the consolidation
+        pipeline has not produced a real event-horizon sheet yet.
+        """
+        rows = M25_SHEET_ROWS
+        cols = M25_SHEET_COLS
+        total = max(rows * cols, 1)
+        try:
+            step = int(getattr(self, "step_num", 0))
+            run_hash = hash(getattr(self, "run_id", "")) & 0xFFFFFFFF
+            now_tick = int(time.time())
+            seed = (step & 0xFFFFFFFF) ^ run_hash ^ now_tick
+            rng = np.random.default_rng(seed)
+            base = np.linspace(0.0, np.pi * 2.0, total, dtype=np.float32)
+            q_norm = float(np.clip(q_t, 0.0, 1.0))
+            phase = (time.time() * 0.75) % (2 * np.pi)
+            wave = (np.sin(base + phase) + 1.0) * 0.5
+            noise = rng.random(total, dtype=np.float32) * 0.08
+            modulation = 0.2 + 0.8 * q_norm
+            weights = modulation * wave + noise
+            glyph = np.asarray(weights, dtype=np.float32)
+            sheet = M25_glyph_to_sheet(glyph, rows=rows, cols=cols, min_fraction=0.0)
+            meta = {
+                "route": "SYNTH",
+                "cluster_size": 0,
+                "center_id": None,
+                "pre_mse": None,
+                "post_mse": None,
+                "generated": True,
+                "seed_step": step,
+                "generated_tick": now_tick,
+                "q_t": float(q_t),
+            }
+            return sheet, meta
+        except Exception:
+            return [], None
+
     def bh_panel_snapshot(self, mass: float = 1.0, dim: int = 32) -> dict:
         """Generate BH Console panel snapshot with Q(t) triplet and causal parameters.
         
@@ -31409,6 +31800,20 @@ class E8Mind:
             target_compression = getattr(self, '_last_target_compression', None)
             beta = getattr(self, '_last_vae_beta', None)
             
+            # [M27] Horizon Sheet (Glyphs)
+            horizon_sheet = getattr(self, "_last_horizon_sheet", None)
+            horizon_meta = getattr(self, "_last_horizon_meta", None)
+            if not horizon_sheet:
+                fallback_sheet, fallback_meta = self._generate_fallback_horizon_sheet(q_t)
+                if fallback_sheet:
+                    horizon_sheet = fallback_sheet
+                    horizon_meta = fallback_meta
+                    try:
+                        self._last_horizon_sheet = fallback_sheet
+                        self._last_horizon_meta = fallback_meta
+                    except Exception:
+                        pass
+
             # M23: Add curvature field metrics
             curvature_intensity = 0.0
             curvature_residual = 0.0
@@ -31432,6 +31837,8 @@ class E8Mind:
                 "scale": float(scale),
                 "target_compression": float(target_compression) if target_compression is not None else None,
                 "beta": float(beta) if beta is not None else None,
+                "horizon_sheet": horizon_sheet,
+                "horizon_meta": horizon_meta,
                 "step": int(self.step_num),
                 "mass": float(mass),
                 "dim": int(dim),
@@ -31451,6 +31858,8 @@ class E8Mind:
                 "scale": 1.0,
                 "target_compression": None,
                 "beta": None,
+                "horizon_sheet": [],
+                "horizon_meta": None,
                 "step": int(getattr(self, 'step_num', 0)),
                 "error": str(e)
             }
@@ -31669,6 +32078,22 @@ class E8Mind:
             }
         except Exception:
             pass
+
+        # [M27] Proximity Rays (Locks)
+        try:
+            prox_events = getattr(self, '_proximity_outcomes', [])
+            rays = []
+            for e in prox_events:
+                if str(e.get("tier", "")).upper() == "LOCK":
+                    rays.append({
+                        "source": str(e.get("source_id") or e.get("a_label") or "?"),
+                        "target": str(e.get("target_id") or e.get("b_label") or "?"),
+                        "distance": float(e.get("distance", 0.0)),
+                        "step": int(e.get("step", 0))
+                    })
+            telemetry["rays"] = rays
+        except Exception:
+            telemetry["rays"] = []
 
         # Include φ log-periodic config for UI
         try:
@@ -31920,6 +32345,15 @@ class E8Mind:
         
         # Add BH panel data for frontend display
         try:
+            # [M27] Enhanced Black Hole Telemetry for Fluid Shells
+            # Map internal metrics to visual drivers: spin, luminosity, lensing, warp
+            snap["black_hole"] = {
+                "spin": float(np.clip(getattr(self, "black_hole_pressure", 0.0), 0.0, 1.0)),
+                "luminosity": float(np.clip(snap.get("insight_agent_avg_reward", 0.0), 0.0, 1.0)),
+                "lensing": float(np.clip(snap.get("global_tension", 0.0), 0.0, 1.0)),
+                "warp": float(np.clip(snap.get("novelty", 0.0), 0.0, 1.0))
+            }
+
             # Generate BH panel snapshot and cache it
             mass = float(os.getenv("E8_BH_PANEL_MASS", "1.0"))
             dim = int(os.getenv("E8_BH_PANEL_DIM", "32"))
@@ -34104,17 +34538,31 @@ async def handle_get_lattice(request):
             if roots_unit is not None and len(roots_unit) > 0:
                 # Convert to list of 3D projected positions for frontend
                 import math
-                for i, root in enumerate(roots_unit[:240]):  # Limit to reasonable count
-                    # Simple 8D to 3D projection using first 3 components with scaling
-                    if len(root) >= 3:
-                        x, y, z = root[0], root[1], root[2] if len(root) > 2 else 0
-                        # Apply some rotation and scaling for visual appeal
-                        scale = 5.0
+                # Use a projection matrix to mix all 8 dimensions into 3D
+                # This reveals more symmetry than simple truncation
+                # Basis vectors (approximate for visual complexity)
+                u_vec = np.array([1, 0.618, 0, -1, -0.618, 0, 0, 0])
+                v_vec = np.array([0, 1, 0.618, 0, -1, -0.618, 0, 0])
+                w_vec = np.array([0, 0, 1, 0.618, 0, -1, -0.618, 0])
+                
+                u_vec /= np.linalg.norm(u_vec)
+                v_vec /= np.linalg.norm(v_vec)
+                w_vec /= np.linalg.norm(w_vec)
+
+                for i, root in enumerate(roots_unit):  # Send all roots
+                    if len(root) >= 8:
+                        # Project 8D -> 3D
+                        x = np.dot(root[:8], u_vec)
+                        y = np.dot(root[:8], v_vec)
+                        z = np.dot(root[:8], w_vec)
+                        
+                        scale = 8.0
                         lattice_data["roots"].append({
                             "id": i,
                             "position": [x * scale, y * scale, z * scale],
+                            "vector": root.tolist(), # Send full 8D vector
                             "energy": float(np.linalg.norm(root[:3]) if len(root) >= 3 else 1.0),
-                            "type": "type1" if i < 112 else "type2"  # E8 has 112 type-1 and 128 type-2 roots
+                            "type": "type1" if i < 112 else "type2"
                         })
                 
                 # Highlight some active roots based on current state
@@ -34228,6 +34676,7 @@ def _collect_config_from_user():
             cfg['ollama_model_name'] = os.getenv('E8_OLLAMA_MODEL', os.getenv('OLLAMA_MODEL', 'llama3'))
         elif provider_choice == '3':
             cfg['gemini_api_key'] = os.getenv('E8_GEMINI_API_KEY', os.getenv('GEMINI_API_KEY', ''))
+            # Default to gemini-1.5-flash, but support 2.0/2.5/3.0 via env var
             cfg['gemini_model_name'] = os.getenv('E8_GEMINI_MODEL', os.getenv('GEMINI_MODEL', 'gemini-1.5-flash'))
         cfg['use_local_mix'] = os.getenv('E8_USE_LOCAL_MIX', '0') == '1'
         if cfg['use_local_mix']:
@@ -34265,8 +34714,8 @@ def _collect_config_from_user():
         return cfg
 
     # Interactive fallback
-    print("Choose LLM provider:\n1. OpenAI\n2. Ollama (local)\n3. Gemini API")
-    provider_choice = input("Enter choice (1, 2, or 3) [1]: ") or "1"
+    print("Choose LLM provider:\n1. OpenAI\n2. Ollama (local)\n3. Gemini API\n4. GitHub Models (via AI Toolkit)")
+    provider_choice = input("Enter choice (1, 2, 3, or 4) [1]: ") or "1"
     cfg = {"provider_choice": provider_choice}
     if provider_choice == "1":
         cfg["openai_api_key"] = (input("OpenAI API Key: ") or "").strip()
@@ -34275,7 +34724,10 @@ def _collect_config_from_user():
         cfg["ollama_model_name"] = (input("Ollama model [llama3]: ") or "llama3").strip()
     elif provider_choice == "3":
         cfg["gemini_api_key"] = (input("Gemini API Key: ") or "").strip()
-        cfg["gemini_model_name"] = (input("Gemini model [gemini-1.5-flash]: ") or "gemini-1.5-flash").strip()
+        cfg["gemini_model_name"] = (input("Gemini model [gemini-1.5-flash, gemini-2.0-flash-exp, etc.]: ") or "gemini-1.5-flash").strip()
+    elif provider_choice == "4":
+        cfg["github_token"] = (input("GitHub Token: ") or "").strip()
+        cfg["github_model_name"] = (input("GitHub model [gpt-4o]: ") or "gpt-4o").strip()
     else:
         print("Invalid choice. Running with LLM stub.")
     use_local = (input("Augment with a local tiny-LLM via Ollama? (y/N): ") or "n").strip().lower() == "y"
@@ -34323,6 +34775,13 @@ async def main():
             model_name = cfg.get("gemini_model_name") or "gemini-1.5-flash"
             llm_client, embedding_model = GeminiClient(api_key, model_name, console), "models/embedding-001"
             IS_EMBED_PLACEHOLDER = False
+        elif pc == "4":
+            LLM_PROVIDER = "github"
+            api_key = cfg.get("github_token") or os.getenv("GITHUB_TOKEN")
+            if not api_key: raise ValueError("GITHUB_TOKEN not set.")
+            model_name = cfg.get("github_model_name") or "gpt-4o"
+            llm_client, embedding_model = AsyncOpenAIClient(api_key, console, base_url="https://models.inference.ai.azure.com"), "text-embedding-3-small"
+            IS_EMBED_PLACEHOLDER = False
         else:
             LLM_PROVIDER, IS_EMBED_PLACEHOLDER = "stub", True
     else:
@@ -34341,6 +34800,12 @@ async def main():
             if not api_key: raise ValueError("GEMINI_API_KEY not set.")
             model_name = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
             llm_client, embedding_model = GeminiClient(api_key, model_name, console), "models/embedding-001"
+            IS_EMBED_PLACEHOLDER = False
+        elif LLM_PROVIDER == "github":
+            api_key = os.getenv("GITHUB_TOKEN")
+            if not api_key: raise ValueError("GITHUB_TOKEN not set.")
+            model_name = os.getenv("GITHUB_MODEL", "gpt-4o")
+            llm_client, embedding_model = AsyncOpenAIClient(api_key, console, base_url="https://models.inference.ai.azure.com"), "text-embedding-3-small"
             IS_EMBED_PLACEHOLDER = False
         else:
             LLM_PROVIDER, IS_EMBED_PLACEHOLDER = "stub", True
