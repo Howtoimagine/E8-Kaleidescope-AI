@@ -1,25 +1,25 @@
-# Core Dependencies
+# Core numerical stack
 numpy
 scipy
-torch
 networkx
 scikit-learn
+numba
+faiss-cpu
+
+# Runtime and UI
 aiohttp
 aiohttp-cors
 rich
-networkx
-	
+websockets
+colorama
+PyYAML
+unidecode
+
+# AI providers and model interfaces
+torch
 openai
 ollama
 google-generativeai
 
-	
+# Geometry / algebra
 clifford
-numba
-faiss-cpu
-websockets
-unidecode
-
-.\.venv\Scripts\Activate.ps1  
-conda activate e8gpu
-python e8_mind_server_M23.py --profile\science
