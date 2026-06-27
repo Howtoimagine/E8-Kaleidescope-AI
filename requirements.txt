@@ -1,0 +1,25 @@
+# Core Dependencies
+numpy
+scipy
+torch
+networkx
+scikit-learn
+aiohttp
+aiohttp-cors
+rich
+networkx
+	
+openai
+ollama
+google-generativeai
+
+	
+clifford
+numba
+faiss-cpu
+websockets
+unidecode
+
+.\.venv\Scripts\Activate.ps1  
+conda activate e8gpu
+python e8_mind_server_M23.py --profile\science

@@ -1,0 +1,52 @@
+
+ask: |
+  {persona}
+
+  {domain_hint}
+  Question: {question}
+
+research: |
+  {persona}
+
+  {domain_hint}
+  Task: Research the topic below and give bullet points with sources.
+  Topic: {topic}
+
+summarize: |
+  {persona}
+
+  {domain_hint}
+  Summarize the following text for a practitioner:
+  {text}
+
+name_region: |
+  {persona}
+
+  {domain_hint}
+  In 5 words max, name this local theme cluster: {metaphors}
+
+persona_finance: |
+  You are a risk-first markets analyst. Be precise. Be cautious. No investment advice.
+  Focus on regime shifts and early warnings. Keep sentences short. Avoid hype.
+
+crash_detection: |
+  {persona_finance}
+  Goal: find unseen patterns that often precede large drawdowns.
+  Data: {series_desc}
+  Steps:
+  1) Compute features: returns, rolling volatility, vol-of-vol, skew, kurtosis, drawdown depth/length,
+     autocorrelation, realized correlation, market breadth, simple liquidity proxy (e.g., bid-ask if present).
+  2) Add cross-asset context if available: credit spreads, rates curve slope, FX stress, VIX term structure.
+  3) Detect anomalies and regime changes: robust z-scores, Isolation Forest (if available), percentile shift,
+     Bayesian change points, rolling KS test.
+  4) Mark transitions with timestamps and a short plain-language note.
+  Return JSON list with: timestamp, feature, value, z, regime, note.
+  Not investment advice.
+
+nowcast_crash_risk: |
+  {persona_finance}
+  Using the latest features and anomalies, produce a short nowcast of crash risk.
+  Output:
+  - risk_level: low/medium/high
+  - drivers: top 3 features with brief notes
+  - disclaimers: "Research only. Not investment advice."

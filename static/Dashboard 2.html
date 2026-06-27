@@ -1,0 +1,1244 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kaleidoscope • Hyperdimensional Atlas</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            color-scheme: dark;
+            --bg-base: #0f172a;
+            --glass-bg: rgba(15, 23, 42, 0.65);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+
+            --accent-primary: #38bdf8;
+            /* Sky 400 */
+            --accent-secondary: #a78bfa;
+            /* Violet 400 */
+            --accent-tertiary: #f472b6;
+            /* Pink 400 */
+
+            --text-main: #f1f5f9;
+            /* Slate 100 */
+            --text-muted: #94a3b8;
+            /* Slate 400 */
+
+            --radius-lg: 24px;
+            --radius-md: 16px;
+            --radius-sm: 12px;
+        }
+
+        body.light-mode {
+            --bg-base: #f8fafc;
+            --glass-bg: rgba(255, 255, 255, 0.75);
+            --glass-border: rgba(0, 0, 0, 0.06);
+            --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.05);
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            background:
+                radial-gradient(circle at 0% 0%, rgba(236, 72, 153, 0.05), transparent 50%),
+                radial-gradient(circle at 100% 0%, rgba(14, 165, 233, 0.05), transparent 50%),
+                radial-gradient(circle at 100% 100%, rgba(139, 92, 246, 0.05), transparent 50%),
+                radial-gradient(circle at 0% 100%, rgba(45, 212, 191, 0.05), transparent 50%),
+                #f1f5f9;
+            /* Slate 100 - Greyish */
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: "Inter", system-ui, -apple-system, sans-serif;
+            background:
+                radial-gradient(circle at 0% 0%, rgba(236, 72, 153, 0.1), transparent 50%),
+                radial-gradient(circle at 100% 0%, rgba(14, 165, 233, 0.1), transparent 50%),
+                radial-gradient(circle at 100% 100%, rgba(139, 92, 246, 0.1), transparent 50%),
+                radial-gradient(circle at 0% 100%, rgba(45, 212, 191, 0.1), transparent 50%),
+                #020617;
+            color: var(--text-main);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Aero Glass Utilities */
+        .glass {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            box-shadow: var(--glass-shadow);
+        }
+
+        header {
+            padding: 24px 32px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            z-index: 10;
+        }
+
+        .brand {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .brand h1 {
+            font-size: 28px;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+            margin: 0;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .status-chip {
+            padding: 6px 12px;
+            border-radius: 999px;
+            background: rgba(14, 165, 233, 0.1);
+            border: 1px solid rgba(14, 165, 233, 0.2);
+            color: var(--accent-primary);
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .subtitle {
+            max-width: 600px;
+            font-size: 14px;
+            color: var(--text-muted);
+            line-height: 1.5;
+        }
+
+        nav {
+            display: inline-flex;
+            background: rgba(30, 41, 59, 0.5);
+            border-radius: 999px;
+            padding: 4px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            width: fit-content;
+        }
+
+        nav button {
+            background: transparent;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 999px;
+            color: var(--text-muted);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        nav button.active {
+            background: rgba(56, 189, 248, 0.15);
+            color: var(--accent-primary);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        main {
+            flex: 1;
+            padding: 0 32px 32px;
+            display: grid;
+            grid-template-columns: 1fr;
+            grid-template-rows: 1fr;
+            position: relative;
+        }
+
+        .tab-view {
+            display: none;
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+            position: relative;
+        }
+
+        .tab-view.active {
+            display: block;
+            height: 100%;
+        }
+
+        .tab-content {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+
+        #lattice-container,
+        #field-container,
+        #graph-container {
+            width: 100%;
+            height: 100%;
+            border-radius: var(--radius-lg);
+        }
+
+        /* Floating Info Panels */
+        .overlay-info {
+            position: absolute;
+            top: 24px;
+            left: 24px;
+            width: 300px;
+            padding: 20px;
+            border-radius: var(--radius-md);
+            z-index: 5;
+        }
+
+        .overlay-info h2 {
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-main);
+            margin: 0 0 8px 0;
+        }
+
+        .overlay-info p {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin: 0 0 16px 0;
+            line-height: 1.4;
+        }
+
+        .infostat-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .infostat-card {
+            background: rgba(30, 41, 59, 0.4);
+            border-radius: var(--radius-sm);
+            padding: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .infostat-card h3 {
+            margin: 0;
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+
+        .infostat-card .value {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-main);
+            margin-top: 4px;
+        }
+
+        /* GUI Panel (lil-gui) container */
+        .gui-panel {
+            position: absolute;
+            top: 24px;
+            right: 24px;
+            z-index: 10;
+        }
+
+        /* Customizing lil-gui to match theme */
+        .lil-gui {
+            --background-color: rgba(15, 23, 42, 0.8);
+            --text-color: #f1f5f9;
+            --title-background-color: rgba(15, 23, 42, 0.9);
+            --widget-color: #334155;
+            --hover-color: #475569;
+            --focus-color: #64748b;
+            --number-color: #38bdf8;
+            --string-color: #a78bfa;
+            backdrop-filter: blur(12px);
+            border-radius: 12px;
+            box-shadow: var(--glass-shadow);
+        }
+
+        footer {
+            padding: 12px 32px;
+            font-size: 12px;
+            color: var(--text-muted);
+            text-align: center;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js"
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <header>
+        <div class="brand">
+            <h1>Kaleidoscope</h1>
+            <div class="status-chip">M25.1 Connected</div>
+        </div>
+        <p class="subtitle">
+            Hyperdimensional Atlas • E8 Lattice Projection • Holographic Field Reconstruction
+        </p>
+        <nav>
+            <button class="active" data-target="lattice">Lattice</button>
+            <button data-target="field">Field</button>
+            <button data-target="graph">Graph</button>
+        </nav>
+        <button id="theme-toggle"
+            style="background:transparent; border:none; color:var(--text-muted); cursor:pointer; padding:8px;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="5"></circle>
+                <line x1="12" y1="1" x2="12" y2="3"></line>
+                <line x1="12" y1="21" x2="12" y2="23"></line>
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                <line x1="1" y1="12" x2="3" y2="12"></line>
+                <line x1="21" y1="12" x2="23" y2="12"></line>
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+            </svg>
+        </button>
+    </header>
+
+    <main>
+        <!-- LATTICE VIEW -->
+        <section class="tab-view active glass" id="tab-lattice">
+            <div class="tab-content">
+                <div id="lattice-container"></div>
+                <aside class="overlay-info glass">
+                    <h2>E8 Lattice Structure</h2>
+                    <p>240 root vectors projected from 8D to 3D. The highlighted tetrahedron represents the active
+                        memory simplex.</p>
+                    <div class="infostat-grid" id="lattice-metrics"></div>
+                </aside>
+            </div>
+        </section>
+
+        <!-- FIELD VIEW -->
+        <section class="tab-view glass" id="tab-field">
+            <div class="tab-content">
+                <div id="field-container"></div>
+                <aside class="overlay-info glass">
+                    <h2>Cognitive Field</h2>
+                    <p>Real-time visualization of the hyperdimensional manifold surface and emergence ripples.</p>
+                    <div class="infostat-grid" id="field-metrics"></div>
+                </aside>
+            </div>
+        </section>
+
+        <!-- GRAPH VIEW -->
+        <section class="tab-view glass" id="tab-graph">
+            <div class="tab-content">
+                <div id="graph-container"></div>
+                <aside class="overlay-info glass">
+                    <h2>Concept Graph</h2>
+                    <p>Semantic network showing associative links between active memory nodes.</p>
+                    <div class="infostat-grid" id="graph-metrics"></div>
+                    <input type="search" id="graph-search" placeholder="Search concepts..."
+                        style="width:100%; margin-top:12px; padding:8px 12px; border-radius:8px; border:1px solid var(--glass-border); background:rgba(255,255,255,0.1); color: var(--text-main); outline:none;">
+                </aside>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        © 2025 Kaleidoscope Mind Systems • Modular Edition
+    </footer>
+
+    <script type="module">
+        import * as THREE from "three";
+        import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/controls/OrbitControls.js";
+        import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
+        import GUI from "https://cdn.jsdelivr.net/npm/lil-gui@0.18/+esm";
+
+        // --- API CONFIGURATION ---
+        const API = {
+            httpBase: (location.protocol.startsWith('http') ? location.origin : 'http://127.0.0.1:7871'),
+            wsBase: (location.protocol.startsWith('http') ? location.origin.replace(/^http/, 'ws') : 'ws://127.0.0.1:7871')
+        };
+
+        const ENDPOINTS = {
+            lattice: `${API.httpBase}/api/lattice`,
+            graph: `${API.httpBase}/api/graph`,
+            telemetry: `${API.httpBase}/api/telemetry`,
+            bhPanel: `${API.httpBase}/api/bh/panel`,
+            ws: `${API.wsBase}/api/telemetry/ws`
+        };
+
+        // --- STATE MANAGEMENT ---
+        const state = {
+            activeTab: 'lattice',
+            lattice: { scene: null, points: null, tetra: null },
+            field: { scene: null, uniforms: null },
+            graph: { simulation: null, nodes: [], links: [] },
+            telemetry: { connected: false, socket: null },
+            processedEvents: new Set()
+        };
+
+        // --- INITIALIZATION ---
+        function init() {
+            setupTabs();
+            connectTelemetry();
+
+            // Theme Toggle
+            document.getElementById('theme-toggle').addEventListener('click', () => {
+                document.body.classList.toggle('light-mode');
+                const isLight = document.body.classList.contains('light-mode');
+                // Update Three.js backgrounds if needed (currently transparent so CSS handles it)
+                // Update Rotor colors for contrast if needed
+                if (state.lattice.rotors) {
+                    // We could re-apply colors here if we want different pastel shades for light mode
+                    // For now, the pastels should look okay on grey too.
+                }
+            });
+
+            // Init active tab
+            const hash = location.hash.replace('#', '') || 'lattice';
+            activateTab(hash);
+
+            window.addEventListener('resize', onResize);
+        }
+
+        function setupTabs() {
+            document.querySelectorAll('nav button').forEach(btn => {
+                btn.addEventListener('click', () => activateTab(btn.dataset.target));
+            });
+        }
+
+        function activateTab(tabId) {
+            state.activeTab = tabId;
+
+            // UI Update
+            document.querySelectorAll('nav button').forEach(b => b.classList.toggle('active', b.dataset.target === tabId));
+            document.querySelectorAll('.tab-view').forEach(v => v.classList.toggle('active', v.id === `tab-${tabId}`));
+
+            // Lazy Init
+            if (tabId === 'lattice' && !state.lattice.scene) initLattice();
+            if (tabId === 'field' && !state.field.scene) initField();
+            if (tabId === 'graph' && !state.graph.simulation) initGraph();
+
+            location.hash = tabId;
+        }
+
+        function onResize() {
+            // Resize logic handled per-scene if needed, mostly CSS handles layout
+            // But Three.js needs explicit resize
+            if (state.lattice.camera) handleResize(document.getElementById('lattice-container'), state.lattice.camera, state.lattice.renderer);
+            if (state.field.camera) handleResize(document.getElementById('field-container'), state.field.camera, state.field.renderer);
+        }
+
+        function handleResize(container, camera, renderer) {
+            if (!container) return;
+            const w = container.clientWidth;
+            const h = container.clientHeight;
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+            renderer.setSize(w, h);
+        }
+
+        // --- LATTICE VISUALIZATION (THREE.JS) ---
+        function initLattice() {
+            const container = document.getElementById('lattice-container');
+            const w = container.clientWidth;
+            const h = container.clientHeight;
+
+            const scene = new THREE.Scene();
+            scene.background = null;
+
+            const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 100);
+            camera.position.set(0, 0, 16);
+
+            const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(w, h);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            container.appendChild(renderer.domElement);
+
+            const controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.autoRotate = true;
+            controls.autoRotateSpeed = 0.5;
+
+            // --- ICOSAHEDRAL SPIN NETWORK GEOMETRY ---
+            // Based on "An Icosahedral Quasicrystal as a Golden Modification of the Icosagrid"
+            // We visualize the 240 E8 roots as a network of spinning Clifford rotors (Tetrahedra).
+            // To "fill in" the network, we generate concentric shells based on Golden Ratio scaling.
+
+            const baseCount = 240;
+            const layers = 5; // 1, phi, 1/phi, phi^2, 1/phi^2
+            const rotorCount = baseCount * layers;
+
+            const rotorGeo = new THREE.TetrahedronGeometry(0.12);
+            const rotorMat = new THREE.MeshPhysicalMaterial({
+                color: 0xa5f3fc, // Pastel Cyan (Cyan 200)
+                metalness: 0.4,
+                roughness: 0.3,
+                transmission: 0.2,
+                thickness: 0.5,
+                emissive: 0x67e8f9, // Cyan 300
+                emissiveIntensity: 0.3
+            });
+
+            const rotors = new THREE.InstancedMesh(rotorGeo, rotorMat, rotorCount);
+            scene.add(rotors);
+
+            // Network Connections (Edges)
+            // We'll create a dynamic line system
+            const maxConnections = rotorCount * 12; // Approx degree 12
+            const lineGeo = new THREE.BufferGeometry();
+            const linePos = new Float32Array(maxConnections * 6); // 2 points * 3 coords
+            lineGeo.setAttribute('position', new THREE.BufferAttribute(linePos, 3));
+            const lineMat = new THREE.LineBasicMaterial({
+                color: 0xfde68a, // Pastel Yellow (Amber 200)
+                transparent: true,
+                opacity: 0.2,
+                blending: THREE.AdditiveBlending
+            });
+            const networkLines = new THREE.LineSegments(lineGeo, lineMat);
+            scene.add(networkLines);
+
+            // Golden Ratio Icosagrid Hints (The "Planes")
+            // Visualized as a subtle enclosing icosahedron wireframe
+            const icoGeo = new THREE.IcosahedronGeometry(6, 0);
+            const icoMat = new THREE.LineBasicMaterial({ color: 0xfcd34d, transparent: true, opacity: 0.08 }); // Amber 300
+            const icoWire = new THREE.LineSegments(new THREE.WireframeGeometry(icoGeo), icoMat);
+            scene.add(icoWire);
+
+            // Lighting
+            const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambient);
+            const pointLight = new THREE.PointLight(0xffedd5, 2, 20); // Orange 50
+            pointLight.position.set(0, 0, 0);
+            scene.add(pointLight);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+            dirLight.position.set(5, 10, 7);
+            scene.add(dirLight);
+
+            state.lattice = {
+                scene, camera, renderer, controls,
+                rotors, networkLines,
+                rotorData: [], // Store position/phase data
+                step: 0
+            };
+
+            // Animation Loop
+            const dummy = new THREE.Object3D();
+            const animate = () => {
+                requestAnimationFrame(animate);
+                controls.update();
+
+                const time = performance.now() * 0.001;
+                state.lattice.step += 0.01;
+
+                // Animate Rotors
+                if (state.lattice.rotorData.length > 0) {
+                    state.lattice.rotorData.forEach((data, i) => {
+                        // Position
+                        dummy.position.set(data.x, data.y, data.z);
+
+                        // Spin (Clifford Rotor simulation)
+                        // Rotate based on "energy" and time
+                        const speed = 0.5 + (data.energy || 0);
+                        dummy.rotation.set(
+                            time * speed * 0.5 + data.id,
+                            time * speed * 0.3 + data.id,
+                            time * speed * 0.7
+                        );
+
+                        // Scale pulse
+                        const pulse = 1.0 + Math.sin(time * 2 + data.id) * 0.2 * (data.active ? 1.5 : 0.5);
+                        const finalScale = pulse * (data.scale || 1.0);
+                        dummy.scale.set(finalScale, finalScale, finalScale);
+
+                        dummy.updateMatrix();
+                        rotors.setMatrixAt(i, dummy.matrix);
+
+                        // Color update (active vs inactive)
+                        if (data.active) {
+                            rotors.setColorAt(i, new THREE.Color(0xfda4af)); // Pastel Rose (Rose 300)
+                        } else {
+                            rotors.setColorAt(i, new THREE.Color(0xa5f3fc)); // Pastel Cyan (Cyan 200)
+                        }
+                    });
+
+                    rotors.instanceMatrix.needsUpdate = true;
+                    if (rotors.instanceColor) rotors.instanceColor.needsUpdate = true;
+                }
+
+                renderer.render(scene, camera);
+            };
+            animate();
+
+            // Initial Fetch
+            fetchLatticeData();
+        }
+
+        function createCircleTexture() {
+            // ...existing code...
+            const canvas = document.createElement('canvas');
+            canvas.width = 32;
+            canvas.height = 32;
+            const ctx = canvas.getContext('2d');
+            ctx.beginPath();
+            ctx.arc(16, 16, 14, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffffff';
+            ctx.fill();
+            const tex = new THREE.CanvasTexture(canvas);
+            return tex;
+        }
+
+        // --- FIELD VISUALIZATION (THREE.JS) ---
+        function initField() {
+            const container = document.getElementById('field-container');
+            const w = container.clientWidth;
+            const h = container.clientHeight;
+
+            const scene = new THREE.Scene();
+            scene.background = null;
+
+            const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 100);
+            camera.position.set(0, -12, 8); // Angled view
+            camera.lookAt(0, 0, 0);
+
+            const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(w, h);
+            container.appendChild(renderer.domElement);
+
+            // 1. Central "Sun" / Core
+            const coreGeo = new THREE.SphereGeometry(0.4, 32, 32);
+            const coreMat = new THREE.MeshBasicMaterial({ color: 0xffd700 });
+            const core = new THREE.Mesh(coreGeo, coreMat);
+
+            const glowGeo = new THREE.SphereGeometry(0.45, 32, 32);
+            const glowMat = new THREE.MeshBasicMaterial({
+                color: 0xffaa00, transparent: true, opacity: 0.3, side: THREE.BackSide
+            });
+            const glow = new THREE.Mesh(glowGeo, glowMat);
+            core.add(glow);
+            scene.add(core);
+
+            // 2. Particles Group
+            const particleGroup = new THREE.Group();
+            scene.add(particleGroup);
+
+            // 3. Spacetime Grid
+            const MAX_MEMORIES = 32;
+            const uniforms = {
+                uTime: { value: 0 },
+                uColorGrid: { value: new THREE.Color(0x0ea5e9) },
+                uMemories: { value: new Array(MAX_MEMORIES * 3).fill(0) },
+                uStrengths: { value: new Array(MAX_MEMORIES).fill(0) },
+                uMemoryTimes: { value: new Array(MAX_MEMORIES).fill(-1000) },
+                uMemoryCount: { value: 0 }
+            };
+
+            const geometry = new THREE.PlaneGeometry(24, 24, 150, 150);
+            const material = new THREE.ShaderMaterial({
+                uniforms: uniforms,
+                transparent: true,
+                side: THREE.DoubleSide,
+                vertexShader: `
+                    uniform float uTime;
+                    uniform vec3 uMemories[${MAX_MEMORIES}];
+                    uniform float uStrengths[${MAX_MEMORIES}];
+                    uniform float uMemoryTimes[${MAX_MEMORIES}];
+                    uniform int uMemoryCount;
+                    varying vec2 vUv;
+                    varying float vElev;
+                    
+                    void main() {
+                        vUv = uv;
+                        vec3 pos = position;
+                        float breath = sin(uTime * 0.5) * 0.1;
+                        float distortion = 0.0;
+                        
+                        for(int i = 0; i < ${MAX_MEMORIES}; i++) {
+                            if (i >= uMemoryCount) break;
+                            vec3 memPos = uMemories[i];
+                            float strength = uStrengths[i];
+                            float birthTime = uMemoryTimes[i];
+                            float d = distance(pos.xy, memPos.xy);
+                            
+                            // Gravity Well
+                            distortion -= strength * 2.0 * exp(-d * d * 0.4);
+                            
+                            // Ripple
+                            if (birthTime > 0.0) {
+                                float age = uTime - birthTime;
+                                if (age > 0.0 && age < 6.0) {
+                                    float ripplePhase = d * 5.0 - age * 10.0;
+                                    float rippleAmp = exp(-age * 0.8) * exp(-d * 0.5) * strength;
+                                    distortion += sin(ripplePhase) * rippleAmp;
+                                }
+                            }
+                        }
+                        
+                        float dCenter = length(pos.xy);
+                        distortion -= 1.2 * exp(-dCenter * dCenter * 0.15);
+
+                        pos.z += distortion + breath;
+                        vElev = pos.z;
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform vec3 uColorGrid;
+                    varying vec2 vUv;
+                    varying float vElev;
+                    void main() {
+                        float gridScale = 50.0;
+                        vec2 grid = abs(fract(vUv * gridScale - 0.5) - 0.5) / fwidth(vUv * gridScale);
+                        float line = min(grid.x, grid.y);
+                        float gridAlpha = 1.0 - min(line, 1.0);
+                        vec3 color = uColorGrid;
+                        float depth = smoothstep(-1.0, -4.0, vElev);
+                        color = mix(color, vec3(0.8, 0.2, 0.9), depth * 0.8);
+                        color += vec3(1.0, 0.8, 0.2) * smoothstep(-0.5, -4.0, vElev) * 0.2;
+                        float alpha = gridAlpha * 0.5 + 0.05; 
+                        float dist = length(vUv - 0.5) * 2.0;
+                        alpha *= (1.0 - smoothstep(0.7, 1.0, dist));
+                        gl_FragColor = vec4(color, alpha);
+                    }
+                `
+            });
+
+            const plane = new THREE.Mesh(geometry, material);
+            scene.add(plane);
+
+            // --- SMOOTHING SYSTEM ---
+            const memoryMap = new Map(); // id -> { x, y, strength, mesh, targetX, targetY, targetStrength }
+
+            function getOrCreateMesh() {
+                const geo = new THREE.SphereGeometry(0.1, 16, 16);
+                const mat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+                const mesh = new THREE.Mesh(geo, mat);
+                particleGroup.add(mesh);
+                return mesh;
+            }
+
+            const clock = new THREE.Clock();
+            state.field = { scene, camera, renderer, uniforms, core, clock, emerging: [] };
+
+            state.field.spawnRay = (srcId, tgtId) => {
+                const src = memoryMap.get(srcId);
+                const tgt = memoryMap.get(tgtId);
+                if (!src || !tgt) return;
+
+                const points = [];
+                // Start slightly above the mesh
+                points.push(new THREE.Vector3(src.x, src.y, 0)); // Z is 0 base, shader adds height
+
+                // Midpoint with arc
+                const midX = (src.x + tgt.x) / 2;
+                const midY = (src.y + tgt.y) / 2;
+                const dist = Math.sqrt(Math.pow(tgt.x - src.x, 2) + Math.pow(tgt.y - src.y, 2));
+                // Arc height proportional to distance
+                const arcHeight = Math.min(dist * 0.5, 4.0);
+                points.push(new THREE.Vector3(midX, midY, arcHeight));
+
+                points.push(new THREE.Vector3(tgt.x, tgt.y, 0));
+
+                const curve = new THREE.CatmullRomCurve3(points);
+                const geometry = new THREE.TubeGeometry(curve, 64, 0.05, 8, false);
+
+                // Custom Shader Material to Warp with Field
+                const material = new THREE.ShaderMaterial({
+                    uniforms: {
+                        ...uniforms, // Share field uniforms
+                        uOpacity: { value: 1.0 }
+                    },
+                    transparent: true,
+                    blending: THREE.AdditiveBlending,
+                    vertexShader: `
+                        uniform float uTime;
+                        uniform vec3 uMemories[${MAX_MEMORIES}];
+                        uniform float uStrengths[${MAX_MEMORIES}];
+                        uniform float uMemoryTimes[${MAX_MEMORIES}];
+                        uniform int uMemoryCount;
+                        varying vec2 vUv;
+                        
+                        void main() {
+                            vUv = uv;
+                            vec3 pos = position;
+                            
+                            // Apply Field Distortion (Same as Plane)
+                            float distortion = 0.0;
+                            
+                            for(int i = 0; i < ${MAX_MEMORIES}; i++) {
+                                if (i >= uMemoryCount) break;
+                                vec3 memPos = uMemories[i];
+                                float strength = uStrengths[i];
+                                float birthTime = uMemoryTimes[i];
+                                float d = distance(pos.xy, memPos.xy);
+                                
+                                // Gravity Well
+                                distortion -= strength * 2.0 * exp(-d * d * 0.4);
+                                
+                                // Ripple
+                                if (birthTime > 0.0) {
+                                    float age = uTime - birthTime;
+                                    if (age > 0.0 && age < 6.0) {
+                                        float ripplePhase = d * 5.0 - age * 10.0;
+                                        float rippleAmp = exp(-age * 0.8) * exp(-d * 0.5) * strength;
+                                        distortion += sin(ripplePhase) * rippleAmp;
+                                    }
+                                }
+                            }
+                            
+                            float dCenter = length(pos.xy);
+                            distortion -= 1.2 * exp(-dCenter * dCenter * 0.15);
+
+                            // Apply distortion to Z
+                            // The tube has its own local Z (thickness), but we want to move the whole tube segment up/down
+                            // 'position' is in local space. We need world space XY to sample the field.
+                            // Since the tube is generated along the curve, its vertices are already in "world-like" coordinates relative to the mesh origin (0,0,0).
+                            
+                            pos.z += distortion;
+                            
+                            gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+                        }
+                    `,
+                    fragmentShader: `
+                        uniform float uOpacity;
+                        void main() {
+                            gl_FragColor = vec4(0.6, 0.9, 1.0, uOpacity); 
+                        }
+                    `
+                });
+
+                const mesh = new THREE.Mesh(geometry, material);
+                scene.add(mesh);
+
+                // Animate removal
+                let age = 0;
+                const duration = 2.0; // seconds
+
+                const anim = () => {
+                    age += 0.02;
+                    if (age > duration) {
+                        scene.remove(mesh);
+                        geometry.dispose();
+                        material.dispose();
+                    } else {
+                        material.uniforms.uOpacity.value = 1.0 * (1.0 - Math.pow(age / duration, 2));
+                        requestAnimationFrame(anim);
+                    }
+                };
+                anim();
+            };
+
+            const animate = () => {
+                requestAnimationFrame(animate);
+                const t = clock.getElapsedTime();
+                uniforms.uTime.value = t;
+
+                // Core pulse
+                const s = 1.0 + Math.sin(t * 2.0) * 0.05;
+                core.scale.set(s, s, s);
+
+                // 1. Identify Targets
+                const currentTargets = new Map();
+
+                // Graph Nodes
+                if (state.graph.simulation) {
+                    const nodes = state.graph.simulation.nodes();
+                    const w = document.getElementById('graph-container')?.clientWidth || 1000;
+                    const h = document.getElementById('graph-container')?.clientHeight || 1000;
+
+                    // Sort and take top 20
+                    const sorted = [...nodes].sort((a, b) => (b.weight || 0) - (a.weight || 0)).slice(0, 20);
+
+                    sorted.forEach(n => {
+                        currentTargets.set(n.id, {
+                            x: ((n.x || w / 2) - w / 2) / (w / 2) * 10.0,
+                            y: -((n.y || h / 2) - h / 2) / (h / 2) * 10.0,
+                            strength: (n.weight || 0.5),
+                            birth: -1000
+                        });
+                    });
+                }
+
+                // Emerging Memories
+                state.field.emerging.forEach(m => {
+                    if (!m.id) m.id = 'emerging_' + m.born;
+                    // Animate strength logic
+                    m.strength += (m.targetStrength - m.strength) * 0.05;
+
+                    currentTargets.set(m.id, {
+                        x: m.x,
+                        y: m.y,
+                        strength: m.strength,
+                        birth: m.born
+                    });
+                });
+
+                // 2. Update Memory Map (Lerp)
+                // Remove old
+                for (const [id, mem] of memoryMap) {
+                    if (!currentTargets.has(id)) {
+                        mem.targetStrength = 0; // Fade out
+                        if (mem.strength < 0.01) {
+                            particleGroup.remove(mem.mesh);
+                            mem.mesh.geometry.dispose();
+                            mem.mesh.material.dispose();
+                            memoryMap.delete(id);
+                        }
+                    }
+                }
+
+                // Add/Update
+                for (const [id, target] of currentTargets) {
+                    if (!memoryMap.has(id)) {
+                        const mesh = getOrCreateMesh();
+                        mesh.position.set(target.x, target.y, 0);
+                        memoryMap.set(id, {
+                            x: target.x, y: target.y, strength: 0,
+                            targetX: target.x, targetY: target.y, targetStrength: target.strength,
+                            birth: target.birth, mesh: mesh
+                        });
+                    } else {
+                        const mem = memoryMap.get(id);
+                        mem.targetX = target.x;
+                        mem.targetY = target.y;
+                        mem.targetStrength = target.strength;
+                    }
+                }
+
+                // Lerp & Apply
+                const activeList = [];
+                for (const [id, mem] of memoryMap) {
+                    // Lerp
+                    const lerpFactor = 0.1;
+                    mem.x += (mem.targetX - mem.x) * lerpFactor;
+                    mem.y += (mem.targetY - mem.y) * lerpFactor;
+                    mem.strength += (mem.targetStrength - mem.strength) * lerpFactor;
+
+                    // Update Mesh
+                    mem.mesh.position.set(mem.x, mem.y, 0); // Z is 0 on plane, but we want it to float
+                    // Calculate field height at this pos roughly
+                    const d = Math.sqrt(mem.x * mem.x + mem.y * mem.y);
+                    const well = -mem.strength * 2.0; // Self-influence
+                    // Add center influence
+                    const centerWell = -1.2 * Math.exp(-d * d * 0.15);
+
+                    // Float above the well
+                    mem.mesh.position.z = well + centerWell + 0.5;
+
+                    // Scale based on strength
+                    const scale = Math.max(0.1, mem.strength);
+                    mem.mesh.scale.set(scale, scale, scale);
+
+                    activeList.push(mem);
+                }
+
+                // 3. Update Uniforms
+                const memPos = uniforms.uMemories.value;
+                const memStr = uniforms.uStrengths.value;
+                const memTime = uniforms.uMemoryTimes.value;
+
+                // Sort by strength for shader priority? Not strictly needed but good for consistency
+                activeList.sort((a, b) => b.strength - a.strength);
+
+                for (let i = 0; i < MAX_MEMORIES; i++) {
+                    if (i < activeList.length) {
+                        const m = activeList[i];
+                        memPos[i * 3] = m.x;
+                        memPos[i * 3 + 1] = m.y;
+                        memPos[i * 3 + 2] = 0;
+                        memStr[i] = m.strength;
+                        memTime[i] = m.birth;
+                    } else {
+                        memStr[i] = 0; // Clear unused
+                    }
+                }
+                uniforms.uMemoryCount.value = activeList.length;
+
+                renderer.render(scene, camera);
+            };
+            animate();
+        }
+
+        // --- GRAPH VISUALIZATION (D3) ---
+        function initGraph() {
+            const container = document.getElementById('graph-container');
+            const w = container.clientWidth;
+            const h = container.clientHeight;
+
+            const svg = d3.select(container).append('svg')
+                .attr('width', '100%')
+                .attr('height', '100%')
+                .attr('viewBox', [0, 0, w, h]);
+
+            const simulation = d3.forceSimulation()
+                .force('link', d3.forceLink().id(d => d.id).distance(100))
+                .force('charge', d3.forceManyBody().strength(-300))
+                .force('center', d3.forceCenter(w / 2, h / 2));
+
+            state.graph.simulation = simulation;
+            state.graph.svg = svg;
+
+            // Initial Fetch
+            fetchGraphData();
+        }
+
+        function updateGraph(data) {
+            if (!state.graph.simulation) return;
+
+            const svg = state.graph.svg;
+            const nodes = data.nodes || [];
+            const links = data.links || [];
+
+            // Update Metrics
+            renderMetrics('graph-metrics', [
+                { label: 'Nodes', value: nodes.length },
+                { label: 'Links', value: links.length }
+            ]);
+
+            // D3 Update Pattern
+            const link = svg.selectAll('.link')
+                .data(links)
+                .join('line')
+                .attr('class', 'link')
+                .attr('stroke', '#94a3b8')
+                .attr('stroke-opacity', 0.4)
+                .attr('stroke-width', 1.5);
+
+            const node = svg.selectAll('.node')
+                .data(nodes, d => d.id)
+                .join('g')
+                .attr('class', 'node')
+                .call(d3.drag()
+                    .on('start', dragstarted)
+                    .on('drag', dragged)
+                    .on('end', dragended));
+
+            node.selectAll('circle').remove();
+            node.append('circle')
+                .attr('r', d => 5 + (d.weight || 0.5) * 10)
+                .attr('fill', d => d3.interpolateCool(d.phase || 0.5))
+                .attr('stroke', '#fff')
+                .attr('stroke-width', 2);
+
+            node.selectAll('text').remove();
+            node.append('text')
+                .text(d => d.label)
+                .attr('dy', 20)
+                .attr('text-anchor', 'middle')
+                .attr('fill', '#cbd5e1')
+                .attr('font-size', '10px')
+                .attr('font-weight', '500');
+
+            state.graph.simulation.nodes(nodes).on('tick', () => {
+                link
+                    .attr('x1', d => d.source.x)
+                    .attr('y1', d => d.source.y)
+                    .attr('x2', d => d.target.x)
+                    .attr('y2', d => d.target.y);
+                node
+                    .attr('transform', d => `translate(${d.x},${d.y})`);
+            });
+
+            state.graph.simulation.force('link').links(links);
+            state.graph.simulation.alpha(0.3).restart();
+
+            function dragstarted(event, d) {
+                if (!event.active) state.graph.simulation.alphaTarget(0.3).restart();
+                d.fx = d.x;
+                d.fy = d.y;
+            }
+            function dragged(event, d) {
+                d.fx = event.x;
+                d.fy = event.y;
+            }
+            function dragended(event, d) {
+                if (!event.active) state.graph.simulation.alphaTarget(0);
+                d.fx = null;
+                d.fy = null;
+            }
+        }
+
+        // --- DATA FETCHING & TELEMETRY ---
+        async function fetchLatticeData() {
+            try {
+                const res = await fetch(ENDPOINTS.lattice);
+                const data = await res.json();
+                updateLattice(data);
+            } catch (e) { console.warn('Lattice fetch failed', e); }
+        }
+
+        async function fetchGraphData() {
+            try {
+                const res = await fetch(ENDPOINTS.graph);
+                const data = await res.json();
+                updateGraph(data);
+            } catch (e) { console.warn('Graph fetch failed', e); }
+        }
+
+        function updateLattice(data) {
+            if (!state.lattice.rotors) return;
+
+            const roots = data.roots || [];
+            const activeIndices = new Set(data.active_roots || []);
+            const phi = 1.61803398875;
+            const scales = [1, phi, 1 / phi, phi * phi, 1 / (phi * phi)];
+
+            // Update Metrics
+            renderMetrics('lattice-metrics', [
+                { label: 'Rotors', value: roots.length * scales.length },
+                { label: 'Energy', value: (data.meta?.energy || 0).toFixed(3) },
+                { label: 'Step', value: data.meta?.step || 0 }
+            ]);
+
+            // Generate Multi-Layer Rotor Data
+            const allRotors = [];
+
+            scales.forEach((scale, layerIdx) => {
+                roots.forEach(r => {
+                    allRotors.push({
+                        id: r.id,
+                        layer: layerIdx,
+                        scale: scale,
+                        x: r.position[0] * scale,
+                        y: r.position[1] * scale,
+                        z: r.position[2] * scale,
+                        energy: r.energy,
+                        active: activeIndices.has(r.id)
+                    });
+                });
+            });
+
+            state.lattice.rotorData = allRotors;
+
+            // Update Network Lines (Topology)
+            // Optimization: Connect within layers, and radial connections between layers
+            const positions = [];
+            const baseThreshold = 2.0;
+
+            // 1. Intra-layer connections (Pre-calculate base adjacency)
+            const baseAdjacency = [];
+            for (let i = 0; i < roots.length; i++) {
+                const r1 = roots[i];
+                for (let j = i + 1; j < roots.length; j++) {
+                    const r2 = roots[j];
+                    const dx = r1.position[0] - r2.position[0];
+                    const dy = r1.position[1] - r2.position[1];
+                    const dz = r1.position[2] - r2.position[2];
+                    if (dx * dx + dy * dy + dz * dz < baseThreshold * baseThreshold) {
+                        baseAdjacency.push([i, j]);
+                    }
+                }
+            }
+
+            // Generate lines for all layers
+            scales.forEach((scale, layerIdx) => {
+                const offset = layerIdx * roots.length;
+                baseAdjacency.forEach(([i, j]) => {
+                    const r1 = allRotors[offset + i];
+                    const r2 = allRotors[offset + j];
+                    positions.push(r1.x, r1.y, r1.z, r2.x, r2.y, r2.z);
+                });
+            });
+
+            // 2. Inter-layer connections (Radial)
+            // Connect layers: 1/phi^2 -> 1/phi -> 1 -> phi -> phi^2
+            // Indices in scales array: 4 -> 2 -> 0 -> 1 -> 3
+            const sortedLayerIndices = [4, 2, 0, 1, 3];
+
+            for (let k = 0; k < sortedLayerIndices.length - 1; k++) {
+                const l1 = sortedLayerIndices[k];
+                const l2 = sortedLayerIndices[k + 1];
+                const off1 = l1 * roots.length;
+                const off2 = l2 * roots.length;
+
+                for (let i = 0; i < roots.length; i++) {
+                    const r1 = allRotors[off1 + i];
+                    const r2 = allRotors[off2 + i];
+                    positions.push(r1.x, r1.y, r1.z, r2.x, r2.y, r2.z);
+                }
+            }
+
+            const lineGeo = state.lattice.networkLines.geometry;
+            lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            lineGeo.computeBoundingSphere();
+        }
+
+        function connectTelemetry() {
+            const ws = new WebSocket(ENDPOINTS.ws);
+            ws.onopen = () => {
+                console.log('Telemetry Connected');
+                state.telemetry.connected = true;
+                document.querySelector('.status-chip').textContent = 'Live Stream Active';
+                document.querySelector('.status-chip').style.background = 'rgba(16, 185, 129, 0.1)';
+                document.querySelector('.status-chip').style.color = '#10b981';
+            };
+            ws.onmessage = (msg) => {
+                try {
+                    const data = JSON.parse(msg.data);
+
+                    // Handle Emerging Memories (Insights)
+                    if (state.field.clock && data.insights && data.insights.length > 0) {
+                        data.insights.forEach(insight => {
+                            // Create a visual ripple event
+                            state.field.emerging.push({
+                                x: (Math.random() - 0.5) * 12, // Random position on field
+                                y: (Math.random() - 0.5) * 12,
+                                strength: 0,
+                                targetStrength: 1.5, // Strong impact
+                                born: state.field.clock.getElapsedTime(),
+                                label: insight.content || "Memory"
+                            });
+                        });
+                        // Keep list manageable
+                        if (state.field.emerging.length > 10) {
+                            state.field.emerging = state.field.emerging.slice(-10);
+                        }
+                    }
+
+                    // Handle Proximity Events (Rays)
+                    if (data.proximity_events && state.field.spawnRay) {
+                        data.proximity_events.forEach(evt => {
+                            const key = `${evt.step}_${evt.source_id}_${evt.target_id}`;
+                            if (!state.processedEvents.has(key)) {
+                                state.processedEvents.add(key);
+                                state.field.spawnRay(evt.source_id, evt.target_id);
+                            }
+                        });
+                        // Cleanup old keys
+                        if (state.processedEvents.size > 200) {
+                            state.processedEvents.clear();
+                        }
+                    }
+
+                    // Periodic refresh triggers
+                    if (data.step && data.step % 20 === 0) fetchLatticeData();
+                    if (data.step && data.step % 50 === 0) fetchGraphData();
+                } catch (e) { }
+            };
+            ws.onclose = () => {
+                setTimeout(connectTelemetry, 3000);
+            };
+        }
+
+        // --- UTILS ---
+        function renderMetrics(id, metrics) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.innerHTML = metrics.map(m => `
+                <div class="infostat-card">
+                    <h3>${m.label}</h3>
+                    <div class="value">${m.value}</div>
+                </div>
+            `).join('');
+        }
+
+        // Start
+        init();
+    </script>
+</body>
+
+</html>

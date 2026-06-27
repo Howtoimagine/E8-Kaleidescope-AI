@@ -1,0 +1,1904 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kaleidoscope • Hyperdimensional Atlas</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            color-scheme: light;
+            --bg-base: #d4d4d8;
+            --glass-bg: rgba(255, 255, 255, 0.65);
+            --glass-border: rgba(255, 255, 255, 0.8);
+            --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.05);
+
+            --accent-primary: #0ea5e9;
+            --accent-secondary: #8b5cf6;
+            --accent-tertiary: #ec4899;
+
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+
+            --card-bg: rgba(255, 255, 255, 0.5);
+            --card-border: rgba(255, 255, 255, 0.6);
+
+            --radius-lg: 24px;
+            --radius-md: 16px;
+            --radius-sm: 12px;
+        }
+
+        [data-theme="dark"] {
+            color-scheme: dark;
+            --bg-base: #0f172a;
+            --glass-bg: rgba(15, 23, 42, 0.65);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+
+            --accent-primary: #38bdf8;
+            --accent-secondary: #a78bfa;
+            --accent-tertiary: #f472b6;
+
+            --text-main: #f1f5f9;
+            --text-muted: #94a3b8;
+
+            --card-bg: rgba(0, 0, 0, 0.3);
+            --card-border: rgba(255, 255, 255, 0.1);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: "Inter", system-ui, -apple-system, sans-serif;
+            background:
+                radial-gradient(circle at 0% 0%, rgba(236, 72, 153, 0.15), transparent 50%),
+                radial-gradient(circle at 100% 0%, rgba(14, 165, 233, 0.15), transparent 50%),
+                radial-gradient(circle at 100% 100%, rgba(139, 92, 246, 0.15), transparent 50%),
+                radial-gradient(circle at 0% 100%, rgba(45, 212, 191, 0.15), transparent 50%),
+                var(--bg-base);
+            color: var(--text-main);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            transition: background 0.3s ease, color 0.3s ease;
+        }
+
+        [data-theme="dark"] body {
+            background:
+                radial-gradient(circle at 0% 0%, rgba(236, 72, 153, 0.1), transparent 50%),
+                radial-gradient(circle at 100% 0%, rgba(14, 165, 233, 0.1), transparent 50%),
+                radial-gradient(circle at 100% 100%, rgba(139, 92, 246, 0.1), transparent 50%),
+                radial-gradient(circle at 0% 100%, rgba(45, 212, 191, 0.1), transparent 50%),
+                var(--bg-base);
+        }
+
+        /* Aero Glass Utilities */
+        .glass {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            box-shadow: var(--glass-shadow);
+        }
+
+        header {
+            padding: 24px 32px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            z-index: 10;
+        }
+
+        .brand {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .brand h1 {
+            font-size: 28px;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+            margin: 0;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .status-chip {
+            padding: 6px 12px;
+            border-radius: 999px;
+            background: rgba(14, 165, 233, 0.1);
+            border: 1px solid rgba(14, 165, 233, 0.2);
+            color: var(--accent-primary);
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .subtitle {
+            max-width: 600px;
+            font-size: 14px;
+            color: var(--text-muted);
+            line-height: 1.5;
+        }
+
+        nav {
+            display: inline-flex;
+            background: var(--card-bg);
+            border-radius: 999px;
+            padding: 4px;
+            border: 1px solid var(--card-border);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.03);
+            width: fit-content;
+        }
+
+        nav button {
+            background: transparent;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 999px;
+            color: var(--text-muted);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        nav button.active {
+            background: var(--bg-base);
+            color: var(--accent-primary);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+
+        main {
+            flex: 1;
+            padding: 0 32px 32px;
+            display: grid;
+            grid-template-columns: 1fr;
+            grid-template-rows: 1fr;
+            position: relative;
+        }
+
+        .tab-view {
+            display: none;
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+            position: relative;
+        }
+
+        .tab-view.active {
+            display: block;
+            height: 100%;
+        }
+
+        .tab-content {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+
+        #lattice-container,
+        #field-container,
+        #graph-container {
+            width: 100%;
+            height: 100%;
+            border-radius: var(--radius-lg);
+        }
+
+        /* Floating Info Panels */
+        .overlay-info {
+            position: absolute;
+            top: 24px;
+            left: 24px;
+            width: 300px;
+            padding: 20px;
+            border-radius: var(--radius-md);
+            z-index: 5;
+        }
+
+        .overlay-info h2 {
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-main);
+            margin: 0 0 8px 0;
+        }
+
+        .overlay-info p {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin: 0 0 16px 0;
+            line-height: 1.4;
+        }
+
+        .infostat-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .infostat-card {
+            background: var(--card-bg);
+            border-radius: var(--radius-sm);
+            padding: 10px;
+            border: 1px solid var(--card-border);
+        }
+
+        .infostat-card h3 {
+            margin: 0;
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+
+        .infostat-card .value {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-main);
+            margin-top: 4px;
+        }
+
+        /* Glyph Boundary Window */
+        .glyph-window {
+            position: absolute;
+            bottom: 32px;
+            right: 32px;
+            width: 320px;
+            border-radius: var(--radius-md);
+            padding: 16px;
+            z-index: 20;
+        }
+
+        .glyph-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .glyph-header h3 {
+            margin: 0;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .glyph-grid {
+            display: grid;
+            grid-template-columns: repeat(var(--grid-cols, 20), 1fr);
+            gap: 1px;
+            background: rgba(0, 0, 0, 0.05);
+            border-radius: 8px;
+            overflow: hidden;
+            padding: 1px;
+        }
+
+        .glyph-cell {
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            color: var(--text-main);
+        }
+
+        .glyph-grid-large {
+            display: grid;
+            grid-template-columns: repeat(var(--grid-cols, 12), 1fr);
+            gap: 4px;
+            padding: 24px;
+            width: 100%;
+            height: 100%;
+            overflow-y: auto;
+        }
+
+        .glyph-cell-large {
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-main);
+            border-radius: 4px;
+            transition: background 0.2s ease;
+        }
+
+        /* GUI Panel (lil-gui) container */
+        .gui-panel {
+            position: absolute;
+            top: 24px;
+            right: 24px;
+            z-index: 10;
+        }
+
+        /* Customizing lil-gui to match theme */
+        .lil-gui {
+            --background-color: var(--glass-bg);
+            --text-color: var(--text-main);
+            --title-background-color: var(--card-bg);
+            --widget-color: var(--card-border);
+            --hover-color: var(--accent-primary);
+            --focus-color: var(--accent-secondary);
+            --number-color: var(--accent-primary);
+            --string-color: var(--accent-secondary);
+            backdrop-filter: blur(12px);
+            border-radius: 12px;
+            box-shadow: var(--glass-shadow);
+        }
+
+        footer {
+            padding: 12px 32px;
+            font-size: 12px;
+            color: var(--text-muted);
+            text-align: center;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <header>
+        <div class="brand">
+            <h1>Kaleidoscope</h1>
+            <div style="display:flex; gap:12px; align-items:center;">
+                <div class="status-chip">M25.1 Connected</div>
+                <button id="theme-toggle"
+                    style="background:none; border:none; cursor:pointer; font-size:18px; padding:4px; border-radius:50%;">🌙</button>
+            </div>
+        </div>
+        <p class="subtitle">
+            Hyperdimensional Atlas • E8 Lattice Projection • Holographic Field Reconstruction
+        </p>
+        <nav>
+            <button class="active" data-target="lattice">Lattice</button>
+            <button data-target="field">Field</button>
+            <button data-target="graph">Graph</button>
+            <button data-target="horizon">Horizon</button>
+        </nav>
+    </header>
+
+    <main>
+        <!-- LATTICE VIEW -->
+        <section class="tab-view active glass" id="tab-lattice">
+            <div class="tab-content">
+                <div id="lattice-container"></div>
+                <aside class="overlay-info glass">
+                    <h2>E8 Lattice Structure</h2>
+                    <p>240 root vectors projected from 8D to 3D. The highlighted tetrahedron represents the active
+                        memory simplex.</p>
+                    <div class="infostat-grid" id="lattice-metrics"></div>
+                </aside>
+            </div>
+        </section>
+
+        <!-- FIELD VIEW -->
+        <section class="tab-view glass" id="tab-field">
+            <div class="tab-content">
+                <div id="field-container"></div>
+                <aside class="overlay-info glass">
+                    <h2>Cognitive Field</h2>
+                    <p>Real-time visualization of the hyperdimensional manifold surface and emergence ripples.</p>
+                    <div class="infostat-grid" id="field-metrics"></div>
+                </aside>
+            </div>
+        </section>
+
+        <!-- GRAPH VIEW -->
+        <section class="tab-view glass" id="tab-graph">
+            <div class="tab-content">
+                <div id="graph-container"></div>
+                <aside class="overlay-info glass">
+                    <h2>Concept Graph</h2>
+                    <p>Semantic network showing associative links between active memory nodes.</p>
+                    <div class="infostat-grid" id="graph-metrics"></div>
+                    <input type="search" id="graph-search" placeholder="Search concepts..."
+                        style="width:100%; margin-top:12px; padding:8px 12px; border-radius:8px; border:1px solid var(--glass-border); background:rgba(255,255,255,0.5); outline:none;">
+                </aside>
+            </div>
+        </section>
+
+        <!-- HORIZON VIEW -->
+        <section class="tab-view glass" id="tab-horizon">
+            <div class="tab-content" style="display:flex; flex-direction:column;">
+                <div style="padding: 24px 24px 0; display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <h2 style="margin:0;">Event Horizon</h2>
+                        <p style="margin:4px 0 0; color:var(--text-muted);">Real-time boundary glyph projection (1Hz
+                            update)</p>
+                    </div>
+                    <div id="horizon-status" class="status-chip">Waiting...</div>
+                </div>
+                <div id="horizon-grid-large" class="glyph-grid-large"></div>
+            </div>
+        </section>
+
+        <!-- GLYPH BOUNDARY -->
+        <aside class="glyph-window glass" id="glyph-boundary-window">
+            <div class="glyph-header">
+                <h3>Glyph Horizon</h3>
+                <button id="glyph-refresh"
+                    style="background:none; border:none; cursor:pointer; font-size:16px;">↻</button>
+            </div>
+            <div class="glyph-grid" id="glyph-grid">
+                <div style="grid-column:1/-1; text-align:center; padding:20px; color:var(--text-muted);">Initializing...
+                </div>
+            </div>
+            <div id="glyph-status" style="margin-top:8px; font-size:11px; color:var(--text-muted); text-align:right;">
+            </div>
+        </aside>
+    </main>
+
+    <footer>
+        © 2025 Kaleidoscope Mind Systems • Modular Edition
+    </footer>
+
+    <script type="module">
+        import * as THREE from "three";
+        import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+        import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+        import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+        import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+        import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
+        import GUI from "https://cdn.jsdelivr.net/npm/lil-gui@0.18/+esm";
+
+        // --- API CONFIGURATION ---
+        const API = {
+            httpBase: (location.protocol.startsWith('http') ? location.origin : 'http://127.0.0.1:7871'),
+            wsBase: (location.protocol.startsWith('http') ? location.origin.replace(/^http/, 'ws') : 'ws://127.0.0.1:7871')
+        };
+
+        const ENDPOINTS = {
+            lattice: `${API.httpBase}/api/lattice`,
+            graph: `${API.httpBase}/api/graph`,
+            telemetry: `${API.httpBase}/api/telemetry`,
+            bhPanel: `${API.httpBase}/api/bh/panel`,
+            ws: `${API.wsBase}/api/telemetry/ws`
+        };
+
+        // --- STATE MANAGEMENT ---
+        const state = {
+            activeTab: 'lattice',
+            lattice: { scene: null, points: null, tetra: null, metrics: { roots: 0, energy: 0, step: 0 } },
+            field: { scene: null, uniforms: null },
+            graph: { simulation: null, nodes: [], links: [] },
+            telemetry: { connected: false, socket: null }
+        };
+
+        // --- INITIALIZATION ---
+        function init() {
+            setupTheme();
+            setupTabs();
+            setupGlyphBoundary();
+            connectTelemetry();
+
+            // Init active tab
+            const hash = location.hash.replace('#', '') || 'lattice';
+            activateTab(hash);
+
+            window.addEventListener('resize', onResize);
+        }
+
+        function setupTheme() {
+            const btn = document.getElementById('theme-toggle');
+            const saved = localStorage.getItem('theme') || 'light';
+            document.documentElement.setAttribute('data-theme', saved);
+            btn.textContent = saved === 'dark' ? '☀️' : '🌙';
+
+            btn.addEventListener('click', () => {
+                const current = document.documentElement.getAttribute('data-theme');
+                const next = current === 'dark' ? 'light' : 'dark';
+                document.documentElement.setAttribute('data-theme', next);
+                localStorage.setItem('theme', next);
+                btn.textContent = next === 'dark' ? '☀️' : '🌙';
+
+                // Update Three.js backgrounds if needed
+                if (state.lattice.scene) state.lattice.scene.fog.color.set(next === 'dark' ? 0x0f172a : 0xf0f4f8);
+            });
+        }
+
+        function setupTabs() {
+            document.querySelectorAll('nav button').forEach(btn => {
+                btn.addEventListener('click', () => activateTab(btn.dataset.target));
+            });
+        }
+
+        function activateTab(tabId) {
+            state.activeTab = tabId;
+
+            // UI Update
+            document.querySelectorAll('nav button').forEach(b => b.classList.toggle('active', b.dataset.target === tabId));
+            document.querySelectorAll('.tab-view').forEach(v => v.classList.toggle('active', v.id === `tab-${tabId}`));
+
+            // Lazy Init
+            if (tabId === 'lattice' && !state.lattice.scene) initLattice();
+            if (tabId === 'field' && !state.field.scene) initField();
+            if (tabId === 'graph' && !state.graph.simulation) initGraph();
+
+            location.hash = tabId;
+        }
+
+        function onResize() {
+            // Resize logic handled per-scene if needed, mostly CSS handles layout
+            // But Three.js needs explicit resize
+            if (state.lattice.camera) handleResize(document.getElementById('lattice-container'), state.lattice.camera, state.lattice.renderer);
+            if (state.field.camera) handleResize(document.getElementById('field-container'), state.field.camera, state.field.renderer);
+        }
+
+        function handleResize(container, camera, renderer) {
+            if (!container) return;
+            const w = container.clientWidth;
+            const h = container.clientHeight;
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+            renderer.setSize(w, h);
+        }
+
+        // --- MATH UTILS ---
+        const PHI = (1 + Math.sqrt(5)) / 2;
+
+        // Basis vectors for E8 -> 3D projection (Golden Ratio projection)
+        const BASIS = {
+            u: [1, PHI, 0, -1, -PHI, 0, 0, 0],
+            v: [0, 1, PHI, 0, -1, -PHI, 0, 0],
+            w: [0, 0, 1, PHI, 0, -1, -PHI, 0]
+        };
+
+        function normalize(vec) {
+            const mag = Math.sqrt(vec.reduce((sum, val) => sum + val * val, 0));
+            return vec.map(v => v / mag);
+        }
+
+        const U_VEC = normalize(BASIS.u);
+        const V_VEC = normalize(BASIS.v);
+        const W_VEC = normalize(BASIS.w);
+
+        function project8to3(v8) {
+            if (!v8 || v8.length < 8) return [0, 0, 0];
+            const x = v8.reduce((sum, val, i) => sum + val * U_VEC[i], 0);
+            const y = v8.reduce((sum, val, i) => sum + val * V_VEC[i], 0);
+            const z = v8.reduce((sum, val, i) => sum + val * W_VEC[i], 0);
+            return [x, y, z];
+        }
+
+        function dist8d(v1, v2) {
+            if (!v1 || !v2) return 999;
+            let sum = 0;
+            for (let i = 0; i < 8; i++) {
+                const d = (v1[i] || 0) - (v2[i] || 0);
+                sum += d * d;
+            }
+            return Math.sqrt(sum);
+        }
+
+        // --- LATTICE VISUALIZATION (THREE.JS) ---
+        function initLattice() {
+            const container = document.getElementById('lattice-container');
+            const w = container.clientWidth;
+            const h = container.clientHeight;
+
+            const scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0xf0f4f8, 0.02); // Soft fog for depth
+
+            const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 100);
+            camera.position.set(8, 6, 10);
+
+            const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(w, h);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.2;
+            container.appendChild(renderer.domElement);
+
+            const controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.autoRotate = true;
+            controls.autoRotateSpeed = 0.8;
+
+            // --- LIGHTING ---
+            const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambient);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+            dirLight.position.set(10, 20, 10);
+            dirLight.castShadow = true;
+            scene.add(dirLight);
+
+            const pointLight = new THREE.PointLight(0x0ea5e9, 2, 20);
+            pointLight.position.set(0, 0, 0);
+            scene.add(pointLight);
+
+            // --- E8 ROOTS (InstancedMesh for performance) ---
+            const rootGeo = new THREE.IcosahedronGeometry(0.15, 2);
+            const rootMat = new THREE.MeshPhysicalMaterial({
+                color: 0xffffff,
+                metalness: 0.1,
+                roughness: 0.2,
+                transmission: 0.6, // Glass-like
+                thickness: 1.0,
+                clearcoat: 1.0,
+                clearcoatRoughness: 0.1
+            });
+
+            const maxRoots = 240;
+            const rootsMesh = new THREE.InstancedMesh(rootGeo, rootMat, maxRoots);
+            rootsMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+            rootsMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(maxRoots * 3), 3);
+            scene.add(rootsMesh);
+
+            // --- CONNECTIONS (Lines) ---
+            const lineMat = new THREE.LineBasicMaterial({
+                color: 0x94a3b8,
+                transparent: true,
+                opacity: 0.15,
+                blending: THREE.AdditiveBlending
+            });
+            const lineGeo = new THREE.BufferGeometry();
+            // Pre-allocate buffer for lines (max connections)
+            const maxLines = 240 * 8;
+            lineGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(maxLines * 6), 3));
+            const linesMesh = new THREE.LineSegments(lineGeo, lineMat);
+            scene.add(linesMesh);
+
+            // --- ACTIVE SIMPLEX (Tetrahedron) ---
+            const tetraGeo = new THREE.BufferGeometry();
+            const tetraMat = new THREE.LineBasicMaterial({ color: 0xec4899, linewidth: 2 });
+            const tetraMesh = new THREE.LineSegments(tetraGeo, tetraMat);
+            scene.add(tetraMesh);
+
+            // --- THOUGHT PARTICLES (Dynamic) ---
+            const thoughtGroup = new THREE.Group();
+            scene.add(thoughtGroup);
+
+            // --- ANNEALING FIELD (Particle System) ---
+            const fieldGeo = new THREE.BufferGeometry();
+            const fieldCount = 500;
+            const fieldPos = new Float32Array(fieldCount * 3);
+            for (let i = 0; i < fieldCount * 3; i++) fieldPos[i] = (Math.random() - 0.5) * 20;
+            fieldGeo.setAttribute('position', new THREE.BufferAttribute(fieldPos, 3));
+            const fieldMat = new THREE.PointsMaterial({
+                color: 0x8b5cf6,
+                size: 0.05,
+                transparent: true,
+                opacity: 0.3,
+                blending: THREE.AdditiveBlending
+            });
+            const fieldSystem = new THREE.Points(fieldGeo, fieldMat);
+            scene.add(fieldSystem);
+
+            // --- INTERACTION ---
+            const raycaster = new THREE.Raycaster();
+            const mouse = new THREE.Vector2();
+
+            const handleRaycast = (event) => {
+                const rect = container.getBoundingClientRect();
+                mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+                mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+                raycaster.setFromCamera(mouse, camera);
+                return raycaster.intersectObject(rootsMesh);
+            };
+
+            container.addEventListener('mousemove', (event) => {
+                const intersects = handleRaycast(event);
+                container.style.cursor = intersects.length > 0 ? 'pointer' : 'default';
+
+                // Optional: Highlight hovered node?
+                // For now just cursor is enough feedback
+            });
+
+            container.addEventListener('click', (event) => {
+                const intersects = handleRaycast(event);
+                if (intersects.length > 0) {
+                    const instanceId = intersects[0].instanceId;
+                    if (state.lattice.rootData && state.lattice.rootData[instanceId]) {
+                        const root = state.lattice.rootData[instanceId];
+                        showNodeInfo(root, instanceId);
+                    }
+                }
+            });
+
+            Object.assign(state.lattice, {
+                scene, camera, renderer, controls,
+                rootsMesh, linesMesh, tetraMesh, thoughtGroup, fieldSystem,
+                rootData: [], // Store raw root data for connections
+                thoughts: [] // Store active thought objects
+            });            // Animation Loop
+            const clock = new THREE.Clock();
+            const animate = () => {
+                requestAnimationFrame(animate);
+                const dt = clock.getDelta();
+                const time = clock.getElapsedTime();
+
+                controls.update();
+
+                // Animate Field
+                const positions = fieldSystem.geometry.attributes.position.array;
+                for (let i = 0; i < fieldCount; i++) {
+                    const idx = i * 3;
+                    positions[idx + 1] += Math.sin(time + positions[idx]) * 0.01; // Gentle wave
+                }
+                fieldSystem.geometry.attributes.position.needsUpdate = true;
+                fieldSystem.rotation.y = time * 0.05;
+
+                // Animate Thoughts
+                updateThoughts(dt);
+
+                // Pulse Active Roots
+                if (state.lattice.activeIndices) {
+                    const dummy = new THREE.Object3D();
+                    const color = new THREE.Color();
+
+                    state.lattice.activeIndices.forEach(idx => {
+                        if (idx < state.lattice.rootData.length) {
+                            const root = state.lattice.rootData[idx];
+                            rootsMesh.getMatrixAt(idx, dummy.matrix);
+                            dummy.matrix.decompose(dummy.position, dummy.quaternion, dummy.scale);
+
+                            // Pulse scale
+                            const scale = 1.0 + Math.sin(time * 5 + idx) * 0.3;
+                            dummy.scale.setScalar(scale);
+                            dummy.updateMatrix();
+                            rootsMesh.setMatrixAt(idx, dummy.matrix);
+
+                            // Pulse color - Force Blue as requested
+                            const intensity = 0.5 + Math.sin(time * 10) * 0.5;
+                            color.setHSL(0.6, 1.0, 0.5 + intensity * 0.4);
+                            rootsMesh.setColorAt(idx, color);
+                        }
+                    });
+                    rootsMesh.instanceMatrix.needsUpdate = true;
+                    rootsMesh.instanceColor.needsUpdate = true;
+                }
+
+                renderer.render(scene, camera);
+            };
+            animate();
+
+            // Initial Fetch
+            fetchLatticeData();
+        }
+
+        function updateThoughts(dt) {
+            const group = state.lattice.thoughtGroup;
+            // Remove dead thoughts
+            for (let i = state.lattice.thoughts.length - 1; i >= 0; i--) {
+                const t = state.lattice.thoughts[i];
+                t.life -= dt;
+                if (t.life <= 0) {
+                    group.remove(t.mesh);
+                    if (t.trail) group.remove(t.trail);
+                    state.lattice.thoughts.splice(i, 1);
+                } else {
+                    // Animate
+                    t.mesh.position.add(t.velocity.clone().multiplyScalar(dt));
+                    t.mesh.scale.setScalar(t.life / t.maxLife);
+                    t.mesh.material.opacity = t.life / t.maxLife;
+
+                    // Trail update could go here
+                }
+            }
+        }
+
+        function spawnThought(vector8d, reward) {
+            if (!state.lattice.scene) return;
+
+            // Project 8D -> 3D using the same basis as the lattice
+            const proj = project8to3(vector8d);
+            const scale = 8.0; // Match server scale
+            const x = proj[0] * scale;
+            const y = proj[1] * scale;
+            const z = proj[2] * scale;
+
+            const geo = new THREE.SphereGeometry(0.2, 16, 16);
+            const color = new THREE.Color().setHSL(reward > 0.7 ? 0.1 : 0.6, 1.0, 0.6); // Gold for high reward, Blue for normal
+            const mat = new THREE.MeshBasicMaterial({ color: color, transparent: true });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(x, y, z);
+
+            // Random velocity for "action"
+            const velocity = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(0.5);
+
+            const thought = {
+                mesh: mesh,
+                velocity: velocity,
+                life: 3.0,
+                maxLife: 3.0
+            };
+
+            state.lattice.thoughtGroup.add(mesh);
+            state.lattice.thoughts.push(thought);
+
+            // Draw lines to neighbors if available
+            // (Requires neighbor positions, which we might not have easily without a lookup)
+        }
+
+        function updateLattice(data) {
+            if (!state.lattice.rootsMesh) return;
+
+            const roots = data.roots || [];
+            state.lattice.rootData = roots; // Save for animation
+            const count = roots.length;
+
+            const dummy = new THREE.Object3D();
+            const color = new THREE.Color();
+
+            // Update Roots
+            for (let i = 0; i < count; i++) {
+                const r = roots[i];
+                dummy.position.set(r.position[0], r.position[1], r.position[2]);
+                dummy.updateMatrix();
+                state.lattice.rootsMesh.setMatrixAt(i, dummy.matrix);
+
+                // Color: Type 1 (Cyan) vs Type 2 (Violet)
+                if (r.type === 'type1') color.setHex(0x0ea5e9);
+                else color.setHex(0x8b5cf6);
+                state.lattice.rootsMesh.setColorAt(i, color);
+            }
+            state.lattice.rootsMesh.count = count;
+            state.lattice.rootsMesh.instanceMatrix.needsUpdate = true;
+            state.lattice.rootsMesh.instanceColor.needsUpdate = true;
+
+            // IMPORTANT: Update bounding sphere for raycasting to work on all instances
+            state.lattice.rootsMesh.computeBoundingSphere();
+
+            // Update Connections (Nearest Neighbors)
+            // Rebuild lines only if roots changed significantly or first load
+            if (!state.lattice.linesBuilt) {
+                const positions = state.lattice.linesMesh.geometry.attributes.position.array;
+                let lineIdx = 0;
+                for (let i = 0; i < count; i++) {
+                    for (let j = i + 1; j < count; j++) {
+                        // Use 8D distance if available, otherwise fallback to 3D
+                        let connected = false;
+
+                        if (roots[i].vector && roots[j].vector) {
+                            const d = dist8d(roots[i].vector, roots[j].vector);
+                            // Threshold for unit roots (norm 1)
+                            // Nearest neighbor distance is 1.0 (angle 60 deg)
+                            if (d < 1.1) connected = true;
+                        } else {
+                            const d = dist(roots[i].position, roots[j].position);
+                            if (d < 2.5) connected = true;
+                        }
+
+                        if (connected) {
+                            positions[lineIdx++] = roots[i].position[0];
+                            positions[lineIdx++] = roots[i].position[1];
+                            positions[lineIdx++] = roots[i].position[2];
+                            positions[lineIdx++] = roots[j].position[0];
+                            positions[lineIdx++] = roots[j].position[1];
+                            positions[lineIdx++] = roots[j].position[2];
+                        }
+                    }
+                }
+                state.lattice.linesMesh.geometry.setDrawRange(0, lineIdx / 3);
+                state.lattice.linesMesh.geometry.attributes.position.needsUpdate = true;
+                state.lattice.linesBuilt = true;
+            }
+
+            // Update Active Roots
+            state.lattice.activeIndices = data.active_roots || [];
+
+            // Map traces to roots for UI
+            if (data.thinking_traces) {
+                data.thinking_traces.forEach(trace => {
+                    if (trace.root_index !== null && state.lattice.rootData[trace.root_index]) {
+                        state.lattice.rootData[trace.root_index].memory_trace = trace.label;
+                    }
+                });
+            }
+
+            // Update Tetrahedron
+            if (data.tetrahedron && data.tetrahedron.length >= 4) {
+                const tIndices = data.tetrahedron;
+                const tPos = [];
+                // 0-1, 0-2, 0-3, 1-2, 1-3, 2-3
+                const pairs = [[0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]];
+                pairs.forEach(p => {
+                    const r1 = roots[tIndices[p[0]]];
+                    const r2 = roots[tIndices[p[1]]];
+                    if (r1 && r2) {
+                        tPos.push(...r1.position);
+                        tPos.push(...r2.position);
+                    }
+                });
+                state.lattice.tetraMesh.geometry.setAttribute('position', new THREE.Float32BufferAttribute(tPos, 3));
+            }
+
+            // Metrics
+            state.lattice.metrics = {
+                roots: roots.length,
+                energy: (data.meta?.energy || 0).toFixed(3),
+                step: data.meta?.step || 0
+            };
+            renderLatticeMetrics();
+        }
+
+        function renderLatticeMetrics() {
+            if (!state.lattice.metrics) return;
+            renderMetrics('lattice-metrics', [
+                { label: 'Roots', value: state.lattice.metrics.roots },
+                { label: 'Energy', value: state.lattice.metrics.energy },
+                { label: 'Step', value: state.lattice.metrics.step }
+            ]);
+        }
+
+        function dist(p1, p2) {
+            return Math.sqrt(Math.pow(p1[0] - p2[0], 2) + Math.pow(p1[1] - p2[1], 2) + Math.pow(p1[2] - p2[2], 2));
+        }
+
+        // Constants (Global for access in updateField)
+        const BLACK_HOLE_EVENT_HORIZON_RADIUS = 1.0;
+        const DISK_INNER_RADIUS = BLACK_HOLE_EVENT_HORIZON_RADIUS + 0.15;
+        const DISK_OUTER_RADIUS = 5.5;
+        const LENSING_SPHERE_RADIUS = BLACK_HOLE_EVENT_HORIZON_RADIUS + 0.07;
+        const GLOW_RADIUS_FACTOR = 1.07;
+        const PHOTON_SPHERE_RADIUS = BLACK_HOLE_EVENT_HORIZON_RADIUS * 1.5;
+
+        // --- FIELD VISUALIZATION (THREE.JS) ---
+        function initField() {
+            const container = document.getElementById('field-container');
+            const w = container.clientWidth;
+            const h = container.clientHeight;
+
+            // Themes
+            const themes = {
+                inferno: {
+                    diskHot: new THREE.Color(0xffffff),
+                    diskMid: new THREE.Color(0xffaa33),
+                    diskEdge: new THREE.Color(0xcc331a),
+                    diskDeep: new THREE.Color(0x661a00),
+                    lensing: new THREE.Color(0xffcc66),
+                    glow: new THREE.Color(0xff8833),
+                    photonSphere: new THREE.Color(0xffbb44),
+                    primaryWave: new THREE.Color(0xffaa33),
+                    secondaryWave: new THREE.Color(0xff5500),
+                    tertiaryWave: new THREE.Color(0xffdd22)
+                }
+            };
+            const currentTheme = themes.inferno;
+
+            const scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x000004, 0.02); // Deep space fog
+
+            const camera = new THREE.PerspectiveCamera(60, w / h, 0.1, 2000);
+            camera.position.set(0, 3, 12);
+
+            const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance", alpha: true });
+            renderer.setSize(w, h);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+            renderer.outputColorSpace = THREE.SRGBColorSpace;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.2;
+            container.appendChild(renderer.domElement);
+
+            // Post-Processing
+            const composer = new EffectComposer(renderer);
+            const renderPass = new RenderPass(scene, camera);
+            composer.addPass(renderPass);
+
+            const bloomPass = new UnrealBloomPass(new THREE.Vector2(w, h), 0.7, 0.7, 0.75);
+            composer.addPass(bloomPass);
+
+            const controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.04;
+            controls.rotateSpeed = 0.6;
+            controls.autoRotate = true;
+            controls.autoRotateSpeed = 0.2;
+            controls.minDistance = 2.5;
+            controls.maxDistance = 100;
+
+            // --- STARFIELD ---
+            const starGeometry = new THREE.BufferGeometry();
+            const starCount = 15000;
+            const starPositions = new Float32Array(starCount * 3);
+            const starColors = new Float32Array(starCount * 3);
+            const starSizes = new Float32Array(starCount);
+            const starAlphas = new Float32Array(starCount);
+            const starFieldRadius = 800;
+            const baseColor = new THREE.Color(0xffffff);
+            const blueColor = new THREE.Color(0xaaddff);
+            const yellowColor = new THREE.Color(0xffffaa);
+            const redColor = new THREE.Color(0xffcccc);
+
+            for (let i = 0; i < starCount; i++) {
+                const i3 = i * 3;
+                const goldenRatio = (1 + Math.sqrt(5)) / 2;
+                const theta = 2 * Math.PI * i / goldenRatio;
+                const phi = Math.acos(1 - 2 * (i + 0.5) / starCount);
+                const radius = Math.cbrt(Math.random()) * starFieldRadius;
+
+                starPositions[i3] = radius * Math.sin(phi) * Math.cos(theta);
+                starPositions[i3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
+                starPositions[i3 + 2] = radius * Math.cos(phi);
+
+                const starColor = baseColor.clone();
+                const colorType = Math.random();
+                let colorIntensity = Math.random() * 0.4 + 0.6;
+                if (colorType < 0.5) starColor.lerp(blueColor, Math.random() * 0.3);
+                else if (colorType < 0.85) { starColor.lerp(yellowColor, Math.random() * 0.2); colorIntensity *= 0.9; }
+                else { starColor.lerp(redColor, Math.random() * 0.15); colorIntensity *= 0.8; }
+
+                starColor.multiplyScalar(colorIntensity);
+                starColors[i3] = starColor.r;
+                starColors[i3 + 1] = starColor.g;
+                starColors[i3 + 2] = starColor.b;
+
+                starSizes[i] = Math.random() > 0.99 ? THREE.MathUtils.randFloat(1.5, 2.2) : THREE.MathUtils.randFloat(0.3, 0.8);
+                starAlphas[i] = Math.random() * 0.5 + 0.5;
+            }
+            starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+            starGeometry.setAttribute('color', new THREE.BufferAttribute(starColors, 3));
+            starGeometry.setAttribute('size', new THREE.BufferAttribute(starSizes, 1));
+            starGeometry.setAttribute('alpha', new THREE.BufferAttribute(starAlphas, 1));
+
+            const starMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    uTime: { value: 0.0 },
+                    uDiskEchoActive: { value: 0.0 },
+                    uDiskEchoIntensity: { value: 0.0 }
+                },
+                vertexShader: `
+                    attribute float size;
+                    attribute float alpha;
+                    varying vec3 vColor;
+                    varying float vAlpha;
+                    uniform float uDiskEchoActive;
+                    uniform float uDiskEchoIntensity;
+                    void main() {
+                        vColor = color;
+                        vAlpha = alpha;
+                        vec3 adjustedPosition = position;
+                        if (uDiskEchoActive > 0.0) {
+                            float distFromCenter = length(position);
+                            float pushFactor = uDiskEchoIntensity * 0.025 * smoothstep(50.0, 300.0, distFromCenter);
+                            adjustedPosition = position * (1.0 + pushFactor);
+                        }
+                        vec4 mvPosition = modelViewMatrix * vec4(adjustedPosition, 1.0);
+                        gl_PointSize = size * (350.0 / -mvPosition.z) * (1.0 + uDiskEchoIntensity * 0.35);
+                        gl_Position = projectionMatrix * mvPosition;
+                    }
+                `,
+                fragmentShader: `
+                    uniform float uDiskEchoIntensity;
+                    uniform float uTime;
+                    varying vec3 vColor;
+                    varying float vAlpha;
+                    void main() {
+                        float r = length(gl_PointCoord - vec2(0.5, 0.5));
+                        float baseAlpha = 1.0 - smoothstep(0.45, 0.5, r);
+                        if (baseAlpha < 0.01) discard;
+                        float twinkle = sin(uTime * (vAlpha * 1.5 + 0.5) + vAlpha * 10.0) * 0.2 + 0.9;
+                        gl_FragColor = vec4(vColor * twinkle, baseAlpha * vAlpha);
+                    }
+                `,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+                transparent: true,
+                vertexColors: true
+            });
+            const stars = new THREE.Points(starGeometry, starMaterial);
+            scene.add(stars);
+
+            // --- BLACK HOLE CORE ---
+            const blackHoleGeometry = new THREE.SphereGeometry(BLACK_HOLE_EVENT_HORIZON_RADIUS, 64, 32);
+            const blackHoleMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+            const blackHole = new THREE.Mesh(blackHoleGeometry, blackHoleMaterial);
+            scene.add(blackHole);
+
+            // --- ACCRETION DISK ---
+            const diskGeometry = new THREE.RingGeometry(DISK_INNER_RADIUS, DISK_OUTER_RADIUS, 128, 64);
+            const diskMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    uTime: { value: 0 },
+                    uColorHot: { value: new THREE.Color().copy(currentTheme.diskHot) },
+                    uColorMid: { value: new THREE.Color().copy(currentTheme.diskMid) },
+                    uColorEdge: { value: new THREE.Color().copy(currentTheme.diskEdge) },
+                    uColorDeep: { value: new THREE.Color().copy(currentTheme.diskDeep) },
+                    uCameraPosition: { value: camera.position },
+                    uRippleActive: { value: 0.0 },
+                    uRippleStartTime: { value: 0.0 },
+                    uRippleDuration: { value: 2.8 },
+                    uPrimaryWaveColor: { value: new THREE.Color(currentTheme.primaryWave) },
+                    uSecondaryWaveColor: { value: new THREE.Color(currentTheme.secondaryWave) },
+                    uTertiaryWaveColor: { value: new THREE.Color(currentTheme.tertiaryWave) },
+                    uRippleMaxRadius: { value: DISK_OUTER_RADIUS },
+                    uRippleThickness: { value: DISK_OUTER_RADIUS * 0.12 },
+                    uRippleIntensity: { value: 0.0 },
+                    uRippleDistortionStrength: { value: 0.0 }
+                },
+                vertexShader: `
+                    varying vec2 vUv;
+                    varying vec3 vPosition;
+                    varying float vRadius;
+                    uniform float uRippleDistortionStrength;
+                    uniform float uTime;
+                    void main() {
+                        vUv = uv;
+                        vPosition = position;
+                        vRadius = length(position.xy);
+                        vec3 adjustedPosition = position;
+                        if (uRippleDistortionStrength > 0.0) {
+                            float angle = atan(position.y, position.x);
+                            float distortionAmount = sin(angle * 10.0 + uTime * 7.0 + vRadius * 2.0) * 0.08 * uRippleDistortionStrength;
+                            adjustedPosition.z += distortionAmount;
+                        }
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(adjustedPosition, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform float uTime;
+                    uniform vec3 uColorHot;
+                    uniform vec3 uColorMid;
+                    uniform vec3 uColorEdge;
+                    uniform vec3 uColorDeep;
+                    uniform vec3 uCameraPosition;
+                    varying vec2 vUv;
+                    varying vec3 vPosition;
+                    varying float vRadius;
+                    uniform float uRippleActive;
+                    uniform float uRippleStartTime;
+                    uniform float uRippleDuration;
+                    uniform vec3 uPrimaryWaveColor;
+                    uniform vec3 uSecondaryWaveColor;
+                    uniform vec3 uTertiaryWaveColor;
+                    uniform float uRippleMaxRadius;
+                    uniform float uRippleThickness;
+                    uniform float uRippleIntensity;
+
+                    float rand(vec2 n){return fract(sin(dot(n,vec2(12.9898,4.1414)))*43758.5453);}
+                    float noise(vec2 p){
+                        vec2 ip=floor(p);
+                        vec2 u=fract(p);
+                        u=u*u*(3.0-2.0*u);
+                        float res=mix(mix(rand(ip),rand(ip+vec2(1.0,0.0)),u.x),mix(rand(ip+vec2(0.0,1.0)),rand(ip+vec2(1.0,1.0)),u.x),u.y);
+                        return res*res;
+                    }
+                    float fbm(vec2 p, float timeOffset, float freq, int octaves) {
+                        float total=0.0;
+                        float amplitude=0.65;
+                        float persistence=0.5;
+                        for(int i=0;i<octaves;i++){
+                            float timeScale=0.6+0.12*float(i);
+                            float noiseVal = noise(p*freq+vec2(timeOffset*timeScale*0.45,timeOffset*timeScale*0.3));
+                            total+=amplitude*noiseVal;
+                            vec2 warpOffset=vec2(noiseVal*0.18,-noiseVal*0.12);
+                            p+=warpOffset*amplitude*0.5;
+                            freq*=2.0;
+                            amplitude*=persistence;
+                        }
+                        return total;
+                    }
+                    float vortexPattern(float dist, float angle, float time){
+                        float spiralStrength=5.8;
+                        float timeScale=0.6;
+                        float angleOffset=dist*0.28;
+                        float spiral=sin(angle*2.3+angleOffset+dist*spiralStrength-time*timeScale);
+                        return smoothstep(-0.38,0.68,spiral)*0.32;
+                    }
+                    float calculateRippleIntensity(float dist, float rippleProgress, float currentRippleRadius, float thickness, float speedFactor) {
+                        if (rippleProgress <= 0.0 || rippleProgress >= 1.0) return 0.0;
+                        float distToRippleCenter = abs(dist - currentRippleRadius);
+                        float halfThickness = thickness * 0.5 * mix(1.0, 0.25, rippleProgress);
+                        float waveEnergyFactor = pow(1.0 - rippleProgress, 0.8 * speedFactor);
+                        float waveShape = smoothstep(halfThickness, halfThickness - (thickness * 0.25), distToRippleCenter);
+                        float angle = atan(vPosition.y, vPosition.x);
+                        float angleMod = sin(angle * 10.0 + rippleProgress * 15.0) * 0.15 + 0.9;
+                        return waveShape * waveEnergyFactor * angleMod;
+                    }
+
+                    void main(){
+                        float dist = vRadius;
+                        float innerEdge = ${DISK_INNER_RADIUS.toFixed(2)};
+                        float outerEdge = ${DISK_OUTER_RADIUS.toFixed(2)};
+                        float normalizedPos = clamp((dist - innerEdge) / (outerEdge - innerEdge), 0.0, 1.0);
+                        float angle = atan(vPosition.y, vPosition.x);
+                        float orbitalVelocity = 1.0 / sqrt(max(dist, 0.1));
+                        float dopplerFactor = 0.0; float beamingFactor = 1.0;
+                        if (length(uCameraPosition) > 0.01) {
+                            vec3 tangentialDirection = normalize(vec3(-vPosition.y, vPosition.x, 0.0));
+                            vec3 toCamera = normalize(uCameraPosition - vPosition);
+                            dopplerFactor = dot(toCamera, tangentialDirection) * orbitalVelocity * 0.3;
+                            beamingFactor = 1.0 + dopplerFactor * 0.4;
+                            beamingFactor = clamp(beamingFactor, 0.5, 2.0);
+                        }
+                        float rotationSpeedFactor = 4.8/(pow(dist,1.6)+1.1);
+                        float rotatedAngle = angle-uTime*rotationSpeedFactor*0.52;
+                        vec2 baseCoord = vec2(dist*1.9, rotatedAngle*3.6);
+                        float evolvingTime = uTime*0.17;
+                        float noiseValueFast = fbm(baseCoord, evolvingTime * 1.2, 2.2, 6);
+                        float noiseValueSlow = fbm(baseCoord * 0.6, evolvingTime * 0.5, 1.5, 4);
+                        float noiseValue = noiseValueFast * 0.7 + noiseValueSlow * 0.4;
+                        float vortexValue = vortexPattern(dist, angle, uTime);
+                        float finalPattern = noiseValue*0.8 + vortexValue*1.1;
+                        float temperature = orbitalVelocity * (1.0 + finalPattern * 0.3);
+                        temperature = clamp(temperature, 0.0, 2.0);
+                        vec3 colorInner = mix(uColorHot, uColorMid, smoothstep(0.0, 0.40, normalizedPos) * (1.0 - temperature * 0.3));
+                        vec3 colorOuterBlend = mix(uColorMid, uColorEdge, smoothstep(0.40, 0.80, normalizedPos));
+                        vec3 colorDeepBlend = mix(uColorEdge, uColorDeep, smoothstep(0.80, 1.0, normalizedPos));
+                        vec3 color = mix(colorInner, colorOuterBlend, smoothstep(0.40, 0.80, normalizedPos));
+                        color = mix(color, colorDeepBlend, smoothstep(0.80, 1.0, normalizedPos));
+                        float redshiftFactor = dopplerFactor * 0.15;
+                        vec3 redshift = vec3(1.0 + redshiftFactor, 1.0, 1.0 - redshiftFactor);
+                        color *= redshift;
+                        float patternBrightness = (finalPattern+0.5)*1.15;
+                        patternBrightness += pow(max(0.0,finalPattern-0.5),1.3)*0.6;
+                        float radialBrightness = pow(1.0-smoothstep(0.0,0.8,normalizedPos),1.9)*3.0+0.25;
+                        float finalBrightness = patternBrightness*radialBrightness*beamingFactor;
+                        
+                        float combinedRippleIntensity = 0.0;
+                        vec3 rippleColorContribution = vec3(0.0);
+                        if (uRippleActive > 0.5) {
+                            float rippleTime = uTime - uRippleStartTime;
+                            float rippleProgress = clamp(rippleTime / uRippleDuration, 0.0, 1.0);
+                            float primarySpeed = 1.0;
+                            float primaryRadius = mix(innerEdge, uRippleMaxRadius, rippleProgress * primarySpeed);
+                            float primaryIntensity = calculateRippleIntensity(dist, rippleProgress, primaryRadius, uRippleThickness, primarySpeed);
+                            combinedRippleIntensity += primaryIntensity;
+                            rippleColorContribution += uPrimaryWaveColor * primaryIntensity;
+                        }
+                        float rippleBoost = combinedRippleIntensity * 9.0 * uRippleIntensity;
+                        color *= (finalBrightness + rippleBoost);
+                        if (combinedRippleIntensity * uRippleIntensity > 0.01) {
+                            color = mix(color, rippleColorContribution * 1.8, min(1.0, combinedRippleIntensity * uRippleIntensity * 1.5));
+                        }
+                        float hotBoost = smoothstep(3.0, 5.0, finalBrightness + rippleBoost) * smoothstep(0.0, 0.1, normalizedPos);
+                        color = mix(color, vec3(1.0, 1.0, 1.0), hotBoost * 0.45);
+                        float innerAlpha = smoothstep(0.0, 0.06, normalizedPos);
+                        float outerAlpha = 1.0 - smoothstep(0.85, 1.0, normalizedPos);
+                        float noiseAlphaFactor = clamp(finalPattern * 0.35 + 0.75, 0.65, 1.0);
+                        float alpha = innerAlpha * outerAlpha * noiseAlphaFactor;
+                        float rippleAlphaBoost = combinedRippleIntensity * 0.9 * uRippleIntensity;
+                        color = clamp(color, 0.0, 8.0);
+                        gl_FragColor = vec4(color, clamp(alpha + rippleAlphaBoost, 0.0, 1.0));
+                    }
+                `,
+                side: THREE.DoubleSide,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending,
+                transparent: true
+            });
+            const accretionDisk = new THREE.Mesh(diskGeometry, diskMaterial);
+            accretionDisk.rotation.x = Math.PI / 2.6;
+            scene.add(accretionDisk);
+
+            // --- LENSING SPHERE ---
+            const lensingGeometry = new THREE.SphereGeometry(LENSING_SPHERE_RADIUS, 64, 32);
+            // [M27] Real Visual Gravitational Lensing using Transmission
+            const lensingMaterial = new THREE.MeshPhysicalMaterial({
+                color: 0xffffff,
+                roughness: 0.0,
+                metalness: 0.0,
+                transmission: 1.0, // Glass-like transparency
+                thickness: 3.5, // Volume for refraction
+                ior: 2.33, // High index of refraction (Diamond-like)
+                clearcoat: 1.0,
+                clearcoatRoughness: 0.0,
+                side: THREE.FrontSide
+            });
+            const lensingSphere = new THREE.Mesh(lensingGeometry, lensingMaterial);
+            lensingSphere.scale.multiplyScalar(1.62);
+            scene.add(lensingSphere);
+
+            // --- PHOTON SPHERE ---
+            const photonSphereGeometry = new THREE.SphereGeometry(PHOTON_SPHERE_RADIUS, 64, 32);
+            const photonSphereMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    uTime: { value: 0 },
+                    uColor: { value: new THREE.Color().copy(currentTheme.photonSphere) },
+                    uDiskEchoActive: { value: 0.0 },
+                    uDiskEchoIntensity: { value: 0.0 }
+                },
+                vertexShader: `
+                    varying vec3 vNormal;
+                    varying vec3 vViewPosition;
+                    void main() {
+                        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                        vViewPosition = -mvPosition.xyz;
+                        vNormal = normalize(normalMatrix * normal);
+                        gl_Position = projectionMatrix * mvPosition;
+                    }
+                `,
+                fragmentShader: `
+                    uniform float uTime;
+                    uniform vec3 uColor;
+                    uniform float uDiskEchoActive;
+                    uniform float uDiskEchoIntensity;
+                    varying vec3 vNormal;
+                    varying vec3 vViewPosition;
+                    void main() {
+                        vec3 viewDir = normalize(vViewPosition);
+                        float fresnel = pow(1.0 - abs(dot(viewDir, vNormal)), 3.0);
+                        float pulseRate = 2.0 + uDiskEchoIntensity * 8.0;
+                        float pulseDepth = 0.1 + uDiskEchoIntensity * 0.5;
+                        float pulse = sin(uTime * pulseRate) * pulseDepth + 0.9;
+                        float alpha = fresnel * (0.3 + uDiskEchoIntensity * 0.6) * pulse;
+                        vec3 finalColor = uColor;
+                        if (uDiskEchoActive > 0.5) {
+                            float colorPulse = sin(uTime * 4.0 + dot(vNormal, vec3(1.0)) * 5.0) * 0.5 + 0.5;
+                            finalColor = mix(finalColor, finalColor * vec3(1.4, 1.2, 0.8), colorPulse * uDiskEchoIntensity * 1.2);
+                            finalColor *= (1.0 + uDiskEchoIntensity * 0.7);
+                        }
+                        gl_FragColor = vec4(finalColor, alpha);
+                    }
+                `,
+                transparent: true,
+                side: THREE.FrontSide,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending
+            });
+            const photonSphere = new THREE.Mesh(photonSphereGeometry, photonSphereMaterial);
+            scene.add(photonSphere);
+
+            // --- GLOW EFFECT ---
+            const glowGeometry = new THREE.SphereGeometry(BLACK_HOLE_EVENT_HORIZON_RADIUS, 64, 32);
+            const glowMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    uTime: { value: 0 },
+                    uGlowColor: { value: new THREE.Color().copy(currentTheme.glow) },
+                    uDiskEchoActive: { value: 0.0 },
+                    uDiskEchoIntensity: { value: 0.0 },
+                    uDiskEchoColor: { value: new THREE.Color().copy(currentTheme.primaryWave) }
+                },
+                vertexShader: `
+                    varying vec3 vNormal;
+                    varying vec3 vViewPosition;
+                    void main() {
+                        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                        vViewPosition = -mvPosition.xyz;
+                        vNormal = normalize(normalMatrix * normal);
+                        gl_Position = projectionMatrix * mvPosition;
+                    }
+                `,
+                fragmentShader: `
+                    uniform float uTime;
+                    uniform vec3 uGlowColor;
+                    uniform float uDiskEchoActive;
+                    uniform float uDiskEchoIntensity;
+                    uniform vec3 uDiskEchoColor;
+                    varying vec3 vNormal;
+                    varying vec3 vViewPosition;
+                    float rand(vec2 n){ return fract(sin(dot(n,vec2(12.9898,4.1414)))*43758.5453); }
+                    float noise(vec2 p){
+                        vec2 ip=floor(p);
+                        vec2 u=fract(p);
+                        u=u*u*(3.0-2.0*u);
+                        float res=mix(mix(rand(ip),rand(ip+vec2(1.0,0.0)),u.x),mix(rand(ip+vec2(0.0,1.0)),rand(ip+vec2(1.0,1.0)),u.x),u.y);
+                        return res*res;
+                    }
+                    void main(){
+                        float glowPower = 2.6 - uDiskEchoIntensity * 1.2;
+                        float i=pow(0.68-dot(vNormal,normalize(vViewPosition)), glowPower);
+                        float pulseSpeed = 0.7 + uDiskEchoIntensity * 7.0;
+                        float pulseDepth = 0.18 + uDiskEchoIntensity * 0.5;
+                        float p=sin(uTime*pulseSpeed+vNormal.y*1.8)*pulseDepth+0.88;
+                        float noiseScale = 9.0 + uDiskEchoIntensity * 8.0;
+                        float noiseSpeed = 1.8 + uDiskEchoIntensity * 6.0;
+                        float f=noise(vNormal.xz*noiseScale+uTime*noiseSpeed)*(0.35 + uDiskEchoIntensity * 0.25)+0.75;
+                        float fI=clamp(i*p*f,0.0,1.0)*(0.92 + uDiskEchoIntensity * 0.5);
+                        vec3 finalColor = uGlowColor;
+                        if (uDiskEchoActive > 0.5) {
+                            float flarePattern = noise(vNormal.xy * 15.0 + uTime * 3.0) * noise(vNormal.yz * 12.0 + uTime * 2.0);
+                            float flarePulse = sin(uTime * 8.0 + flarePattern * 10.0) * 0.5 + 0.5;
+                            vec3 flareColor = mix(uGlowColor, uDiskEchoColor, flarePulse);
+                            finalColor = mix(uGlowColor, flareColor * 1.8, uDiskEchoIntensity * flarePulse * 1.2);
+                            finalColor *= (1.0 + uDiskEchoIntensity * 0.8);
+                        }
+                        gl_FragColor=vec4(finalColor, fI);
+                    }
+                `,
+                transparent: true,
+                side: THREE.BackSide,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+            const glowEffect = new THREE.Mesh(glowGeometry, glowMaterial);
+            glowEffect.scale.multiplyScalar(GLOW_RADIUS_FACTOR * 1.16);
+            scene.add(glowEffect);
+
+            // --- FLUID SHELLS (Re-integrated) ---
+            const shellsGroup = new THREE.Group();
+            scene.add(shellsGroup);
+            // Larger shells to encompass the new black hole scale
+            const shellConfig = [
+                { dim: 8, radius: 15, color: new THREE.Color(0xec4899), speed: 0.1 },
+                { dim: 16, radius: 22, color: new THREE.Color(0x8b5cf6), speed: 0.08 },
+                { dim: 32, radius: 30, color: new THREE.Color(0x0ea5e9), speed: 0.06 },
+                { dim: 64, radius: 40, color: new THREE.Color(0x2dd4bf), speed: 0.04 }
+            ];
+            const shells = [];
+            // Simple shell shader for context
+            const shellVertex = `
+                varying vec3 vNormal;
+                uniform float uTime;
+                void main() {
+                    vNormal = normalize(normalMatrix * normal);
+                    vec3 pos = position + normal * sin(uTime + position.y * 0.5) * 0.5;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+                }
+            `;
+            const shellFragment = `
+                uniform vec3 uColor;
+                uniform float uOpacity;
+                varying vec3 vNormal;
+                void main() {
+                    float alpha = pow(0.6 - dot(vNormal, vec3(0,0,1)), 2.0) * uOpacity;
+                    gl_FragColor = vec4(uColor, alpha);
+                }
+            `;
+            shellConfig.forEach(cfg => {
+                const geo = new THREE.SphereGeometry(cfg.radius, 64, 64);
+                const mat = new THREE.ShaderMaterial({
+                    uniforms: { uTime: { value: 0 }, uColor: { value: cfg.color }, uOpacity: { value: 0.15 } },
+                    vertexShader: shellVertex,
+                    fragmentShader: shellFragment,
+                    transparent: true,
+                    side: THREE.DoubleSide,
+                    depthWrite: false,
+                    blending: THREE.AdditiveBlending
+                });
+                const mesh = new THREE.Mesh(geo, mat);
+                shellsGroup.add(mesh);
+                shells.push({ mesh, config: cfg, id: cfg.dim });
+            });
+
+            // --- STATE & ANIMATION ---
+            state.field = {
+                scene, camera, renderer, composer,
+                diskMaterial, lensingMaterial, glowMaterial, photonSphereMaterial, starMaterial,
+                shells,
+                diskEchoActive: false,
+                diskEchoStartTime: 0,
+                diskEchoIntensity: 0,
+                // [M27] Interpolation Targets
+                targets: {
+                    rippleDistortion: 0,
+                    rippleIntensity: 0,
+                    rippleThickness: DISK_OUTER_RADIUS * 0.12,
+                    lensingStrength: 0
+                }
+            };
+
+            // Trigger Echo Function
+            state.field.triggerEcho = () => {
+                const now = clock.getElapsedTime();
+                state.field.diskEchoActive = true;
+                state.field.diskEchoStartTime = now;
+
+                diskMaterial.uniforms.uRippleActive.value = 1.0;
+                diskMaterial.uniforms.uRippleStartTime.value = now;
+                bloomPass.strength = 1.3;
+                bloomPass.threshold = 0.60;
+            };
+
+            const clock = new THREE.Clock();
+            const lerp = (start, end, t) => start * (1 - t) + end * t;
+
+            const animate = () => {
+                requestAnimationFrame(animate);
+                const dt = clock.getDelta();
+                const time = clock.getElapsedTime();
+                controls.update();
+
+                // Update Uniforms
+                diskMaterial.uniforms.uTime.value = time;
+                // lensingMaterial (MeshPhysicalMaterial) handles its own physics
+                glowMaterial.uniforms.uTime.value = time;
+                photonSphereMaterial.uniforms.uTime.value = time;
+                starMaterial.uniforms.uTime.value = time;
+                diskMaterial.uniforms.uCameraPosition.value.copy(camera.position);
+
+                // [M27] Smooth Interpolation of Telemetry Drivers
+                const targets = state.field.targets;
+
+                // 1. Ripple Distortion (Spin)
+                const curDist = diskMaterial.uniforms.uRippleDistortionStrength.value;
+                diskMaterial.uniforms.uRippleDistortionStrength.value = lerp(curDist, targets.rippleDistortion, 0.05);
+
+                // 2. Ripple Intensity (Luminosity)
+                const curInt = diskMaterial.uniforms.uRippleIntensity.value;
+                diskMaterial.uniforms.uRippleIntensity.value = lerp(curInt, targets.rippleIntensity, 0.05);
+
+                // 3. Ripple Thickness (Warp)
+                const curThick = diskMaterial.uniforms.uRippleThickness.value;
+                diskMaterial.uniforms.uRippleThickness.value = lerp(curThick, targets.rippleThickness, 0.05);
+
+                // 4. Lensing IOR (Lensing Strength)
+                // Pulse the IOR slightly based on lensing metric to simulate gravity waves
+                const targetIOR = 2.33 + (targets.lensingStrength * 0.5);
+                lensingMaterial.ior = lerp(lensingMaterial.ior, targetIOR, 0.05);
+
+                // Shells
+                shells.forEach(s => {
+                    s.mesh.rotation.y += s.config.speed * 0.01;
+                    s.mesh.material.uniforms.uTime.value = time;
+                });
+
+                // Echo Logic
+                if (state.field.diskEchoActive) {
+                    const timeSince = time - state.field.diskEchoStartTime;
+                    const duration = 2.8;
+                    const normTime = timeSince / duration;
+
+                    let intensity = 0;
+                    if (normTime < 0.07) intensity = normTime / 0.07;
+                    else {
+                        const t = (normTime - 0.07) / 0.93;
+                        intensity = Math.pow(1.0 - t, 1.8);
+                        intensity += Math.sin(t * Math.PI) * 0.35 * Math.pow(1.0 - t, 0.5);
+                    }
+                    intensity = Math.max(0, Math.min(1.2, intensity));
+
+                    // Distortion
+                    let distStr = 0;
+                    if (normTime < 0.4) distStr = Math.sin((normTime / 0.4) * Math.PI);
+                    // Add echo distortion on top of telemetry
+                    diskMaterial.uniforms.uRippleDistortionStrength.value += distStr * intensity * 2.0;
+
+                    // Apply to all materials (excluding lensingMaterial which is now PBR)
+                    [diskMaterial, glowMaterial, photonSphereMaterial, starMaterial].forEach(m => {
+                        if (m.uniforms.uDiskEchoActive) m.uniforms.uDiskEchoActive.value = 1.0;
+                        if (m.uniforms.uDiskEchoIntensity) m.uniforms.uDiskEchoIntensity.value = intensity;
+                        if (m.uniforms.uRippleIntensity) m.uniforms.uRippleIntensity.value = Math.max(m.uniforms.uRippleIntensity.value, intensity);
+                    });
+
+                    if (timeSince >= duration) {
+                        state.field.diskEchoActive = false;
+                        bloomPass.strength = 0.7;
+                        bloomPass.threshold = 0.75;
+                        diskMaterial.uniforms.uRippleActive.value = 0.0;
+                    }
+                }
+
+                composer.render();
+            };
+            animate();
+        } function updateField(data) {
+            if (!state.field || !state.field.shells) return;
+
+            // 1. Update Shells (Fluid Dynamics)
+            if (data.shells) {
+                state.field.shells.forEach(s => {
+                    const d = data.shells[s.id] || data.shells[String(s.id)];
+                    if (d) {
+                        // Rotation & Speed
+                        const tension = d.tension || 0;
+                        const omega = d.omega || 1.0;
+
+                        // Update speed based on tension/activity
+                        s.config.speed = 0.05 + (tension * 0.2) + (Math.abs(omega) * 0.05);
+
+                        // Optional: Pulse opacity if tension is high
+                        if (s.mesh.material.uniforms) {
+                            s.mesh.material.uniforms.uOpacity.value = 0.15 + (tension * 0.1);
+                        }
+                    }
+                });
+            }
+
+            // 2. Update Black Hole / Accretion Disk
+            if (state.field.diskMaterial) {
+                const entropy = data.quantum_telemetry?.psi_entropy || 0;
+                const tension = data.global_tension || 0;
+
+                // [M27] Enhanced Black Hole Visuals
+                if (data.black_hole) {
+                    const { spin, luminosity, lensing, warp } = data.black_hole;
+
+                    // Update Interpolation Targets
+                    if (state.field.targets) {
+                        state.field.targets.rippleDistortion = spin * 2.0;
+                        state.field.targets.rippleIntensity = 0.2 + (luminosity * 0.8);
+                        state.field.targets.lensingStrength = lensing;
+                        state.field.targets.rippleThickness = (DISK_OUTER_RADIUS * 0.12) * (1.0 + warp);
+                    }
+                }
+
+                // Trigger Echo on high tension spikes if not already active
+                if (tension > 0.85 && !state.field.diskEchoActive && state.field.triggerEcho) {
+                    state.field.triggerEcho();
+                }
+            }
+
+            // 3. Metrics
+            renderMetrics('field-metrics', [
+                { label: 'Global Tension', value: (data.global_tension || 0).toFixed(4) },
+                { label: 'Entropy (Ψ)', value: (data.quantum_telemetry?.psi_entropy || 0).toFixed(4) },
+                { label: 'Mood', value: data.mood ? data.mood.slice(0, 3).map(v => v.toFixed(2)).join(',') : 'N/A' }
+            ]);
+        }
+
+        // --- GRAPH VISUALIZATION (D3) ---
+        function initGraph() {
+            const container = document.getElementById('graph-container');
+            const w = container.clientWidth;
+            const h = container.clientHeight;
+
+            const svg = d3.select(container).append('svg')
+                .attr('width', '100%')
+                .attr('height', '100%')
+                .attr('viewBox', [0, 0, w, h]);
+
+            const simulation = d3.forceSimulation()
+                .force('link', d3.forceLink().id(d => d.id).distance(100))
+                .force('charge', d3.forceManyBody().strength(-300))
+                .force('center', d3.forceCenter(w / 2, h / 2));
+
+            state.graph.simulation = simulation;
+            state.graph.svg = svg;
+
+            // Initial Fetch
+            fetchGraphData();
+        }
+
+        function updateGraph(data) {
+            if (!state.graph.simulation) return;
+
+            const svg = state.graph.svg;
+            const nodes = data.nodes || [];
+            const links = data.links || [];
+
+            // Update Metrics
+            renderMetrics('graph-metrics', [
+                { label: 'Nodes', value: nodes.length },
+                { label: 'Links', value: links.length }
+            ]);
+
+            // D3 Update Pattern
+            const link = svg.selectAll('.link')
+                .data(links)
+                .join('line')
+                .attr('class', 'link')
+                .attr('stroke', '#94a3b8')
+                .attr('stroke-opacity', 0.4)
+                .attr('stroke-width', 1.5);
+
+            const node = svg.selectAll('.node')
+                .data(nodes, d => d.id)
+                .join('g')
+                .attr('class', 'node')
+                .call(d3.drag()
+                    .on('start', dragstarted)
+                    .on('drag', dragged)
+                    .on('end', dragended));
+
+            node.selectAll('circle').remove();
+            node.append('circle')
+                .attr('r', d => 5 + (d.weight || 0.5) * 10)
+                .attr('fill', d => d3.interpolateCool(d.phase || 0.5))
+                .attr('stroke', '#fff')
+                .attr('stroke-width', 2);
+
+            node.selectAll('text').remove();
+            node.append('text')
+                .text(d => d.label)
+                .attr('dy', 20)
+                .attr('text-anchor', 'middle')
+                .attr('fill', '#475569')
+                .attr('font-size', '10px')
+                .attr('font-weight', '500');
+
+            state.graph.simulation.nodes(nodes).on('tick', () => {
+                link
+                    .attr('x1', d => d.source.x)
+                    .attr('y1', d => d.source.y)
+                    .attr('x2', d => d.target.x)
+                    .attr('y2', d => d.target.y);
+                node
+                    .attr('transform', d => `translate(${d.x},${d.y})`);
+            });
+
+            state.graph.simulation.force('link').links(links);
+            state.graph.simulation.alpha(0.3).restart();
+
+            function dragstarted(event, d) {
+                if (!event.active) state.graph.simulation.alphaTarget(0.3).restart();
+                d.fx = d.x;
+                d.fy = d.y;
+            }
+            function dragged(event, d) {
+                d.fx = event.x;
+                d.fy = event.y;
+            }
+            function dragended(event, d) {
+                if (!event.active) state.graph.simulation.alphaTarget(0);
+                d.fx = null;
+                d.fy = null;
+            }
+        }
+
+        // --- DATA FETCHING & TELEMETRY ---
+        async function fetchLatticeData() {
+            try {
+                const res = await fetch(ENDPOINTS.lattice);
+                const data = await res.json();
+                updateLattice(data);
+            } catch (e) { console.warn('Lattice fetch failed', e); }
+        }
+
+        async function fetchGraphData() {
+            try {
+                const res = await fetch(ENDPOINTS.graph);
+                const data = await res.json();
+                updateGraph(data);
+            } catch (e) { console.warn('Graph fetch failed', e); }
+        }
+
+
+
+        function connectTelemetry() {
+            const ws = new WebSocket(ENDPOINTS.ws);
+            ws.onopen = () => {
+                console.log('Telemetry Connected');
+                state.telemetry.connected = true;
+                document.querySelector('.status-chip').textContent = 'Live Stream Active';
+                document.querySelector('.status-chip').style.background = 'rgba(16, 185, 129, 0.1)';
+                document.querySelector('.status-chip').style.color = '#10b981';
+            };
+            ws.onmessage = (msg) => {
+                try {
+                    const data = JSON.parse(msg.data);
+
+                    // Handle Insights (Thoughts)
+                    if (data.insights && data.insights.length > 0) {
+                        data.insights.forEach(insight => {
+                            spawnThought(insight.vector, insight.reward);
+                        });
+                        // Also ripple the field (Shells)
+                        if (state.field.shells) {
+                            state.field.shells.forEach(s => {
+                                s.targetTension = 0.5 + (data.insights.length * 0.5);
+                            });
+                        }
+                        // Trigger Black Hole Echo
+                        if (state.field.triggerEcho) {
+                            state.field.triggerEcho();
+                        }
+                    }
+
+                    // Update Step Counter Real-time
+                    if (data.step && state.lattice.metrics) {
+                        state.lattice.metrics.step = data.step;
+                        renderLatticeMetrics();
+                    }
+
+                    // Update Field Visualization
+                    if (state.field.shells) {
+                        updateField(data);
+                    }
+
+                    // Periodic refresh triggers
+                    if (data.step && data.step % 20 === 0) fetchLatticeData();
+                    if (data.step && data.step % 50 === 0) fetchGraphData();
+                } catch (e) { }
+            };
+            ws.onclose = () => {
+                setTimeout(connectTelemetry, 3000);
+            };
+        }
+
+        // --- GLYPH BOUNDARY ---
+        function setupGlyphBoundary() {
+            const btn = document.getElementById('glyph-refresh');
+            if (btn) btn.addEventListener('click', fetchGlyphPanel);
+            // Update every second as requested
+            setInterval(fetchGlyphPanel, 1000);
+        }
+
+        async function fetchGlyphPanel() {
+            try {
+                const res = await fetch(ENDPOINTS.bhPanel);
+                const data = await res.json();
+
+                // Render small side panel
+                renderGlyphGrid(data.horizon_sheet);
+                const statusEl = document.getElementById('glyph-status');
+                if (statusEl) statusEl.textContent = `Phase: ${data.phase || '-'} | Step: ${data.step || 0}`;
+
+                // Render large main tab panel
+                renderLargeGlyphGrid(data.horizon_sheet);
+                const horizonStatus = document.getElementById('horizon-status');
+                if (horizonStatus) {
+                    horizonStatus.textContent = `Phase: ${data.phase || '-'} | Step: ${data.step || 0}`;
+                    horizonStatus.style.background = data.phase === 'emerging' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(14, 165, 233, 0.1)';
+                    horizonStatus.style.color = data.phase === 'emerging' ? '#10b981' : '#0ea5e9';
+                }
+
+            } catch (e) { }
+        }
+
+        function renderGlyphGrid(sheet) {
+            const grid = document.getElementById('glyph-grid');
+            if (!grid || !sheet || !sheet.length) return;
+
+            const cols = sheet[0].length;
+            grid.style.setProperty('--grid-cols', cols);
+            grid.innerHTML = sheet.flat().map(cell => {
+                const w = cell.weight || 0;
+                const bg = `rgba(14, 165, 233, ${w})`;
+                return `<div class="glyph-cell" style="background:${bg}">${cell.symbol}</div>`;
+            }).join('');
+        }
+
+        function renderLargeGlyphGrid(sheet) {
+            const grid = document.getElementById('horizon-grid-large');
+            if (!grid || !sheet || !sheet.length) return;
+
+            const cols = sheet[0].length;
+            grid.style.setProperty('--grid-cols', cols);
+            grid.innerHTML = sheet.flat().map(cell => {
+                const w = cell.weight || 0;
+                // More vibrant colors for large view
+                const alpha = 0.1 + (w * 0.9);
+                const bg = `rgba(14, 165, 233, ${alpha})`;
+                const color = w > 0.5 ? '#fff' : 'var(--text-main)';
+                return `<div class="glyph-cell-large" style="background:${bg}; color:${color}">${cell.symbol}</div>`;
+            }).join('');
+        }
+
+        // --- UTILS ---
+        function renderMetrics(id, metrics) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.innerHTML = metrics.map(m => `
+                <div class="infostat-card">
+                    <h3>${m.label}</h3>
+                    <div class="value">${m.value}</div>
+                </div>
+            `).join('');
+        }
+
+        function showNodeInfo(root, id) {
+            const infoPanel = document.getElementById('lattice-metrics');
+            if (!infoPanel) return;
+
+            // Create or update a specific node info section
+            let nodeSection = document.getElementById('node-info-section');
+            if (!nodeSection) {
+                nodeSection = document.createElement('div');
+                nodeSection.id = 'node-info-section';
+                nodeSection.style.marginTop = '16px';
+                nodeSection.style.paddingTop = '16px';
+                nodeSection.style.borderTop = '1px solid var(--glass-border)';
+                infoPanel.parentElement.appendChild(nodeSection);
+            }
+
+            const typeLabel = root.type === 'type1' ? 'E8 Root (Type 1)' : 'E8 Root (Type 2)';
+            const coords = root.vector ? root.vector.map(v => v.toFixed(2)).slice(0, 4).join(',') + '...' : 'N/A';
+
+            nodeSection.innerHTML = `
+                <h3 style="font-size:12px; text-transform:uppercase; color:var(--accent-primary); margin:0 0 8px 0;">Selected Node #${id}</h3>
+                <div style="font-size:12px; color:var(--text-main);">
+                    <div style="margin-bottom:4px;"><strong>Type:</strong> ${typeLabel}</div>
+                    <div style="margin-bottom:4px;"><strong>Coords:</strong> [${coords}]</div>
+                    <div style="margin-bottom:4px;"><strong>Status:</strong> ${state.lattice.activeIndices && state.lattice.activeIndices.includes(id) ? 'ACTIVE' : 'Dormant'}</div>
+                    <div style="margin-top:8px; font-style:italic; color:var(--text-muted);">
+                        Memory trace: ${root.memory_trace || 'No active trace'}
+                    </div>
+                </div>
+            `;
+        }
+
+        // Start
+        init();
+    </script>
+</body>
+
+</html>
